@@ -1,3 +1,8 @@
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: April, 2024
+ License: FOL/License.txt
+"""
 from  .model import Model
 
 class FiniteElementModel(Model):
@@ -24,7 +29,10 @@ class FiniteElementModel(Model):
 
     def GetNumberOfElements(self):
         return self.total_number_elements
-    
+
+    def GetNodesIds(self):
+        return self.nodes_dict["nodes_ids"]    
+
     def GetElementsIds(self):
         return self.elements_dict["elements_ids"]
     

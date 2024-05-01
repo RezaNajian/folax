@@ -1,3 +1,8 @@
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: April, 2024
+ License: FOL/License.txt
+"""
 from  .control import Control
 import jax.numpy as jnp
 from jax import jit,jacfwd

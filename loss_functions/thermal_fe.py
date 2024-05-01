@@ -1,10 +1,13 @@
-from typing import Optional
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: April, 2024
+ License: FOL/License.txt
+"""
 from  .fe_loss import FiniteElementLoss
 import jax
 import jax.numpy as jnp
-from jax import jit,grad,vmap,jit,jacfwd,jacrev
+from jax import jit
 from functools import partial
-from abc import ABC, abstractmethod
 
 class ThermalLoss(FiniteElementLoss):
     """FE-based Thermal loss
@@ -13,21 +16,7 @@ class ThermalLoss(FiniteElementLoss):
 
     """
     def __init__(self, name: str, fe_model):
-        super().__init__(name,fe_model)
-        if not "T" in self.fe_model.GetDofsDict().keys():
-            raise ValueError("No boundary conditions found for temperature T in dofs_dict of fe model ! ")
-        if not "non_dirichlet_nodes_ids" in self.fe_model.GetDofsDict()["T"].keys():
-            raise ValueError("No non_dirichlet_nodes_ids found in dofs_dict of fe model ! ")
-        if not "dirichlet_nodes_ids" in self.fe_model.GetDofsDict()["T"].keys():
-            raise ValueError("No dirichlet_nodes_ids found in dofs_dict of fe model ! ")
-        if not "dirichlet_nodes_dof_value" in self.fe_model.GetDofsDict()["T"].keys():
-            raise ValueError("No dirichlet_nodes_dof_value found in dofs_dict of fe model ! ")
-        
-        self.number_of_dirichlet_nodes = self.fe_model.GetDofsDict()["T"]["dirichlet_nodes_ids"].shape[-1]
-        self.number_of_unknowns = self.fe_model.GetDofsDict()["T"]["non_dirichlet_nodes_ids"].shape[-1]
-
-    def GetNumberOfUnknowns(self):
-        return self.number_of_unknowns
+        super().__init__(name,fe_model,["T"])
 
     @partial(jit, static_argnums=(0,1,2,5,))
     def ComputeElementEnergy(self,xe,ye,Ke,Te,body_force=0):
