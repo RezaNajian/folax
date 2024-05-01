@@ -9,16 +9,12 @@ class FiniteElementModel(Model):
     """
     def __init__(self, model_name: str, model_info) -> None:
         super().__init__(model_name)
-        self.elements_ids = model_info["element_ids"]
-        self.elements_nodes = model_info["elements_nodes"]
-        self.total_number_elements = self.elements_nodes.shape[0]
-        self.X = model_info["X"]
-        self.Y = model_info["Y"]
-        self.Z = model_info["Z"]
-        self.boundary_nodes = model_info["boundary_nodes"]
-        self.boundary_values = model_info["boundary_values"]
-        self.non_boundary_nodes = model_info["non_boundary_nodes"]
-        self.total_number_nodes = self.non_boundary_nodes.shape[0] + self.boundary_nodes.shape[0]
+
+        self.nodes_dict = model_info["nodes_dict"]
+        self.total_number_nodes = self.nodes_dict["nodes_ids"].shape[-1] 
+        self.elements_dict = model_info["elements_dict"]
+        self.total_number_elements = self.elements_dict["elements_ids"].shape[-1]
+        self.dofs_dict = model_info["dofs_dict"]  
 
     def Initialize(self) -> None:
         pass
@@ -30,38 +26,26 @@ class FiniteElementModel(Model):
         return self.total_number_elements
     
     def GetElementsIds(self):
-        return self.elements_ids
+        return self.elements_dict["elements_ids"]
     
     def GetElementsNodes(self):
-        return self.elements_nodes
+        return self.elements_dict["elements_nodes"]
     
     def GetNodesCoordinates(self):
-        return self.X,self.Y,self.Z
+        return self.nodes_dict["X"],self.nodes_dict["Y"],self.nodes_dict["Z"]
     
     def GetNodesX(self):
-        return self.X
+        return self.nodes_dict["X"]
     
     def GetNodesY(self):
-        return self.Y
+        return self.nodes_dict["Y"]
     
     def GetNodesZ(self):
-        return self.Z
-    
-    def GetBoundaryNodesIds(self):
-        return self.boundary_nodes
-    
-    def GetBoundaryNodesValues(self):
-        return self.boundary_values
-    
-    def GetNumberOfBoundaryNodes(self):
-        return self.boundary_nodes.shape[0]
+        return self.nodes_dict["Z"]
 
-    def GetNoneBoundaryNodesIds(self):
-        return self.non_boundary_nodes
+    def GetDofsDict(self):
+        return self.dofs_dict
     
-    def GetNumberOfNoneBoundaryNodes(self):
-        return self.non_boundary_nodes.shape[0]
-
     def Finalize(self) -> None:
         pass
 
