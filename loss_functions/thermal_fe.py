@@ -14,9 +14,20 @@ class ThermalLoss(FiniteElementLoss):
     """
     def __init__(self, name: str, fe_model):
         super().__init__(name,fe_model)
+        if not "T" in self.fe_model.GetDofsDict().keys():
+            raise ValueError("No boundary conditions found for temperature T in dofs_dict of fe model ! ")
+        if not "non_dirichlet_nodes_ids" in self.fe_model.GetDofsDict()["T"].keys():
+            raise ValueError("No non_dirichlet_nodes_ids found in dofs_dict of fe model ! ")
+        if not "dirichlet_nodes_ids" in self.fe_model.GetDofsDict()["T"].keys():
+            raise ValueError("No dirichlet_nodes_ids found in dofs_dict of fe model ! ")
+        if not "dirichlet_nodes_dof_value" in self.fe_model.GetDofsDict()["T"].keys():
+            raise ValueError("No dirichlet_nodes_dof_value found in dofs_dict of fe model ! ")
+        
+        self.number_of_dirichlet_nodes = self.fe_model.GetDofsDict()["T"]["dirichlet_nodes_ids"].shape[-1]
+        self.number_of_unknowns = self.fe_model.GetDofsDict()["T"]["non_dirichlet_nodes_ids"].shape[-1]
 
     def GetNumberOfUnknowns(self):
-        return self.fe_model.GetNumberOfNoneBoundaryNodes()
+        return self.number_of_unknowns
 
     @partial(jit, static_argnums=(0,1,2,5,))
     def ComputeElementEnergy(self,xe,ye,Ke,Te,body_force=0):
@@ -73,7 +84,8 @@ class ThermalLoss(FiniteElementLoss):
     def ApplyBC(self,T):
         # apply drichlet BCs and return full_T
         full_T = jnp.zeros(self.fe_model.GetNumberOfNodes())
-        full_T = full_T.at[self.fe_model.GetBoundaryNodesIds()].set(self.fe_model.GetBoundaryNodesValues())
-        full_T = full_T.at[self.fe_model.GetNoneBoundaryNodesIds()].set(T)
+        full_T = full_T.at[self.fe_model.GetDofsDict()["T"]["dirichlet_nodes_ids"]] \
+        .set(self.fe_model.GetDofsDict()["T"]["dirichlet_nodes_dof_value"])
+        full_T = full_T.at[self.fe_model.GetDofsDict()["T"]["non_dirichlet_nodes_ids"]].set(T)
         return full_T.reshape(-1,1)
 

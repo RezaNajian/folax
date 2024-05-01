@@ -97,7 +97,7 @@ def plot_data_input(input_morph, num_columns, filename):
     # Show the plot
     # plt.show()
 
-def create_2D_square_model_info(L,N,T_left,T_right):
+def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     # FE init starts here
     Ne = N - 1  # Number of elements in each direction
     nx = Ne + 1  # Number of nodes in the x-direction
@@ -137,7 +137,10 @@ def create_2D_square_model_info(L,N,T_left,T_right):
             non_boundary_nodes.append(i)
     non_boundary_nodes = jnp.array(non_boundary_nodes)
 
-    return {"element_ids":element_ids,"elements_nodes":elements_nodes,"X":X,"Y":Y,"Z":Z,"boundary_nodes":boundary_nodes,"boundary_values":boundary_values,"non_boundary_nodes":non_boundary_nodes}
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+    elements_dict = {"elements_ids":element_ids,"elements_nodes":elements_nodes}
+    dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
 def create_random_fourier_samples(fourier_control):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
@@ -154,6 +157,6 @@ def create_random_fourier_samples(fourier_control):
     coeff_vec[0] = 1.0
     coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
     K_matrix = np.vstack((K_matrix,fourier_control.ComputeControlledVariables(coeff_vec)))
-    plot_data_input(K_matrix,10,'K distributions.png')    
+    plot_data_input(K_matrix,10,'K distributions')    
 
     return coeffs_matrix,K_matrix
