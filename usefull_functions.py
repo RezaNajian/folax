@@ -142,6 +142,65 @@ def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
+def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
+    # FE init starts here
+    Ne = N - 1  # Number of elements in each direction
+    nx = Ne + 1  # Number of nodes in the x-direction
+    ny = Ne + 1  # Number of nodes in the y-direction
+    ne = Ne * Ne    # Total number of elements
+    # Generate mesh coordinates
+    x = jnp.linspace(0, L, nx)
+    y = jnp.linspace(0, L, ny)
+    X, Y = jnp.meshgrid(x, y)
+    X = X.flatten()
+    Y = Y.flatten()
+    Z = jnp.zeros((Y.shape[-1]))
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+
+    # Create a matrix to store element nodal information
+    elements_nodes = jnp.zeros((ne, 4), dtype=int)
+    # Fill in the elements_nodes with element and node numbers
+    for i in range(Ne):
+        for j in range(Ne):
+            e = i * Ne + j  # Element index
+            # Define the nodes of the current element
+            nodes = jnp.array([i * (Ne + 1) + j, i * (Ne + 1) + j + 1, (i + 1) * (Ne + 1) + j + 1, (i + 1) * (Ne + 1) + j])
+            # Store element and node numbers in the matrix
+            elements_nodes = elements_nodes.at[e].set(nodes) # Node numbers
+
+    element_ids = jnp.arange(0,elements_nodes.shape[0])
+    elements_dict = {"elements_ids":element_ids,"elements_nodes":elements_nodes}
+
+    # Identify boundary nodes on the left and right edges
+    left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
+    right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
+
+    left_ux_values = Ux_left * jnp.ones(left_boundary_nodes.shape)
+    right_ux_values = Ux_right * jnp.ones(left_boundary_nodes.shape)
+    ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
+    ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values])
+    ux_non_boundary_nodes = []
+    for i in range(N*N):
+        if not (jnp.any(ux_boundary_nodes == i)):
+            ux_non_boundary_nodes.append(i)
+    ux_non_boundary_nodes = jnp.array(ux_non_boundary_nodes)
+
+    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":ux_non_boundary_nodes,"dirichlet_nodes_ids":ux_boundary_nodes,"dirichlet_nodes_dof_value":ux_boundary_values}}
+
+    left_uy_values = Uy_left * jnp.ones(left_boundary_nodes.shape)
+    right_uy_values = Uy_right * jnp.ones(left_boundary_nodes.shape)
+    uy_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
+    uy_boundary_values = jnp.concatenate([left_uy_values, right_uy_values])
+    uy_non_boundary_nodes = []
+    for i in range(N*N):
+        if not (jnp.any(uy_boundary_nodes == i)):
+            uy_non_boundary_nodes.append(i)
+    uy_non_boundary_nodes = jnp.array(uy_non_boundary_nodes)
+
+    dofs_dict["Uy"] = {"non_dirichlet_nodes_ids":uy_non_boundary_nodes,"dirichlet_nodes_ids":uy_boundary_nodes,"dirichlet_nodes_dof_value":uy_boundary_values}
+    
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+
 def create_random_fourier_samples(fourier_control):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()

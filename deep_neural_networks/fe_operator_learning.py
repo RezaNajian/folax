@@ -1,8 +1,12 @@
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: April, 2024
+ License: FOL/License.txt
+"""
 from .deep_network import DeepNetwork 
 import jax
 import jax.numpy as jnp
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
-from jax.flatten_util import ravel_pytree
 from jax import random,jit,vmap
 from functools import partial
 
