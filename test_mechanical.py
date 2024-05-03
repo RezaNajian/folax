@@ -28,13 +28,29 @@ fol = FiniteElementOperatorLearning("first_fol",fourier_control,[first_mechanica
 fol.Initialize()
 fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=20,num_epochs=1000,
           learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-          relative_error=1e-7,save_NN_params=True,NN_params_save_file_name="test.npy")
+          relative_error=1e-7,save_NN_params=False,NN_params_save_file_name="test.npy")
 
 fol.ReTrain(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=20,num_epochs=100,
-            convergence_criterion="total_loss",relative_error=1e-7,save_NN_params=True,NN_params_save_file_name="test.npy")
+            convergence_criterion="total_loss",relative_error=1e-7,save_NN_params=False,
+            NN_params_save_file_name="test.npy")
 
-FOL_UV_matrix = fol.Predict(coeffs_matrix)
-FE_T_matrix = first_fe_solver.BatchSolve(K_matrix,np.zeros(FOL_UV_matrix.shape))
+FOL_UV_matrix = np.array(fol.Predict(coeffs_matrix))
+FE_UV_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros(FOL_UV_matrix.shape)))
 
-plot_mesh_vec_data(1,[K_matrix[100,:],FOL_UV_matrix[100,0::2],FOL_UV_matrix[1,1::2]],["K","U","V"],file_name="FOL-KUV-dist.png")
-plot_mesh_vec_data(1,[K_matrix[100,:],FE_T_matrix[100,0::2],FE_T_matrix[1,1::2]],["K","U","V"],file_name="FE-KUV-dist.png")
+# compute error
+relative_error = np.zeros((0,FOL_UV_matrix.shape[1]))
+for i in range(FOL_UV_matrix.shape[0]):
+    FEM_UV = FE_UV_matrix[i,:].reshape(-1)
+    FOL_UV = FOL_UV_matrix[i,:].reshape(-1)
+    err = np.zeros((FOL_UV.size))
+    for dof_index,dof in enumerate(["Ux","Uy"]):
+        non_dirichlet_indices = first_mechanical_loss.number_dofs_per_node*first_mechanical_loss.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
+        non_dirichlet_FOL_values = FOL_UV[non_dirichlet_indices]
+        non_dirichlet_FE_values = FEM_UV[non_dirichlet_indices]
+        err[non_dirichlet_indices] = 100 * abs(non_dirichlet_FOL_values-non_dirichlet_FE_values)/abs(non_dirichlet_FE_values)
+    relative_error = np.vstack((relative_error,err))
+
+test_index=1
+plot_mesh_vec_data(1,[K_matrix[test_index,:],FOL_UV_matrix[test_index,0::2],FOL_UV_matrix[test_index,1::2]],["K","U","V"],file_name="FOL-KUV-dist.png")
+plot_mesh_vec_data(1,[K_matrix[test_index,:],FE_UV_matrix[test_index,0::2],FE_UV_matrix[test_index,1::2]],["K","U","V"],file_name="FE-KUV-dist.png")
+plot_mesh_vec_data(1,[K_matrix[test_index,:],relative_error[test_index,0::2],relative_error[test_index,1::2]],["K","err(U) % ","err(V) % "],file_name="KUV-diff-dist.png")
