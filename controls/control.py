@@ -5,6 +5,9 @@
 """
 from abc import ABC, abstractmethod
 import jax.numpy as jnp
+from functools import partial
+from jax import jit
+import jax
 
 class Control(ABC):
     """Base abstract control class.
@@ -48,6 +51,13 @@ class Control(ABC):
 
         """
         pass
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeBatchControlledVariables(self,batch_variable_vector:jnp.array) -> None:
+        """Computes the controlled variables for the given batch variables.
+
+        """
+        return jnp.squeeze(jax.vmap(self.ComputeControlledVariables,(0))(batch_variable_vector))
 
     @abstractmethod
     def ComputeJacobian(self,variable_vector:jnp.array) -> None:

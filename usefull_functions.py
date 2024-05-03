@@ -81,7 +81,6 @@ def plot_data_input(input_morph, num_columns, filename):
     # Add a color bar at the top of the figure
     cbar_ax = fig.add_axes([0.3, 1.02, 0.4, 0.005])  # Define position and size of the color bar
     cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-    cbar.set_label('Conductivity', fontsize=12)
 
     # Remove any unused subplots
     for i in range(len(input_morph), len(axes)):
@@ -91,11 +90,7 @@ def plot_data_input(input_morph, num_columns, filename):
     plt.tight_layout()
 
     # Save the plot as a PDF and PNG file with user-defined filename
-    plt.savefig(f'{filename}.pdf')
     plt.savefig(f'{filename}.png')
-
-    # Show the plot
-    # plt.show()
 
 def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     # FE init starts here
@@ -205,11 +200,11 @@ def create_random_fourier_samples(fourier_control):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,num_coeffs))
-    K_matrix = np.zeros((0,N**2))
     for i in range (100):
         coeff_vec = np.random.normal(size=num_coeffs)
         coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
-        K_matrix = np.vstack((K_matrix,fourier_control.ComputeControlledVariables(coeff_vec)))
+
+    K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     # also add uniform dstibuted K of value 0.5
     coeff_vec = 1e-3 * np.zeros((num_coeffs))

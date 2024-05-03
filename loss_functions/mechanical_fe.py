@@ -17,11 +17,9 @@ class MechanicalLoss(FiniteElementLoss):
     """
     def __init__(self, name: str, fe_model):
         super().__init__(name,fe_model,["Ux","Uy"])
-        self.number_of_unknown_ux = self.fe_model.GetDofsDict()["Ux"]["non_dirichlet_nodes_ids"].shape[-1]
-        self.number_of_unknown_uy = self.fe_model.GetDofsDict()["Uy"]["non_dirichlet_nodes_ids"].shape[-1]
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergy(self,xe,ye,de,ue,ve,body_force=0):
+    def ComputeElementEnergy(self,xe,ye,ze,de,ue,ve,body_force=0):
 
         num_elem_nodes = ue.size
         uve = jnp.zeros((ue.size+ve.size))
@@ -69,50 +67,21 @@ class MechanicalLoss(FiniteElementLoss):
         return  uve.T @ (ke @ uve - fe)
     
     @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,C,UV):
+    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
         return self.ComputeElementEnergy(X[elements_nodes[element_id]],
                                          Y[elements_nodes[element_id]],
+                                         Z[elements_nodes[element_id]],
                                          C[elements_nodes[element_id]],
                                          UV[self.number_dofs_per_node*elements_nodes[element_id]],
                                          UV[self.number_dofs_per_node*elements_nodes[element_id]+1])
 
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLoss(self,full_control_params,unknown_dofs):
-
-        full_control_params = full_control_params.reshape(-1,1)
-        full_dofs = self.ApplyBC(unknown_dofs)
-
-        elems_ids = self.fe_model.GetElementsIds()
-        elems_nodes = self.fe_model.GetElementsNodes()
-        X,Y,_ = self.fe_model.GetNodesCoordinates()
-        # parallel calculation of energies
-        elems_energies = jax.vmap(self.ComputeElementEnergyVmapCompatible,
-                                  (0,None,None,None,None,None))(elems_ids,elems_nodes,X,Y,full_control_params,full_dofs)
-        
+        elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
+                                                      self.ExtendUnknowDOFsWithBC(unknown_dofs))
         # some extra calculation for reporting and not traced
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-
         return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
-    
-    @partial(jit, static_argnums=(0,))
-    def ApplyBC(self,unknown_dofs):
-        # apply drichlet BCs and return vector dofs
-        full_dofs = jnp.zeros(self.total_number_of_dofs)
-
-        # apply Ux BCs
-        full_dofs = full_dofs.at[self.number_dofs_per_node*self.fe_model.GetDofsDict()["Ux"]["dirichlet_nodes_ids"]] \
-                    .set(self.fe_model.GetDofsDict()["Ux"]["dirichlet_nodes_dof_value"])
-
-        full_dofs = full_dofs.at[self.number_dofs_per_node*self.fe_model.GetDofsDict()["Uy"]["dirichlet_nodes_ids"]+1] \
-                    .set(self.fe_model.GetDofsDict()["Uy"]["dirichlet_nodes_dof_value"])
-
-        full_dofs = full_dofs.at[self.number_dofs_per_node*self.fe_model.GetDofsDict()["Ux"]["non_dirichlet_nodes_ids"]] \
-                    .set(unknown_dofs[0:self.number_of_unknown_ux])
-        
-        full_dofs = full_dofs.at[self.number_dofs_per_node*self.fe_model.GetDofsDict()["Uy"]["non_dirichlet_nodes_ids"]+1] \
-                    .set(unknown_dofs[self.number_of_unknown_ux:self.number_of_unknown_dofs])
-
-        return full_dofs.reshape(-1,1)
 

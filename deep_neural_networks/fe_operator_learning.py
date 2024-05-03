@@ -143,7 +143,7 @@ class FiniteElementOperatorLearning(DeepNetwork):
         def ForwardPassWithBC(x_input,NN_params):
             y_output = self.ForwardPass(x_input,NN_params)
             for loss_function in self.loss_functions:
-                y_output_full = loss_function.ApplyBC(y_output)
+                y_output_full = loss_function.ExtendUnknowDOFsWithBC(y_output)
             return y_output_full
         return jnp.squeeze(vmap(ForwardPassWithBC, (0,None))(batch_X,self.NN_params))
 
