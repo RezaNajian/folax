@@ -36,8 +36,26 @@ fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=20,num_epo
 fol.ReTrain(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=20,num_epochs=100,
             convergence_criterion="total_loss",relative_error=1e-7,save_NN_params=True,NN_params_save_file_name="test.npy")
 
-FOL_T_matrix = fol.Predict(coeffs_matrix)
-FE_T_matrix = first_fe_solver.BatchSolve(K_matrix,np.zeros(K_matrix.shape))
+FOL_T_matrix = np.array(fol.Predict(coeffs_matrix))
+FE_T_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros(K_matrix.shape)))
 
 plot_data_input(FOL_T_matrix,10,'FOL T distributions')
 plot_data_input(FE_T_matrix,10,'FE T distributions')
+
+# compute error
+relative_error = np.zeros((0,FOL_T_matrix.shape[1]))
+for i in range(FOL_T_matrix.shape[0]):
+    FEM_T = FE_T_matrix[i,:].reshape(-1)
+    FOL_T = FOL_T_matrix[i,:].reshape(-1)
+    err = np.zeros((FOL_T.size))
+    for dof_index,dof in enumerate(["T"]):
+        non_dirichlet_indices = first_thermal_loss.number_dofs_per_node*first_thermal_loss.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
+        non_dirichlet_FOL_values = FOL_T[non_dirichlet_indices]
+        non_dirichlet_FE_values = FEM_T[non_dirichlet_indices]
+        err[non_dirichlet_indices] = 100 * abs(non_dirichlet_FOL_values-non_dirichlet_FE_values)/abs(non_dirichlet_FE_values)
+    relative_error = np.vstack((relative_error,err))
+
+test_index=1
+plot_mesh_vec_data(1,[K_matrix[test_index,:],FOL_T_matrix[test_index,:]],["K","T"],file_name="FOL-KT-dist.png")
+plot_mesh_vec_data(1,[K_matrix[test_index,:],FE_T_matrix[test_index,:]],["K","T"],file_name="FE-KT-dist.png")
+plot_mesh_vec_data(1,[K_matrix[test_index,:],relative_error[test_index,:]],["K","err(T) % "],file_name="KT-diff-dist.png")
