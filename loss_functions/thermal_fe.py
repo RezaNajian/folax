@@ -36,7 +36,9 @@ class ThermalLoss(FiniteElementLoss):
                 dN_deta = jnp.array([-(1 - xi), -(1 + xi), 1 + xi, 1 - xi]) * 0.25
                 J = jnp.dot(jnp.array([dN_dxi, dN_deta]), jnp.array([xe, ye]).T)
                 detJ = jnp.linalg.det(J)
+                invJ = jnp.linalg.inv(J)
                 B = jnp.array([dN_dxi, dN_deta])
+                B = jnp.dot(invJ,B)
                 elem_stiffness += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j]  
                 Fe += gauss_weights[i] * gauss_weights[j] * detJ * body_force *  Nf.reshape(-1,1) 
         
