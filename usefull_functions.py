@@ -3,6 +3,9 @@ import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+import gmsh
+import meshio
+import os
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -137,6 +140,83 @@ def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
+def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz):
+
+    cell_type = 'hexahedron'
+    degree= 1
+
+    data_dir = '.'
+    msh_dir = os.path.join(data_dir, 'msh')
+    os.makedirs(msh_dir, exist_ok=True)
+    msh_file = os.path.join(msh_dir, 'box.msh')
+
+    offset_x = 0.
+    offset_y = 0.
+    offset_z = 0.
+    domain_x = Lx
+    domain_y = Ly
+    domain_z = Lz
+
+    gmsh.initialize()
+    gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)  # save in old MSH format
+    if cell_type.startswith('tetra'):
+        Rec2d = False  # tris or quads
+        Rec3d = False  # tets, prisms or hexas
+    else:
+        Rec2d = True
+        Rec3d = True
+    p = gmsh.model.geo.addPoint(offset_x, offset_y, offset_z)
+    l = gmsh.model.geo.extrude([(0, p)], domain_x, 0, 0, [Nx], [1])
+    s = gmsh.model.geo.extrude([l[1]], 0, domain_y, 0, [Ny], [1], recombine=Rec2d)
+    v = gmsh.model.geo.extrude([s[1]], 0, 0, domain_z, [Nz], [1], recombine=Rec3d)
+
+    gmsh.model.geo.synchronize()
+    gmsh.model.mesh.generate(3)
+    gmsh.model.mesh.setOrder(degree)
+    gmsh.write(msh_file)
+    gmsh.finalize()
+
+    mesh = meshio.read(msh_file)
+    points = mesh.points # (num_total_nodes, dim)
+    cells =  mesh.cells_dict[cell_type] # (num_cells, num_nodes)
+    out_mesh = meshio.Mesh(points=points, cells={cell_type: cells})
+
+    return out_mesh
+
+def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right):
+
+    settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz)
+    X = settings.points[:,0]
+    Y = settings.points[:,1]
+    Z = settings.points[:,2]
+
+    left_boundary_node_ids = []
+    right_boundary_node_ids = []
+    none_boundary_node_ids = []
+    for node_id,node_corrds in enumerate(settings.points):
+        if np.isclose(node_corrds[0], 0., atol=1e-5):
+            left_boundary_node_ids.append(node_id)
+        elif np.isclose(node_corrds[0], Lx, atol=1e-5):
+            right_boundary_node_ids.append(node_id)
+        else:
+            none_boundary_node_ids.append(node_id)
+
+    left_boundary_node_ids = jnp.array(left_boundary_node_ids)
+    right_boundary_node_ids = jnp.array(right_boundary_node_ids)
+    none_boundary_node_ids = jnp.array(none_boundary_node_ids)
+
+    left_boundary_nodes_values = T_left * jnp.ones(left_boundary_node_ids.shape)
+    right_boundary_nodes_values = T_right * jnp.ones(right_boundary_node_ids.shape)
+
+    boundary_nodes = jnp.concatenate([left_boundary_node_ids, right_boundary_node_ids])
+    boundary_values = jnp.concatenate([left_boundary_nodes_values, right_boundary_nodes_values])
+
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
+                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
+    dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+
 def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
     # FE init starts here
     Ne = N - 1  # Number of elements in each direction
@@ -200,7 +280,7 @@ def create_random_fourier_samples(fourier_control):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,num_coeffs))
-    for i in range (100):
+    for i in range (10):
         coeff_vec = np.random.normal(size=num_coeffs)
         coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
 
@@ -211,6 +291,6 @@ def create_random_fourier_samples(fourier_control):
     coeff_vec[0] = 1.0
     coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
     K_matrix = np.vstack((K_matrix,fourier_control.ComputeControlledVariables(coeff_vec)))
-    plot_data_input(K_matrix,10,'K distributions')    
+    # plot_data_input(K_matrix,10,'K distributions')    
 
     return coeffs_matrix,K_matrix
