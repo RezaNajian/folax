@@ -9,8 +9,8 @@ import jax.numpy as jnp
 from jax import jit
 from functools import partial
 
-class ThermalLoss(FiniteElementLoss):
-    """FE-based Thermal loss
+class ThermalLoss2D(FiniteElementLoss):
+    """FE-based 2D Thermal loss
 
     This is the base class for the loss functions require FE formulation.
 
