@@ -8,17 +8,18 @@ from usefull_functions import *
 
 # problem setup
 Lx=10
-Ly=0.1
-Lz=0.1
-Nx=10
+Ly=1
+Lz=1
+Nx=20
 Ny=10
 Nz=10 
 T_left=1
 T_right=0.1
 x_freqs = np.array([1,2,3])
-y_freqs = np.array([1,2,3])
-z_freqs = np.array([1,2,3])
-model_info = create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right)
+y_freqs = np.array([1])
+z_freqs = np.array([1])
+case_dir = os.path.join('.', 'test_thermal_3D')
+model_info,meshio = create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir)
 
 fe_model = FiniteElementModel("first_FE_model",model_info)
 
@@ -46,23 +47,9 @@ first_3D_fol.ReTrain(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size
 FOL_T_matrix = np.array(first_3D_fol.Predict(coeffs_matrix))
 FE_T_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros(K_matrix.shape)))
 
-# plot_data_input(FOL_T_matrix,10,'FOL T distributions')
-# plot_data_input(FE_T_matrix,10,'FE T distributions')
-
-# # compute error
-# relative_error = np.zeros((0,FOL_T_matrix.shape[1]))
-# for i in range(FOL_T_matrix.shape[0]):
-#     FEM_T = FE_T_matrix[i,:].reshape(-1)
-#     FOL_T = FOL_T_matrix[i,:].reshape(-1)
-#     err = np.zeros((FOL_T.size))
-#     for dof_index,dof in enumerate(["T"]):
-#         non_dirichlet_indices = first_thermal_loss.number_dofs_per_node*first_thermal_loss.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
-#         non_dirichlet_FOL_values = FOL_T[non_dirichlet_indices]
-#         non_dirichlet_FE_values = FEM_T[non_dirichlet_indices]
-#         err[non_dirichlet_indices] = 100 * abs(non_dirichlet_FOL_values-non_dirichlet_FE_values)/abs(non_dirichlet_FE_values)
-#     relative_error = np.vstack((relative_error,err))
-
-# test_index=1
-# plot_mesh_vec_data(1,[K_matrix[test_index,:],FOL_T_matrix[test_index,:]],["K","T"],file_name="FOL-KT-dist.png")
-# plot_mesh_vec_data(1,[K_matrix[test_index,:],FE_T_matrix[test_index,:]],["K","T"],file_name="FE-KT-dist.png")
-# plot_mesh_vec_data(1,[K_matrix[test_index,:],relative_error[test_index,:]],["K","err(T) % "],file_name="KT-diff-dist.png")
+for i in range(K_matrix.shape[0]):
+    solution_file = os.path.join(case_dir, f"case_{i}.vtu")
+    meshio.point_data['K'] = np.array(K_matrix[i,:])
+    meshio.point_data['T_FOL'] = np.array(FOL_T_matrix[i,:])
+    meshio.point_data['T_FE'] = np.array(FE_T_matrix[i,:])
+    meshio.write(solution_file)

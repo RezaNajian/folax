@@ -140,13 +140,11 @@ def create_2D_square_model_info_thermal(L,N,T_left,T_right):
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":non_boundary_nodes,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
-def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz):
+def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     cell_type = 'hexahedron'
     degree= 1
-
-    data_dir = '.'
-    msh_dir = os.path.join(data_dir, 'msh')
+    msh_dir = case_dir
     os.makedirs(msh_dir, exist_ok=True)
     msh_file = os.path.join(msh_dir, 'box.msh')
 
@@ -179,13 +177,13 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz):
     mesh = meshio.read(msh_file)
     points = mesh.points # (num_total_nodes, dim)
     cells =  mesh.cells_dict[cell_type] # (num_cells, num_nodes)
-    out_mesh = meshio.Mesh(points=points, cells={cell_type: cells})
+    meshio_obj = meshio.Mesh(points=points, cells={cell_type: cells})
 
-    return out_mesh
+    return meshio_obj
 
-def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right):
+def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
 
-    settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz)
+    settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
     X = settings.points[:,0]
     Y = settings.points[:,1]
     Z = settings.points[:,2]
@@ -215,7 +213,7 @@ def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right):
     elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
                      "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
 
 def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
     # FE init starts here
