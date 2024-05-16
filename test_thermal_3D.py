@@ -19,7 +19,7 @@ x_freqs = np.array([1,2,3])
 y_freqs = np.array([1])
 z_freqs = np.array([1])
 case_dir = os.path.join('.', 'test_thermal_3D')
-model_info,meshio = create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir)
+model_info,model_io = create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir)
 
 fe_model = FiniteElementModel("first_FE_model",model_info)
 
@@ -49,7 +49,7 @@ FE_T_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros(K_matrix.sha
 
 for i in range(K_matrix.shape[0]):
     solution_file = os.path.join(case_dir, f"case_{i}.vtu")
-    meshio.point_data['K'] = np.array(K_matrix[i,:])
-    meshio.point_data['T_FOL'] = np.array(FOL_T_matrix[i,:])
-    meshio.point_data['T_FE'] = np.array(FE_T_matrix[i,:])
-    meshio.write(solution_file)
+    model_io.point_data['K'] = np.array(K_matrix[i,:])
+    model_io.point_data['T_FOL'] = np.array(FOL_T_matrix[i,:])
+    model_io.point_data['T_FE'] = np.array(FE_T_matrix[i,:])
+    model_io.write(solution_file)

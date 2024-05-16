@@ -1,6 +1,6 @@
 import numpy as np
 from computational_models import FiniteElementModel
-from loss_functions import MechanicalLoss
+from loss_functions import MechanicalLoss2D
 from solvers import FiniteElementSolver
 from controls import FourierControl
 from deep_neural_networks import FiniteElementOperatorLearning
@@ -14,7 +14,7 @@ z_freqs = np.array([0])
 model_info = create_2D_square_model_info_mechanical(L,N,Ux_left=0.0,Ux_right=0.1,Uy_left=0.0,Uy_right=0.1)
 
 fe_model = FiniteElementModel("first_FE_model",model_info)
-first_mechanical_loss = MechanicalLoss("first_mechanical_loss",fe_model)
+first_mechanical_loss = MechanicalLoss2D("first_mechanical_loss",fe_model)
 first_fe_solver = FiniteElementSolver("first_fe_solver",first_mechanical_loss)
 fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":2}
 fourier_control = FourierControl("first_fourier_control",fourier_control_settings,fe_model)

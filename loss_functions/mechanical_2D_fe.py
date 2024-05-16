@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax import jit
 from functools import partial
 
-class MechanicalLoss(FiniteElementLoss):
+class MechanicalLoss2D(FiniteElementLoss):
     """FE-based Mechanical loss
 
     This is the base class for the loss functions require FE formulation.
