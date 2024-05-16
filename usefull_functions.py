@@ -181,7 +181,7 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     return meshio_obj
 
-def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
+def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
 
     settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
     X = settings.points[:,0]
@@ -213,6 +213,80 @@ def create_3D_square_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_di
     elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
                      "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
     dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
+def create_3D_box_model_info_mechanical(model_settings,case_dir):
+
+    settings = box_mesh(model_settings["Nx"],model_settings["Ny"],
+                        model_settings["Nz"],model_settings["Lx"],
+                        model_settings["Ly"],model_settings["Lz"],case_dir)
+    X = settings.points[:,0]
+    Y = settings.points[:,1]
+    Z = settings.points[:,2]
+
+    left_boundary_node_ids = []
+    left_non_boundary_node_ids = []
+    right_boundary_node_ids = []
+    right_non_boundary_node_ids = []
+    left_right_non_boundary_node_ids = []
+    for node_id,node_corrds in enumerate(settings.points):
+        if np.isclose(node_corrds[0], 0., atol=1e-5):
+            left_boundary_node_ids.append(node_id)
+        else:
+            left_non_boundary_node_ids.append(node_id)
+
+        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
+            right_boundary_node_ids.append(node_id)
+        else:
+            right_non_boundary_node_ids.append(node_id)
+
+        if not np.isclose(node_corrds[0], 0., atol=1e-5):
+            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
+                left_right_non_boundary_node_ids.append(node_id)
+
+    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]},
+                 "Uy":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]},
+                 "Uz":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]}}
+
+    for dof in ["Ux","Uy","Uz"]:
+        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
+
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
+
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
+
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
+
+        elif model_settings[f"{dof}_right"] !="":
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
+
+        elif model_settings[f"{dof}_left"] !="":
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
+
+        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
+        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
+        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
+
+
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
+                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
+
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
 
 def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
@@ -249,7 +323,7 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
     right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
 
     left_ux_values = Ux_left * jnp.ones(left_boundary_nodes.shape)
-    right_ux_values = Ux_right * jnp.ones(left_boundary_nodes.shape)
+    right_ux_values = Ux_right * jnp.ones(right_boundary_nodes.shape)
     ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
     ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values])
     ux_non_boundary_nodes = []

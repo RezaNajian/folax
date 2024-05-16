@@ -86,13 +86,16 @@ class FiniteElementLoss(Loss):
     @partial(jit, static_argnums=(0,))
     def ExtendUnknowDOFsWithBC(self,unknown_dofs):
         full_dofs = jnp.zeros(self.total_number_of_dofs)
+        unknown_dof_start_index = 0
         for dof_index,dof in enumerate(self.dofs):
             # apply drichlet dofs
             dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
             full_dofs = full_dofs.at[dirichlet_indices].set(self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
             # apply non-drichlet dofs
             non_dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
-            full_dofs = full_dofs.at[non_dirichlet_indices].set(unknown_dofs[dof_index::self.number_dofs_per_node])
+            unknown_dof_end_index = unknown_dof_start_index + non_dirichlet_indices.shape[-1]
+            full_dofs = full_dofs.at[non_dirichlet_indices].set(unknown_dofs[unknown_dof_start_index:unknown_dof_end_index])
+            unknown_dof_start_index = unknown_dof_end_index
         return full_dofs
     
     @partial(jit, static_argnums=(0,))
