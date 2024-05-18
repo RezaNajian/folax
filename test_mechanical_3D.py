@@ -5,39 +5,62 @@ from solvers import FiniteElementSolver
 from controls import FourierControl
 from deep_neural_networks import FiniteElementOperatorLearning
 from usefull_functions import *
+import pickle
 # problem setup
-model_settings = {"Lx":10,"Ly":1,"Lz":1,
-                  "Nx":10,"Ny":2,"Nz":2,
+model_settings = {"Lx":1,"Ly":1,"Lz":1,
+                  "Nx":10,"Ny":10,"Nz":10,
                   "Ux_left":0.0,"Ux_right":"",
-                  "Uy_left":0.0,"Uy_right":"",
-                  "Uz_left":0.0,"Uz_right":0.05}
+                  "Uy_left":0.0,"Uy_right":0.05,
+                  "Uz_left":0.0,"Uz_right":-0.05}
  
 case_dir = os.path.join('.', 'test_mechanical_3D')
 model_info,model_io = create_3D_box_model_info_mechanical(model_settings,case_dir)
 
-x_freqs = np.array([3])
-y_freqs = np.array([1])
-z_freqs = np.array([1])
+x_freqs = np.array([2,4,6])
+y_freqs = np.array([2,4,6])
+z_freqs = np.array([2,4,6])
 
 fe_model = FiniteElementModel("first_FE_model",model_info)
 first_mechanical_loss_3d = MechanicalLoss3D("first_mechanical_loss_3d",fe_model)
 first_fe_solver = FiniteElementSolver("first_fe_solver",first_mechanical_loss_3d)
-fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":2}
+fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":5,"min":1e-2,"max":1}
 fourier_control = FourierControl("first_fourier_control",fourier_control_settings,fe_model)
 
 # create some random coefficients & K for training
-coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control)
+create_random_K = True
+if create_random_K:
+    coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control)
+    export_dict = model_settings.copy()
+    export_dict["coeffs_matrix"] = coeffs_matrix
+    export_dict["K_matrix"] = K_matrix
+    export_dict["x_freqs"] = x_freqs
+    export_dict["y_freqs"] = y_freqs
+    export_dict["z_freqs"] = z_freqs
+    # with open('fourier_control_dict.pkl', 'wb') as f:
+    #     pickle.dump(export_dict,f)
+else:
+    with open('fourier_control_dict.pkl', 'rb') as f:
+        loaded_dict = pickle.load(f)
+    
+    coeffs_matrix = loaded_dict["coeffs_matrix"]
+    K_matrix = loaded_dict["K_matrix"]
+
+# rand_K = np.random.normal(size=fe_model.GetNumberOfNodes())
+# rand_UVW = np.random.normal(size=3*fe_model.GetNumberOfNodes())
+# residuals,stiffness = first_mechanical_loss_3d.ComputeResidualsAndStiffness(rand_K,rand_UVW)
 
 # now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",fourier_control,[first_mechanical_loss_3d],[5,10],
+fol = FiniteElementOperatorLearning("first_fol",fourier_control,[first_mechanical_loss_3d],[50,50],
                                     "swish",load_NN_params=False,NN_params_file_name="test.npy")
 fol.Initialize()
-fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=5,num_epochs=10000,
+fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=5,num_epochs=1000,
           learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-          relative_error=1e-10,save_NN_params=False,NN_params_save_file_name="test.npy")
+          relative_error=1e-10,plot_save_rate=10)
 
 FOL_UVW_matrix = np.array(fol.Predict(coeffs_matrix))
-FE_UVW_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros(FOL_UVW_matrix.shape)))
+FE_UVW_matrix = np.array(first_fe_solver.BatchSolve(K_matrix,np.zeros((K_matrix.shape[0],3*fe_model.GetNumberOfNodes()))))
+
+# # FOL_UVW_matrix = FOL_UVW_matrix.reshape(-1,1).T
 
 for i in range(K_matrix.shape[0]):
     solution_file = os.path.join(case_dir, f"case_{i}.vtu")

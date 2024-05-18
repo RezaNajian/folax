@@ -6,7 +6,7 @@
 from  .loss import Loss
 import jax
 import jax.numpy as jnp
-from jax import jit,grad,jit
+from jax import jit,grad
 from functools import partial
 from abc import abstractmethod
 
@@ -56,7 +56,23 @@ class FiniteElementLoss(Loss):
         pass
 
     @abstractmethod
+    def ComputeElementResiduals(self):
+        pass
+
+    @abstractmethod
+    def ComputeElementStiffness(self):
+        pass
+
+    @abstractmethod
+    def ComputeElementResidualsAndStiffness(self):
+        pass
+
+    @abstractmethod
     def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,P):
+        pass
+
+    @abstractmethod
+    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,P):
         pass
 
     @partial(jit, static_argnums=(0,))
@@ -67,17 +83,43 @@ class FiniteElementLoss(Loss):
                         ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
                         total_control_vars,total_primal_vars)
 
+    # @partial(jit, static_argnums=(0,))
+    def ComputeResiduals(self,total_control_vars,total_primal_vars):
+        # parallel calculation of residuals
+        elements_residuals = jax.vmap(self.ComputeElementResidualsVmapCompatible,(0,None,None,None,None,None,None)) \
+                                                (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
+                                                ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
+                                                total_control_vars,total_primal_vars)
+
+        problem_size = self.number_dofs_per_node*self.fe_model.GetNumberOfNodes()
+        residuals = jnp.zeros(problem_size)
+        for elem_idx, element_nodes in enumerate(self.fe_model.GetElementsNodes()):
+            dof_idx = ((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +jnp.arange(3)).reshape(-1)
+            residuals = residuals.at[dof_idx].add(jnp.squeeze(elements_residuals[elem_idx]))
+
+        return residuals
+    
+    # @partial(jit, static_argnums=(0,))
+    def ComputeResidualsAndStiffness(self,total_control_vars,total_primal_vars):
+        # parallel calculation of residuals
+        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualsAndStiffnessVmapCompatible,(0,None,None,None,None,None,None)) \
+                                                (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
+                                                ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
+                                                total_control_vars,total_primal_vars)
+
+        problem_size = self.number_dofs_per_node*self.fe_model.GetNumberOfNodes()
+        residuals = jnp.zeros(problem_size)
+        stiffness = jnp.zeros((problem_size,problem_size))
+        for elem_idx, element_nodes in enumerate(self.fe_model.GetElementsNodes()):
+            dof_idx = ((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +jnp.arange(self.number_dofs_per_node)).reshape(-1)
+            residuals = residuals.at[dof_idx].add(jnp.squeeze(elements_residuals[elem_idx]))
+            stiffness = stiffness.at[dof_idx[:, None],dof_idx].add(elements_stiffness[elem_idx])
+
+        return residuals,stiffness
+
     @partial(jit, static_argnums=(0,))
     def ComputeTotalEnergy(self,total_control_vars,total_primal_vars):
         return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_primal_vars))
-    
-    @partial(jit, static_argnums=(0,))
-    def Compute_R(self,total_control_vars,total_primal_vars):
-        return grad(self.ComputeTotalEnergy,argnums=1)(total_control_vars,total_primal_vars)
-    
-    @partial(jit, static_argnums=(0,))
-    def Compute_DR_DP(self,total_control_vars,total_primal_vars):
-        return jax.jacfwd(self.Compute_R,argnums=1)(total_control_vars,total_primal_vars)
     
     @partial(jit, static_argnums=(0,))
     def Compute_DR_DC(self,total_control_vars,total_primal_vars):

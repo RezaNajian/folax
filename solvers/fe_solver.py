@@ -17,16 +17,15 @@ class FiniteElementSolver(ResidualBasedSolver):
         super().__init__(solver_name)
         self.fe_loss_function = fe_loss_function
 
-    @partial(jit, static_argnums=(0,))
+    # @partial(jit, static_argnums=(0,))
     def SingleSolve(self,current_control_vars,current_dofs):
         applied_BC_dofs = self.fe_loss_function.ApplyBCOnDOFs(current_dofs)
-        R = self.fe_loss_function.Compute_R(current_control_vars,applied_BC_dofs)
+        R,K_mat = self.fe_loss_function.ComputeResidualsAndStiffness(current_control_vars,applied_BC_dofs)
         applied_BC_R = self.fe_loss_function.ApplyBCOnR(R)
-        K_mat = self.fe_loss_function.Compute_DR_DP(current_control_vars,applied_BC_dofs)
         applied_BC_K_mat = self.fe_loss_function.ApplyBCOnMatrix(K_mat)
         return self.Solve(applied_BC_K_mat,applied_BC_R,applied_BC_dofs)
 
-    @partial(jit, static_argnums=(0,))
+    # @partial(jit, static_argnums=(0,))
     def BatchSolve(self,batch_control_vars,batch_dofs):
         return jnp.squeeze(jax.vmap(self.SingleSolve, (0,0))(batch_control_vars,batch_dofs))
 
