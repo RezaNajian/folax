@@ -19,13 +19,10 @@ class MechanicalLoss2D(FiniteElementLoss):
         super().__init__(name,fe_model,["Ux","Uy"])
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergy(self,xe,ye,ze,de,ue,ve,body_force=0):
+    def ComputeElement(self,xyze,de,uve,body_force):
 
-        num_elem_nodes = ue.size
-        uve = jnp.zeros((ue.size+ve.size))
-        uve = uve.at[0::2].set(ue.reshape(-1))
-        uve = uve.at[1::2].set(ve.reshape(-1))
-        uve = uve.reshape(-1,1)
+        num_elem_nodes = 4
+        xye = jnp.array([xyze[::3], xyze[1::3]]).T
 
         gauss_points = [-1 / jnp.sqrt(3), 1 / jnp.sqrt(3)]
         gauss_weights = [1, 1]
@@ -48,7 +45,7 @@ class MechanicalLoss2D(FiniteElementLoss):
                 dN_dxi = jnp.array([-(1 - eta), 1 - eta, 1 + eta, -(1 + eta)]) * 0.25
                 dN_deta = jnp.array([-(1 - xi), -(1 + xi), 1 + xi, 1 - xi]) * 0.25
 
-                J = jnp.dot(jnp.array([dN_dxi, dN_deta]), jnp.array([xe, ye]).T)
+                J = jnp.dot(jnp.array([dN_dxi, dN_deta]), xye)
                 detJ = jnp.linalg.det(J)
                 invJ = jnp.linalg.inv(J)
 
@@ -64,16 +61,47 @@ class MechanicalLoss2D(FiniteElementLoss):
                 ke = ke + gauss_weights[i] * gauss_weights[j] * detJ * e_at_gauss * jnp.dot(bT, b )
                 fe = fe + gauss_weights[i] * gauss_weights[j] * detJ * jnp.dot(jnp.transpose(nf), body_force)
 
-        return  uve.T @ (ke @ uve - fe)
+        return  (uve.T @ (ke @ uve - fe))[0,0], 2 * (ke @ uve - fe), 2 * ke
     
+    def ComputeElementEnergy(self,xyze,de,uvwe,body_force=jnp.zeros((2,1))):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[0]
+
+    def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=jnp.zeros((2,1))):
+        _,re,ke = self.ComputeElement(xyze,de,uvwe,body_force)
+        return re,ke
+
+    def ComputeElementResiduals(self,xyze,de,uvwe,body_force=jnp.zeros((2,1))):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[1]
+    
+    def ComputeElementStiffness(self,xyze,de,uvwe,body_force=jnp.zeros((2,1))):
+        return self.ComputeElement(xyze,de,uvwe,body_force)[2]
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
+        return self.ComputeElementResiduals(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
+                                                                     Y[elements_nodes[element_id]],
+                                                                     Z[elements_nodes[element_id]]))),
+                                                                     C[elements_nodes[element_id]],
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementResidualsAndStiffnessVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
+        return self.ComputeElementResidualsAndStiffness(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
+                                                                     Y[elements_nodes[element_id]],
+                                                                     Z[elements_nodes[element_id]]))),
+                                                                     C[elements_nodes[element_id]],
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
     @partial(jit, static_argnums=(0,))
     def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UV):
-        return self.ComputeElementEnergy(X[elements_nodes[element_id]],
-                                         Y[elements_nodes[element_id]],
-                                         Z[elements_nodes[element_id]],
-                                         C[elements_nodes[element_id]],
-                                         UV[self.number_dofs_per_node*elements_nodes[element_id]],
-                                         UV[self.number_dofs_per_node*elements_nodes[element_id]+1])
+        return self.ComputeElementEnergy(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
+                                                                     Y[elements_nodes[element_id]],
+                                                                     Z[elements_nodes[element_id]]))),
+                                                                     C[elements_nodes[element_id]],
+                                                                     UV[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLoss(self,full_control_params,unknown_dofs):
@@ -84,4 +112,3 @@ class MechanicalLoss2D(FiniteElementLoss):
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
         return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
-

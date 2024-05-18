@@ -352,7 +352,7 @@ def create_random_fourier_samples(fourier_control):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,num_coeffs))
-    for i in range (10):
+    for i in range (1):
         coeff_vec = np.random.normal(size=num_coeffs)
         coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
 
