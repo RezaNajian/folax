@@ -14,6 +14,14 @@ class FourierControl(Control):
         super().__init__(control_name)
         self.fe_model = fe_model
         self.settings = control_settings
+        if "min" in self.settings.keys():
+            self.min = self.settings["min"]
+        else:
+            self.min = 1e-6
+        if "max" in self.settings.keys():
+            self.max = self.settings["max"]
+        else:
+            self.max = 1.0
         self.beta = self.settings["beta"]
         self.x_freqs = self.settings["x_freqs"]
         self.y_freqs = self.settings["y_freqs"]
@@ -49,7 +57,7 @@ class FourierControl(Control):
                     K += variable_vector[coeff_counter] * jnp.cos(freq_x * jnp.pi * self.fe_model.GetNodesX()) * jnp.cos(freq_y * jnp.pi * self.fe_model.GetNodesY()) * jnp.cos(freq_z * jnp.pi * self.fe_model.GetNodesZ())
                     coeff_counter += 1
 
-        return sigmoid(self.beta*(K-0.5))
+        return (self.max-self.min) * sigmoid(self.beta*(K-0.5)) + self.min
     
     @partial(jit, static_argnums=(0,))
     def ComputeJacobian(self,control_vec):
