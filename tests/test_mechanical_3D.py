@@ -1,19 +1,29 @@
+import sys
+import os
+# Add the parent directory to sys.path
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 import numpy as np
 from computational_models import FiniteElementModel
 from loss_functions import MechanicalLoss3D
 from solvers import FiniteElementSolver
 from controls import FourierControl
 from deep_neural_networks import FiniteElementOperatorLearning
-from usefull_functions import *
+from tools import *
 import pickle
+
 # problem setup
 model_settings = {"Lx":1,"Ly":1,"Lz":1,
                   "Nx":10,"Ny":10,"Nz":10,
                   "Ux_left":0.0,"Ux_right":"",
                   "Uy_left":0.0,"Uy_right":0.05,
                   "Uz_left":0.0,"Uz_right":-0.05}
- 
-case_dir = os.path.join('.', 'test_mechanical_3D')
+
+working_directory_name = 'test_mechanical_3D'
+case_dir = os.path.join('.', working_directory_name)
+create_clean_directory(working_directory_name)
+sys.stdout = Logger(os.path.join(case_dir,"test_mechanical_3D.log"))
 model_info,model_io = create_3D_box_model_info_mechanical(model_settings,case_dir)
 
 x_freqs = np.array([2,4,6])
@@ -51,7 +61,8 @@ else:
 
 # now we need to create, initialize and train fol
 fol = FiniteElementOperatorLearning("first_fol",fourier_control,[first_mechanical_loss_3d],[50,50],
-                                    "swish",load_NN_params=False,NN_params_file_name="test.npy")
+                                    "swish",load_NN_params=False,NN_params_file_name="test_mechanical_3D_params.npy",
+                                    working_directory=working_directory_name)
 fol.Initialize()
 fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix,batch_size=5,num_epochs=1000,
           learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",

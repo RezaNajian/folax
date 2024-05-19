@@ -13,6 +13,7 @@ from jax.example_libraries import optimizers
 import jaxopt
 from tqdm import trange
 from jax.flatten_util import ravel_pytree
+import os
 
 class DeepNetwork(ABC):
     """Base abstract deep network class.
@@ -21,8 +22,9 @@ class DeepNetwork(ABC):
         1. Initalizes and finalizes the model.
 
     """
-    def __init__(self,control_name:str,load_NN_params:bool,NN_params_file_name:str) -> None:
+    def __init__(self,control_name:str,load_NN_params:bool,NN_params_file_name:str,working_directory:str) -> None:
         self.__name = control_name
+        self.working_directory = working_directory
         self.load_NN_params = load_NN_params
         self.NN_params_file_name = NN_params_file_name
         self.train_history_dict = {}
@@ -55,7 +57,7 @@ class DeepNetwork(ABC):
         """
         if self.load_NN_params:
             _, unravel_params = ravel_pytree(self.NN_params)
-            self.NN_params = unravel_params(jnp.load(self.NN_params_file_name))
+            self.NN_params = unravel_params(jnp.load(os.path.join(self.working_directory, self.NN_params_file_name)))
 
     @partial(jit, static_argnums=(0,))
     def StepAdam(self,opt_itr,opt_state,x_batch,NN_params):
@@ -150,7 +152,7 @@ class DeepNetwork(ABC):
         # save optimized NN parameters
         if save_NN_params:
             flat_params, _ = ravel_pytree(self.NN_params)
-            jnp.save(NN_params_save_file_name, flat_params)
+            jnp.save(os.path.join(self.working_directory,NN_params_save_file_name), flat_params)
 
     def ReTrain(self,X_train,batch_size=100,num_epochs=1000,convergence_criterion="total_loss",
                 relative_error=1e-8,absolute_error=1e-8,reset_train_history=False,plot_list=[],
@@ -170,7 +172,7 @@ class DeepNetwork(ABC):
         # save optimized NN parameters
         if save_NN_params:
             flat_params, _ = ravel_pytree(self.NN_params)
-            jnp.save(NN_params_save_file_name, flat_params)
+            jnp.save(os.path.join(self.working_directory,NN_params_save_file_name), flat_params)
 
     @abstractmethod
     def Finalize(self) -> None:
@@ -191,7 +193,7 @@ class DeepNetwork(ABC):
         plt.ylabel("Log Value")
         plt.legend()
         plt.grid(True)
-        plt.savefig("training_history.png", bbox_inches='tight')
+        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
         plt.close()
 
 

@@ -4,6 +4,7 @@
  License: FOL/License.txt
 """
 from  .model import Model
+from tools import *
 
 class FiniteElementModel(Model):
     """Base abstract model class.
@@ -12,6 +13,7 @@ class FiniteElementModel(Model):
         1. Initalizes and finalizes the model.
 
     """
+    @print_with_timestamp_and_execution_time
     def __init__(self, model_name: str, model_info) -> None:
         super().__init__(model_name)
 

@@ -18,7 +18,7 @@ class ThermalLoss2D(FiniteElementLoss):
     def __init__(self, name: str, fe_model):
         super().__init__(name,fe_model,["T"])
 
-    @partial(jit, static_argnums=(0,1,2,5,))
+    @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,Ke,Te,body_force):
         xye = jnp.array([xyze[::3], xyze[1::3]]).T
         gauss_points = [-1 / jnp.sqrt(3), 1 / jnp.sqrt(3)]

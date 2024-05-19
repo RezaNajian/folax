@@ -8,8 +8,10 @@ import jax.numpy as jnp
 from jax import jit,jacfwd
 from functools import partial
 from jax.nn import sigmoid
+from tools import *
 
 class FourierControl(Control):
+    @print_with_timestamp_and_execution_time
     def __init__(self,control_name: str,control_settings,fe_model):
         super().__init__(control_name)
         self.fe_model = fe_model
