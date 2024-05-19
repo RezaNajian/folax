@@ -349,11 +349,11 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
     
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict}
 
-def create_random_fourier_samples(fourier_control):
+def create_random_fourier_samples(fourier_control,numberof_sample):
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,num_coeffs))
-    for i in range (1):
+    for i in range (numberof_sample):
         coeff_vec = np.random.normal(size=num_coeffs)
         coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
 
