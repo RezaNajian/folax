@@ -22,7 +22,9 @@ model_settings = {"Lx":1,"Ly":1,"Lz":1,
 
 working_directory_name = 'test_mechanical_3D'
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+clean_dir = True
+if clean_dir:
+    create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,"test_mechanical_3D.log"))
 model_info,model_io = create_3D_box_model_info_mechanical(model_settings,case_dir)
 
