@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
+from tools import *
 
 class MechanicalLoss3D(FiniteElementLoss):
     """FE-based Mechanical loss
@@ -15,6 +16,7 @@ class MechanicalLoss3D(FiniteElementLoss):
     This is the base class for the loss functions require FE formulation.
 
     """
+    @print_with_timestamp_and_execution_time
     def __init__(self, name: str, fe_model):
         super().__init__(name,fe_model,["Ux","Uy","Uz"])
 

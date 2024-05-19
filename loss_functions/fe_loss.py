@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
 from abc import abstractmethod
+from tools import *
 
 class FiniteElementLoss(Loss):
     """FE-based losse
@@ -84,6 +85,7 @@ class FiniteElementLoss(Loss):
                         total_control_vars,total_primal_vars)
 
     # @partial(jit, static_argnums=(0,))
+    @print_with_timestamp_and_execution_time
     def ComputeResiduals(self,total_control_vars,total_primal_vars):
         # parallel calculation of residuals
         elements_residuals = jax.vmap(self.ComputeElementResidualsVmapCompatible,(0,None,None,None,None,None,None)) \
@@ -100,6 +102,7 @@ class FiniteElementLoss(Loss):
         return residuals
     
     # @partial(jit, static_argnums=(0,))
+    @print_with_timestamp_and_execution_time
     def ComputeResidualsAndStiffness(self,total_control_vars,total_primal_vars):
         # parallel calculation of residuals
         elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualsAndStiffnessVmapCompatible,(0,None,None,None,None,None,None)) \

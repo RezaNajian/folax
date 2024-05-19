@@ -6,6 +6,7 @@ import math
 import gmsh
 import meshio
 import os
+import shutil
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -366,3 +367,12 @@ def create_random_fourier_samples(fourier_control):
     # plot_data_input(K_matrix,10,'K distributions')    
 
     return coeffs_matrix,K_matrix
+
+def create_clean_directory(case_dir):
+    # Check if the directory exists
+    if os.path.exists(case_dir):
+        # Remove the directory and all its contents
+        shutil.rmtree(case_dir)
+    
+    # Create the new directory
+    os.makedirs(case_dir)

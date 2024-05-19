@@ -9,11 +9,13 @@ import jax.numpy as jnp
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
 from jax import random,jit,vmap
 from functools import partial
+from tools import *
 
 class FiniteElementOperatorLearning(DeepNetwork):
+    @print_with_timestamp_and_execution_time
     def __init__(self,NN_name:str,control,loss_functions:list,hidden_layers:list,activation_function:str,
-                 load_NN_params:bool=False,NN_params_file_name:str=None):
-        super().__init__(NN_name,load_NN_params,NN_params_file_name)
+                 load_NN_params:bool=False,NN_params_file_name:str=None,working_directory='.'):
+        super().__init__(NN_name,load_NN_params,NN_params_file_name,working_directory)
         self.control = control
         self.input_size = control.GetNumberOfVariables()
         self.hidden_layers = hidden_layers
@@ -28,6 +30,7 @@ class FiniteElementOperatorLearning(DeepNetwork):
         else:
             self.activation_function = globals()[activation_function]
 
+    @print_with_timestamp_and_execution_time
     def Initialize(self):
         self.InitializeParameters()
         self.total_number_of_NN_params = self.flatten_NN_data(self.NN_params).shape[-1]
@@ -113,6 +116,7 @@ class FiniteElementOperatorLearning(DeepNetwork):
 
         return (total_loss, {**losses_dict,"total_loss":total_loss}), final_grads
 
+    @print_with_timestamp_and_execution_time
     def Train(self, loss_functions_weights:list, X_train, batch_size=100, num_epochs=1000, learning_rate=0.01, 
               optimizer="adam",convergence_criterion="true_loss",relative_error=1e-6,absolute_error=1e-6, plot_list=[],
               plot_rate=1,plot_save_rate=1000,save_NN_params=True, NN_params_save_file_name="Fourier_FOL_Thermal_params.npy"):
@@ -124,7 +128,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         super().Train(X_train,batch_size,num_epochs,learning_rate, 
               optimizer,convergence_criterion,relative_error,absolute_error,plot_list,
               plot_rate,plot_save_rate,save_NN_params, NN_params_save_file_name)
-        
+    
+    @print_with_timestamp_and_execution_time    
     def ReTrain(self, loss_functions_weights:list, X_train, batch_size=100, num_epochs=1000,  
                 convergence_criterion="true_loss",relative_error=1e-6,absolute_error=1e-6,reset_train_history=False,
                 plot_list=[],plot_rate=1,plot_save_rate=1000,save_NN_params=True, NN_params_save_file_name="Fourier_FOL_Thermal_params.npy"):
@@ -138,6 +143,7 @@ class FiniteElementOperatorLearning(DeepNetwork):
                         plot_list,plot_rate,plot_save_rate,save_NN_params, 
                         NN_params_save_file_name)
 
+    @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):
         def ForwardPassWithBC(x_input,NN_params):
