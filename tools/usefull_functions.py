@@ -290,6 +290,86 @@ def create_3D_box_model_info_mechanical(model_settings,case_dir):
 
     return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
 
+
+def import_box_model_info_mechanical(file_name,case_dir,model_settings):
+
+    mesh = meshio.read(os.path.join(case_dir, file_name))
+
+    points = mesh.points # (num_total_nodes, dim)
+    cells =  mesh.cells_dict['tetra'] # (num_cells, num_nodes)
+    meshio_obj = meshio.Mesh(points=points, cells={'tetra': cells})
+
+    X = meshio_obj.points[:,0]
+    Y = meshio_obj.points[:,1]
+    Z = meshio_obj.points[:,2]
+
+    left_boundary_node_ids = []
+    left_non_boundary_node_ids = []
+    right_boundary_node_ids = []
+    right_non_boundary_node_ids = []
+    left_right_non_boundary_node_ids = []
+    for node_id,node_corrds in enumerate(meshio_obj.points):
+        if np.isclose(node_corrds[0], 0., atol=1e-5):
+            left_boundary_node_ids.append(node_id)
+        else:
+            left_non_boundary_node_ids.append(node_id)
+
+        if np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
+            right_boundary_node_ids.append(node_id)
+        else:
+            right_non_boundary_node_ids.append(node_id)
+
+        if not np.isclose(node_corrds[0], 0., atol=1e-5):
+            if not np.isclose(node_corrds[0], model_settings["Lx"], atol=1e-5):
+                left_right_non_boundary_node_ids.append(node_id)
+
+    dofs_dict = {"Ux":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]},
+                 "Uy":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]},
+                 "Uz":{"non_dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_ids":[],
+                       "dirichlet_nodes_dof_value":[]}}
+
+    for dof in ["Ux","Uy","Uz"]:
+        if model_settings[f"{dof}_left"] !="" and model_settings[f"{dof}_right"] !="":
+
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_right_non_boundary_node_ids)
+
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
+
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)
+
+        elif model_settings[f"{dof}_right"] !="":
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(right_non_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(right_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_right"]] * len(right_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values)  
+
+        elif model_settings[f"{dof}_left"] !="":
+            dofs_dict[dof]["non_dirichlet_nodes_ids"].extend(left_non_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_ids"].extend(left_boundary_node_ids)
+            dof_values = [model_settings[f"{dof}_left"]] * len(left_boundary_node_ids)
+            dofs_dict[dof]["dirichlet_nodes_dof_value"].extend(dof_values) 
+
+        dofs_dict[dof]["dirichlet_nodes_dof_value"] = np.array(dofs_dict[dof]["dirichlet_nodes_dof_value"])
+        dofs_dict[dof]["non_dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["non_dirichlet_nodes_ids"])
+        dofs_dict[dof]["dirichlet_nodes_ids"] = np.array(dofs_dict[dof]["dirichlet_nodes_ids"])
+
+
+    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
+    elements_dict = {"elements_ids":jnp.arange(len(meshio_obj.cells_dict['tetra'])),
+                     "elements_nodes":jnp.array(meshio_obj.cells_dict['tetra'])}
+
+    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},meshio_obj
+
+
 def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right):
     # FE init starts here
     Ne = N - 1  # Number of elements in each direction
