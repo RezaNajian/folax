@@ -5,3 +5,4 @@ from loss_functions.thermal_3D_fe import ThermalLoss3D
 from loss_functions.mechanical_2D_fe import MechanicalLoss2D
 from loss_functions.mechanical_3D_fe import MechanicalLoss3D
 from loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
