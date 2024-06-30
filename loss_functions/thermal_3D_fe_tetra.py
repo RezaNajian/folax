@@ -47,13 +47,13 @@ class ThermalLoss3DTetra(FiniteElementLoss):
                     ke += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j] * gauss_weights[k]  
                     # fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * body_force *  Nf.reshape(-1,1) 
                     Beta = 2
-                    c = 1
+                    c = 10
                     N1 = Nf.reshape(-1,1)
                     N2 = Nf.reshape(1,-1)
                     t_at_gauss = jnp.dot(Nf, te.squeeze())
                     fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * Beta * c * jnp.exp(-c*t_at_gauss) * jnp.dot(N1,N2)
 
-        return jnp.abs((te.T @ (ke @ te - fe))[0,0]), 2 * (ke @ te - fe), 2 * ke
+        return ((te.T @ (ke @ te - fe))[0,0])**2, 2 * (ke @ te - fe), 2 * ke
 
     def ComputeElementEnergy(self,xyze,de,te,body_force=jnp.zeros((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[0]
@@ -96,7 +96,7 @@ class ThermalLoss3DTetra(FiniteElementLoss):
                                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
 
     @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params,unknown_dofs):
+    def ComputeEnergyLoss(self,full_control_params,unknown_dofs):
         elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
                                                       self.ExtendUnknowDOFsWithBC(unknown_dofs))
         # some extra calculation for reporting and not traced
@@ -105,3 +105,15 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
         return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
 
+    @partial(jit, static_argnums=(0,))
+    def ComputeResidualLoss(self,full_control_params,unknown_dofs):
+        residuals = grad(self.ComputeEnergyLoss,argnums=1)(full_control_params,unknown_dofs)
+        # some extra calculation for reporting and not traced
+        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(residuals))
+        max_elem_energy = jax.lax.stop_gradient(jnp.max(residuals))
+        min_elem_energy = jax.lax.stop_gradient(jnp.min(residuals))
+        return jnp.sum(residuals**2),(min_elem_energy,max_elem_energy,avg_elem_energy)
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeSingleLoss(self,full_control_params,unknown_dofs):
+        return self.ComputeEnergyLoss(full_control_params,unknown_dofs)
