@@ -440,8 +440,8 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     # also add uniform dstibuted K of value 0.5
-    coeff_vec = 1e-3 * np.zeros((num_coeffs))
-    coeff_vec[0] = 1.0
+    coeff_vec = 1e-4 * np.zeros((num_coeffs))
+    coeff_vec[0] = 10
     coeffs_matrix = np.vstack((coeffs_matrix,coeff_vec))
     K_matrix = np.vstack((K_matrix,fourier_control.ComputeControlledVariables(coeff_vec)))
     # plot_data_input(K_matrix,10,'K distributions')    
