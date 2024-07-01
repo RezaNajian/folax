@@ -72,7 +72,7 @@ eval_id = 5
 io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
 
 # now we need to create, initialize and train fol
-fol = FiniteElementOperatorLearning("first_fol",fourier_control,[thermal_loss_3d],[2500],
+fol = FiniteElementOperatorLearning("first_fol",fourier_control,[thermal_loss_3d],[],
                                     "swish",load_NN_params=False,working_directory=working_directory_name)
 fol.Initialize()
 fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=2000,
