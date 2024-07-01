@@ -33,6 +33,11 @@ class ThermalLoss3DTetra(FiniteElementLoss):
                 for k, zeta in enumerate(gauss_points):
                     Nf = jnp.array([1 - xi - eta - zeta, xi, eta, zeta])
                     conductivity_at_gauss = jnp.dot(Nf, de.squeeze())
+
+                    beta = 2
+                    c = 1
+                    conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + beta*(jnp.dot(Nf,te.squeeze()))**2)
+
                     dN_dxi = jnp.array([-1, 1, 0, 0])
                     dN_deta = jnp.array([-1, 0, 1, 0])
                     dN_dzeta = jnp.array([-1, 0, 0, 1])
@@ -46,14 +51,14 @@ class ThermalLoss3DTetra(FiniteElementLoss):
 
                     ke += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j] * gauss_weights[k]  
                     # fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * body_force *  Nf.reshape(-1,1) 
-                    Beta = 2
-                    c = 10
+                    Beta = 0.0
+                    c = 1.0
                     N1 = Nf.reshape(-1,1)
                     N2 = Nf.reshape(1,-1)
                     t_at_gauss = jnp.dot(Nf, te.squeeze())
-                    fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * Beta * c * jnp.exp(-c*t_at_gauss) * jnp.dot(N1,N2)
+                    fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * Beta * c * jnp.exp(-c*t_at_gauss)
 
-        return ((te.T @ (ke @ te - fe))[0,0])**2, 2 * (ke @ te - fe), 2 * ke
+        return ((te.T @ (ke @ te - fe))[0,0]), 2 * (ke @ te - fe), 2 * ke
 
     def ComputeElementEnergy(self,xyze,de,te,body_force=jnp.zeros((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[0]
@@ -103,7 +108,7 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
+        return jnp.abs(jnp.sum(elems_energies)),(min_elem_energy,max_elem_energy,avg_elem_energy)
 
     @partial(jit, static_argnums=(0,))
     def ComputeResidualLoss(self,full_control_params,unknown_dofs):

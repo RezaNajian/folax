@@ -46,7 +46,8 @@ class FiniteElementOperatorLearning(DeepNetwork):
         for n_in, n_out in zip(layer_sizes[:-1], layer_sizes[1:]):
             key_w, rng_key = random.split(rng_key)
             limit = jnp.sqrt(6 / (n_in + n_out))
-            weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            # weights = random.uniform(key_w, (n_in, n_out), minval=-limit, maxval=limit)
+            weights = jnp.zeros((n_in, n_out))
             biases = jnp.zeros(n_out)
             self.NN_params.append((weights, biases))
         super().InitializeParameters()
