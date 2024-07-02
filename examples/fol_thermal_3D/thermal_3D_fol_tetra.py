@@ -32,7 +32,7 @@ model_info = io.Import()
 fe_model = FiniteElementModel("FE_model",model_info)
 
 # create thermal loss
-thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",fe_model,{"beta":2})
+thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",fe_model,{"beta":2,"c":4})
 
 # create Fourier parametrization/control
 x_freqs = np.array([1,2,3])
