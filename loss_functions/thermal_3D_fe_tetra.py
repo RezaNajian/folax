@@ -33,7 +33,8 @@ class ThermalLoss3DTetra(FiniteElementLoss):
                 for k, zeta in enumerate(gauss_points):
                     Nf = jnp.array([1 - xi - eta - zeta, xi, eta, zeta])
 
-                    conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**2)
+                    conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
+                                            self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
 
                     dN_dxi = jnp.array([-1, 1, 0, 0])
                     dN_deta = jnp.array([-1, 0, 1, 0])
