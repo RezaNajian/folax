@@ -32,8 +32,6 @@ class MeshIO(InputOutput):
         self.mesh_io = meshio.read(os.path.join(self.case_dir, self.file_name))
         self.mesh_io.point_data_to_sets('point_tags')
         self.mesh_io.cell_data_to_sets('cell_tags')
-        # points = mesh.points 
-        # cells = mesh.cells_dict['tetra']
 
         self.dofs_dict = {}
         for dof_name,dof_settings in self.bc_settings.items():
