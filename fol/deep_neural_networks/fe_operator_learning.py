@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
 from jax import random,jit,vmap
 from functools import partial
-from tools import *
+from fol.tools.decoration_functions import *
 
 class FiniteElementOperatorLearning(DeepNetwork):
     @print_with_timestamp_and_execution_time

@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
-from tools import *
+from fol.tools.decoration_functions import *
 
 class ThermalLoss3DTetra(FiniteElementLoss):
     """FE-based Thermal loss

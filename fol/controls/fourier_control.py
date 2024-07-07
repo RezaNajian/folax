@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax import jit,jacfwd
 from functools import partial
 from jax.nn import sigmoid
-from tools import *
+from fol.tools.decoration_functions import *
 
 class FourierControl(Control):
     @print_with_timestamp_and_execution_time
