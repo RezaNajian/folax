@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax import jit
 from functools import partial
 from  .residual_based_solver import ResidualBasedSolver
-from tools import *
+from fol.tools.decoration_functions import *
 
 class FiniteElementSolver(ResidualBasedSolver):
     """FE-based solver class.

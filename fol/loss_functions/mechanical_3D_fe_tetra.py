@@ -8,9 +8,9 @@ import jax
 import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
-from tools import *
+from fol.tools.decoration_functions import *
 
-class MechanicalLoss3D(FiniteElementLoss):
+class MechanicalLoss3DTetra(FiniteElementLoss):
     """FE-based Mechanical loss
 
     This is the base class for the loss functions require FE formulation.
@@ -45,30 +45,20 @@ class MechanicalLoss3D(FiniteElementLoss):
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,uvwe,body_force):
         xyze = jnp.array([xyze[::3], xyze[1::3], xyze[2::3]]).T
-        num_elem_nodes = 8
-        gauss_points = [-1 / jnp.sqrt(3), 1 / jnp.sqrt(3)]
-        gauss_weights = [1, 1]
+        num_elem_nodes = 4
+        gauss_points = [0]
+        gauss_weights = [2]
         fe = jnp.zeros((uvwe.size,1))
         ke = jnp.zeros((uvwe.size, uvwe.size))
         for i, xi in enumerate(gauss_points):
             for j, eta in enumerate(gauss_points):
                 for k, zeta in enumerate(gauss_points):
-                    Nf = jnp.array([(1 - xi) * (1 - eta) * (1 - zeta), 
-                                    (1 + xi) * (1 - eta) * (1 - zeta), 
-                                    (1 + xi) * (1 + eta) * (1 - zeta), 
-                                    (1 - xi) * (1 + eta) * (1 - zeta),
-                                    (1 - xi) * (1 - eta) * (1 + zeta),
-                                    (1 + xi) * (1 - eta) * (1 + zeta),
-                                    (1 + xi) * (1 + eta) * (1 + zeta),
-                                    (1 - xi) * (1 + eta) * (1 + zeta)
-                                    ]) * 0.125 
+                    Nf = jnp.array([1 - xi - eta - zeta, xi, eta, zeta])
                     e_at_gauss = jnp.dot(Nf, de.squeeze())
-                    dN_dxi = jnp.array([-(1 - eta) * (1 - zeta), (1 - eta) * (1 - zeta), (1 + eta) * (1 - zeta), -(1 + eta) * (1 - zeta),
-                                        -(1 - eta) * (1 + zeta), (1 - eta) * (1 + zeta), (1 + eta) * (1 + zeta), -(1 + eta) * (1 + zeta)]) * 0.125
-                    dN_deta = jnp.array([-(1 - xi) * (1 - zeta), -(1 + xi) * (1 - zeta), (1 + xi) * (1 - zeta), (1 - xi) * (1 - zeta),
-                                         -(1 - xi) * (1 + zeta), -(1 + xi) * (1 + zeta), (1 + xi) * (1 + zeta), (1 - xi) * (1 + zeta)]) * 0.125
-                    dN_dzeta = jnp.array([-(1 - xi) * (1 - eta),-(1 + xi) * (1 - eta),-(1 + xi) * (1 + eta),-(1 - xi) * (1 + eta),
-                                           (1 - xi) * (1 - eta), (1 + xi) * (1 - eta), (1 + xi) * (1 + eta), (1 - xi) * (1 + eta)]) * 0.125
+                    dN_dxi = jnp.array([-1, 1, 0, 0])
+                    dN_deta = jnp.array([-1, 0, 1, 0])
+                    dN_dzeta = jnp.array([-1, 0, 0, 1])
+                    
                     J = jnp.dot(jnp.array([dN_dxi, dN_deta,dN_dzeta]), xyze)
                     detJ = jnp.linalg.det(J)
                     invJ = jnp.linalg.inv(J)
@@ -97,7 +87,7 @@ class MechanicalLoss3D(FiniteElementLoss):
                     ke = ke + gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * e_at_gauss * (B.T @ (self.D @ B))
                     fe = fe + gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * (N.T @ body_force)
 
-        return (uvwe.T @ (ke @ uvwe - fe))[0,0], 2 * (ke @ uvwe - fe), 2 * ke
+        return jnp.abs((uvwe.T @ (ke @ uvwe - fe))[0,0]), 2 * (ke @ uvwe - fe), 2 * ke
 
     def ComputeElementEnergy(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
         return self.ComputeElement(xyze,de,uvwe,body_force)[0]

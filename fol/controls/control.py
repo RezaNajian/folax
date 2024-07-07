@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from functools import partial
 from jax import jit
 import jax
-from tools import *
+from fol.tools.decoration_functions import *
 
 class Control(ABC):
     """Base abstract control class.

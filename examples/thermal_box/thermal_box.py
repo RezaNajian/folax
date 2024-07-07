@@ -5,14 +5,16 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 import numpy as np
-from IO import MeshIO
-from computational_models import FiniteElementModel
-from loss_functions import ThermalLoss3DTetra
-from solvers import NonLinearSolver
-from controls import FourierControl
-from deep_neural_networks import FiniteElementOperatorLearning
-from tools import *
-import pickle
+from fol.IO.mesh_io import MeshIO
+from fol.computational_models.fe_model import FiniteElementModel
+from fol.loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
+from fol.solvers.nonlinear_solver import NonLinearSolver
+from fol.controls.fourier_control import FourierControl
+from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.tools.decoration_functions import *
+from fol.tools.logging_functions import Logger
+from fol.tools.usefull_functions import *
+import pickle, time
 
 # cleaning & logging
 working_directory_name = 'results'

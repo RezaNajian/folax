@@ -4,7 +4,7 @@
  License: FOL/License.txt
 """
 from  .model import Model
-from tools import *
+from fol.tools.decoration_functions import *
 
 class FiniteElementModel(Model):
     """Base abstract model class.

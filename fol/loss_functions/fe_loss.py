@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
 from abc import abstractmethod
-from tools import *
+from fol.tools.decoration_functions import *
 
 class FiniteElementLoss(Loss):
     """FE-based losse

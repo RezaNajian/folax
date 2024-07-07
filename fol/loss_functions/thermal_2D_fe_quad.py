@@ -43,7 +43,8 @@ class ThermalLoss2D(FiniteElementLoss):
                 elem_stiffness += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j]  
                 Fe += gauss_weights[i] * gauss_weights[j] * detJ * body_force *  Nf.reshape(-1,1) 
         
-        return  (Te.T @ (elem_stiffness @ Te - Fe))[0,0], 2 * (elem_stiffness @ Te - Fe), 2 * elem_stiffness
+        element_residuals = jax.lax.stop_gradient(elem_stiffness @ Te - Fe)
+        return  ((Te.T @ element_residuals)[0,0]), 2 * (elem_stiffness @ Te - Fe), 2 * elem_stiffness
     
     def ComputeElementEnergy(self,xyze,de,uvwe,body_force=0.0):
         return self.ComputeElement(xyze,de,uvwe,body_force)[0]
