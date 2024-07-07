@@ -14,7 +14,6 @@ from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
 
-
 class TestThermal2D(unittest.TestCase):
 
     @pytest.fixture(autouse=True)
