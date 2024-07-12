@@ -1,0 +1,16 @@
+2024-07-12 09:32:57 - Info : FE_model.__init__ finished in 0.0000 seconds
+2024-07-12 09:32:57 - Info : fe_solver.__init__ finished in 0.0000 seconds
+2024-07-12 09:32:57 - Info : first_voronoi_control.__init__ finished in 0.0000 seconds
+2024-07-12 09:33:18 - Info : first_fol.__init__ finished in 0.0000 seconds
+2024-07-12 09:33:20 - Info : first_fol.Initialize finished in 1.5498 seconds
+2024-07-12 09:33:56 - Info : first_fol.Train finished in 35.6350 seconds
+
+############### FOL train took: 33.875 s ###############
+
+2024-07-12 09:33:56 - Info : first_fol.Predict finished in 0.2429 seconds
+2024-07-12 09:33:56 - Info : first_fe_solver.__init__ finished in 0.0000 seconds
+2024-07-12 09:34:06 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 10.3103 seconds
+2024-07-12 09:34:07 - Info : first_fe_solver.SingleSolve finished in 10.9809 seconds
+
+############### FE solve took: 11.421875 s ###############
+
