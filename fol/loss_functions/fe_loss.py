@@ -10,6 +10,8 @@ from jax import jit,grad
 from functools import partial
 from abc import abstractmethod
 from fol.tools.decoration_functions import *
+from fol.computational_models.fe_model import FiniteElementModel
+from fol.tools.fem_utilities import *
 
 class FiniteElementLoss(Loss):
     """FE-based losse
@@ -17,10 +19,11 @@ class FiniteElementLoss(Loss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model, ordered_dofs:list):
+    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict={}):
         super().__init__(name)
         self.fe_model = fe_model
         self.dofs = ordered_dofs
+        self.loss_settings = loss_settings
         self.number_of_dirichlet_dofs = 0
         self.number_of_unknown_dofs = 0
         for dof in self.dofs:
@@ -42,6 +45,23 @@ class FiniteElementLoss(Loss):
 
         self.total_number_of_dofs = len(self.dofs) * self.fe_model.GetNumberOfNodes()
         self.number_dofs_per_node = len(self.dofs)
+
+        # now prepare gauss integration
+        if "num_gp" in self.loss_settings.keys():
+            self.num_gp = self.loss_settings["num_gp"]
+            if self.num_gp == 1:
+                g_points,g_weights = GaussQuadrature().one_point_GQ
+            elif self.num_gp == 2:
+                g_points,g_weights = GaussQuadrature().two_point_GQ
+            elif self.num_gp == 3:
+                g_points,g_weights = GaussQuadrature().three_point_GQ
+            elif self.num_gp == 4:
+                g_points,g_weights = GaussQuadrature().four_point_GQ
+            else:
+                raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+
+            self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
+            self.g_weights = jnp.array([[w_i , w_j] for w_i in g_weights for w_j in g_weights]).flatten()
 
     def Initialize(self) -> None:
         pass

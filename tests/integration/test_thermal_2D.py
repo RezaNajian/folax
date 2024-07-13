@@ -27,7 +27,7 @@ class TestThermal2D(unittest.TestCase):
         create_clean_directory(self.test_directory)
         self.model_info = create_2D_square_model_info_thermal(L=1,N=11,T_left=1.0,T_right=0.1)
         self.fe_model = FiniteElementModel("FE_model",self.model_info)
-        self.thermal_loss = ThermalLoss2D("thermal_loss",self.fe_model)
+        self.thermal_loss = ThermalLoss2D("thermal_loss",self.fe_model,{"num_gp":2})
         self.fe_solver = FiniteElementSolver("fe_solver",self.thermal_loss)
         fourier_control_settings = {"x_freqs":np.array([1,2,3]),"y_freqs":np.array([1,2,3]),"z_freqs":np.array([0]),"beta":2}
         self.fourier_control = FourierControl("fourier_control",fourier_control_settings,self.fe_model)
