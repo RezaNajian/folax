@@ -17,10 +17,9 @@ class ThermalLoss2D(FiniteElementLoss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict):
-        super().__init__(name,fe_model,["T"],loss_settings)
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
+        super().__init__(name,fe_model,["T"],{**loss_settings,"compute_dims":2})
         self.shape_function = QuadShapeFunction()
-        self.dim = 2
 
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,Ke,Te,body_force):

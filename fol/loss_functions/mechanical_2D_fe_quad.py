@@ -17,10 +17,9 @@ class MechanicalLoss2D(FiniteElementLoss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict):
-        super().__init__(name,fe_model,["Ux","Uy"],loss_settings)
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
+        super().__init__(name,fe_model,["Ux","Uy"],{**loss_settings,"compute_dims":2})
         self.shape_function = QuadShapeFunction()
-        self.dim = 2
         self.e = self.loss_settings["young_modulus"]
         self.v = self.loss_settings["poisson_ratio"]
         self.D = jnp.array([[1,self.v,0],[self.v,1,0],[0,0,(1-self.v)/2]]) * (self.e/(1-self.v**2))
