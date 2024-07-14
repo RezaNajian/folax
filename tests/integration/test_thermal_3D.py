@@ -22,7 +22,7 @@ class TestThermal3D(unittest.TestCase):
         create_clean_directory(self.test_directory)
         self.model_info,self.model_io = create_3D_box_model_info_thermal(Nx=11,Ny=11,Nz=11,Lx=1,Ly=1,Lz=1,T_left=1.0,T_right=0.1,case_dir=self.test_directory)
         self.fe_model = FiniteElementModel("FE_model",self.model_info)
-        self.thermal_loss = ThermalLoss3D("thermal_loss",self.fe_model)
+        self.thermal_loss = ThermalLoss3D("thermal_loss",self.fe_model,{"beta":0,"c":0,"num_gp":2})
         self.fe_solver = FiniteElementSolver("fe_solver",self.thermal_loss)
         fourier_control_settings = {"x_freqs":np.array([0]),"y_freqs":np.array([0]),"z_freqs":np.array([0]),"beta":2}
         self.fourier_control = FourierControl("fourier_control",fourier_control_settings,self.fe_model)

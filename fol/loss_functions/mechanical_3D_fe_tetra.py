@@ -6,9 +6,11 @@
 from  .fe_loss import FiniteElementLoss
 import jax
 import jax.numpy as jnp
-from jax import jit,grad
+from jax import jit
 from functools import partial
+from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
+from fol.computational_models.fe_model import FiniteElementModel
 
 class MechanicalLoss3DTetra(FiniteElementLoss):
     """FE-based Mechanical loss
@@ -17,8 +19,8 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, name: str, fe_model):
-        super().__init__(name,fe_model,["Ux","Uy","Uz"])
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
+        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3})
 
         # construction of the constitutive matrix
         young_modulus = 1 # TODO should moved to the inputs
