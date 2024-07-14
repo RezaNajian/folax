@@ -44,7 +44,7 @@ class ThermalLoss2D(FiniteElementLoss):
                                           self.g_points[self.dim*gp_index+1],
                                           self.g_weights[self.dim*gp_index] * self.g_weights[self.dim*gp_index+1])
 
-        k_gps,f_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.dim*self.num_gp))
+        k_gps,f_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.num_gp**self.dim))
         Se = jnp.sum(k_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ Te - Fe)
