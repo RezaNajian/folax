@@ -1,11 +1,6 @@
 import pytest
 import unittest
-import sys
 import os
-# Add the parent directory to sys.path
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.thermal_2D_fe_quad import ThermalLoss2D
