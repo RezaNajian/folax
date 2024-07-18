@@ -6,7 +6,9 @@ setup(
     packages=find_packages(),
     install_requires=[
         'meshio',
-        'jax'
+        'jax',
+        'jaxopt',
+        'gmsh'
     ],
     author='FOL team',
     author_email='r.najian@hotmail.com',
