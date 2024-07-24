@@ -1,17 +1,34 @@
-2024-07-15 12:49:09 - Info : FE_model.__init__ finished in 0.0000 seconds
-2024-07-15 12:49:09 - Info : fe_solver.__init__ finished in 0.0000 seconds
-2024-07-15 12:49:09 - Info : fourier_control.__init__ finished in 0.0000 seconds
-2024-07-15 12:49:09 - Info : fourier_control.ComputeBatchControlledVariables finished in 0.3008 seconds
-2024-07-15 12:49:09 - Info : first_fol.__init__ finished in 0.0000 seconds
-2024-07-15 12:49:10 - Info : first_fol.Initialize finished in 0.5231 seconds
-2024-07-15 12:49:26 - Info : first_fol.Train finished in 16.7347 seconds
+2024-07-24 19:41:36 - Info : FE_model.__init__ finished in 0.0000 seconds
+2024-07-24 19:41:36 - Info : fe_solver.__init__ finished in 0.0000 seconds
+2024-07-24 19:41:36 - Info : fourier_control.__init__ finished in 0.0000 seconds
+2024-07-24 19:41:37 - Info : fourier_control.ComputeBatchControlledVariables finished in 0.4226 seconds
+2024-07-24 19:41:37 - Info : first_fol.__init__ finished in 0.0000 seconds
+2024-07-24 19:41:37 - Info : first_fol.Initialize finished in 0.6400 seconds
+2024-07-24 19:42:00 - Info : first_fol.Train finished in 22.4172 seconds
 
-############### FOL train took: 16.125 s ###############
+############### FOL train took: 20.421875 s ###############
 
-2024-07-15 12:49:27 - Info : first_fol.Predict finished in 0.3353 seconds
-2024-07-15 12:49:27 - Info : first_fe_solver.__init__ finished in 0.0000 seconds
-2024-07-15 12:49:34 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 7.2346 seconds
-2024-07-15 12:49:35 - Info : first_fe_solver.SingleSolve finished in 7.7820 seconds
+2024-07-24 19:42:00 - Info : first_fol.Predict finished in 0.3776 seconds
+2024-07-24 19:42:00 - Info : first_fe_solver.__init__ finished in 0.0000 seconds
+2024-07-24 19:42:14 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 13.5084 seconds
+NonLinearSolver::SingleSolve: iteration:1,delta_norm:0.38988345861434937,residuals_norm:0.08485648781061172
+2024-07-24 19:42:16 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.5790 seconds
+NonLinearSolver::SingleSolve: iteration:2,delta_norm:0.10953834652900696,residuals_norm:0.042493294924497604
+2024-07-24 19:42:16 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.6597 seconds
+NonLinearSolver::SingleSolve: iteration:3,delta_norm:0.0060232095420360565,residuals_norm:0.0026215517427772284
+2024-07-24 19:42:17 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.6179 seconds
+NonLinearSolver::SingleSolve: iteration:4,delta_norm:0.0012311175232753158,residuals_norm:0.00039429927710443735
+2024-07-24 19:42:18 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.5428 seconds
+NonLinearSolver::SingleSolve: iteration:5,delta_norm:0.0004066088004037738,residuals_norm:0.00010603432747302577
+2024-07-24 19:42:18 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.6206 seconds
+NonLinearSolver::SingleSolve: iteration:6,delta_norm:0.0001390594115946442,residuals_norm:3.730044045369141e-05
+2024-07-24 19:42:19 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.6774 seconds
+NonLinearSolver::SingleSolve: iteration:7,delta_norm:4.831913247471675e-05,residuals_norm:1.4135735000309069e-05
+2024-07-24 19:42:19 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.5199 seconds
+NonLinearSolver::SingleSolve: iteration:8,delta_norm:1.712751509330701e-05,residuals_norm:5.486115242092637e-06
+2024-07-24 19:42:20 - Info : mechanical_loss_2d.ComputeResidualsAndStiffness finished in 0.5892 seconds
+NonLinearSolver::SingleSolve: converged; iterations:9,delta_norm:6.202899385243654e-06,residuals_norm:2.157652488676831e-06
+2024-07-24 19:42:20 - Info : first_fe_solver.SingleSolve finished in 19.6746 seconds
 
-############### FE solve took: 8.0625 s ###############
+############### FE solve took: 22.15625 s ###############
 

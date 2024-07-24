@@ -19,6 +19,7 @@ class MechanicalLoss2D(FiniteElementLoss):
     def __init__(self, name: str, fe_model):
         super().__init__(name,fe_model,["Ux","Uy"])
 
+    
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,uve,body_force):
 
@@ -41,12 +42,14 @@ class MechanicalLoss2D(FiniteElementLoss):
         tensorShape = jnp.zeros((3,3))
 
         xsi = jnp.zeros_like(ScalarShape)
-        Se_voigt = jnp.zeros_like(voigtShape)
-        C_tangent = jnp.zeros_like(tensorShape)
         W_int = jnp.zeros_like(ForceShape)
         fe = jnp.zeros_like(ForceShape)
         ke = jnp.zeros_like(StiffnessShape)
-       
+        C_voigt = jnp.zeros_like(voigtShape)
+        invC_voigt = jnp.zeros_like(voigtShape)
+        Se_voigt = jnp.zeros_like(voigtShape)
+        C_tangent = jnp.zeros_like(tensorShape)
+
         for i, xi in enumerate(gauss_points):
             for j, eta in enumerate(gauss_points):
                 Nf = jnp.array([0.25 * (1 - xi) * (1 - eta), 
@@ -63,20 +66,36 @@ class MechanicalLoss2D(FiniteElementLoss):
                 #     raise ValueError("Jacobian determinant is too small, possible degenerate element.")
                 invJ = jnp.linalg.inv(Jacobian)
 
-                mu = e_at_gauss / (2 * (1 + v))
-                lambdaa = e_at_gauss * v / ((1 + v) * (1 - 2 * v))
-                k = e_at_gauss / (3 * (1 - 2*v)) # Bulk Modulus
+                # mu = e_at_gauss / (2 * (1 + v))
+                mu = 0.5673
+                lambdaa = e_at_gauss * v / ((1 + v) * (1 - 2*v))
+                # k = e_at_gauss / (3 * (1 - 2*v)) # Bulk Modulus
+                k = 2000
+
                 dN_dX = jnp.dot(invJ,jnp.array([dN_dxi, dN_deta]))
                 ue = uve[::2].squeeze()
                 ve = uve[1::2].squeeze()
                 uveT = jnp.array([ue,ve]).T
+
                 H = jnp.dot(dN_dX,uveT).T
                 F = H + jnp.eye(H.shape[0])
-
                 xsie, Se, C_tangent_fourth = Neo_Hooke(F,k,mu)
                 Se_voigt = TensorToVoigt(Se)
                 C_tangent = FourthTensorToVoigt(C_tangent_fourth)
 
+                # To test with a simple model taken from Chat-GPT:
+                # Se, C_tangent_fourth = neo_hookean_stress_tangent(F, mu, lambdaa)
+                # Se_voigt = TensorToVoigt(Se)
+                # C_tangent = FourthTensorToVoigt(C_tangent_fourth)
+
+                # Linear To check:
+                # E = 0.5*(C - jnp.eye(2))
+                # Ee_voigt = TensorToVoigt(E)
+                # Ee_voigt = Ee_voigt.at[2,0].multiply(2)
+                # Se_voigt = jnp.dot(dd,Ee_voigt)
+                # W_int = W_int + jnp.dot(BB.T,Se_voigt) * gauss_weights[i] * gauss_weights[j] * detJ
+                # ke = ke + jnp.dot(jnp.dot(BB.T,dd),BB) * gauss_weights[i] * gauss_weights[j] * detJ
+                
                 BB = jnp.zeros((3, 2*num_elem_nodes))
                 for m in range(num_elem_nodes):
                     BB = BB.at[0,2*m:2*m+2].set([F[0,0]*dN_dX[0,m], F[1,0]*dN_dX[0,m]])
@@ -85,10 +104,12 @@ class MechanicalLoss2D(FiniteElementLoss):
                 
                 nf = jnp.array([[Nf[0], 0, Nf[1], 0, Nf[2], 0, Nf[3], 0],[0, Nf[0], 0, Nf[1], 0, Nf[2], 0, Nf[3]]])
                 
+
                 xsi = xsi + xsie * gauss_weights[i] * gauss_weights[j] * detJ
                 fe = fe + gauss_weights[i] * gauss_weights[j] * detJ * jnp.dot(jnp.transpose(nf), body_force)
                 W_int = W_int + jnp.dot(BB.T,Se_voigt) * gauss_weights[i] * gauss_weights[j] * detJ
                 ke = ke + jnp.dot(jnp.dot(BB.T,C_tangent),BB) * gauss_weights[i] * gauss_weights[j] * detJ
+                
 
         return  xsi, W_int - fe, ke
 

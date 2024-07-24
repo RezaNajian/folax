@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
-from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
+from fol.loss_functions.mechanical_2D_fe_quad_neohooke_V03 import MechanicalLoss2D, FiniteElementLoss
 from fol.solvers.fe_solver import FiniteElementSolver
 from fol.solvers.nonlinear_solver import NonLinearSolver
 from fol.controls.fourier_control import FourierControl
@@ -15,7 +15,7 @@ import pickle, time
 # problem setup
 model_settings = {"L":1,
                   "N":10,
-                  "Ux_left":0.0,"Ux_right":0.02,
+                  "Ux_left":0.0,"Ux_right":0.05,
                   "Uy_left":0.0,"Uy_right":0.0}
 
 # fourier freqs
@@ -85,7 +85,7 @@ FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T))
 # solve FE here
 solve_FE = True
 if solve_FE:
-    first_fe_solver = NonLinearSolver("first_fe_solver",mechanical_loss_2d,relative_error=1e-5,max_num_itr=10)
+    first_fe_solver = NonLinearSolver("first_fe_solver",mechanical_loss_2d,relative_error=1e-5,max_num_itr=20)
     start_time = time.process_time()
     FE_UV = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id,:],np.zeros(2*fe_model.GetNumberOfNodes())))  
     print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
