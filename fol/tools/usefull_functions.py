@@ -402,17 +402,10 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
     # Identify boundary nodes on the left and right edges
     left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
     right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
-    # bottom_boundary_nodes = jnp.arange(0,nx) # Nodes on the bottom boundary
-    # top_boundary_nodes = jnp.arange(ny * nx - nx, ny * nx) # Nodes on the top boundary
 
     left_ux_values = Ux_left * jnp.ones(left_boundary_nodes.shape)
     right_ux_values = Ux_right * jnp.ones(right_boundary_nodes.shape)
-    # top_ux_values = Ux_top * jnp.ones(top_boundary_nodes.shape)
-    # bottom_ux_values = Ux_bottom * jnp.ones(bottom_boundary_nodes.shape)
-    # ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes, 
-    #                                      top_boundary_nodes, bottom_boundary_nodes])
     ux_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    # ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values, top_ux_values, bottom_ux_values])
     ux_boundary_values = jnp.concatenate([left_ux_values, right_ux_values])
     ux_non_boundary_nodes = []
     for i in range(N*N):
@@ -424,12 +417,8 @@ def create_2D_square_model_info_mechanical(L,N,Ux_left,Ux_right,Uy_left,Uy_right
 
     left_uy_values = Uy_left * jnp.ones(left_boundary_nodes.shape)
     right_uy_values = Uy_right * jnp.ones(left_boundary_nodes.shape)
-    # top_uy_values = Uy_top * jnp.ones(top_boundary_nodes.shape)
-    # bottom_uy_values = Uy_bottom * jnp.ones(bottom_boundary_nodes.shape)
     uy_boundary_nodes = jnp.concatenate([left_boundary_nodes, right_boundary_nodes])
-    # uy_boundary_nodes = jnp.concatenate([bottom_boundary_nodes])
     uy_boundary_values = jnp.concatenate([left_uy_values, right_uy_values])
-    # uy_boundary_values = jnp.concatenate([bottom_uy_values])
     uy_non_boundary_nodes = []
     for i in range(N*N):
         if not (jnp.any(uy_boundary_nodes == i)):
@@ -481,8 +470,8 @@ def create_random_voronoi_samples(voronoi_control,numberof_sample):
         K_matrix[i,:] = K
         coeffs_matrix[i,:] = Kcoeffs
 
-    K_matrix = np.vstack((K_matrix,0.5*np.ones(K_matrix.shape[1])))
-    coeffs_matrix = np.vstack((coeffs_matrix,coeffs_matrix))
+    # K_matrix = np.vstack((K_matrix,0.5*np.ones(K_matrix.shape[1])))
+    # coeffs_matrix = np.vstack((coeffs_matrix,np.array([-0.5,0.5,0.5,-0.5, 0.5,0.5,-0.5,-0.5, 0.5,0.5,0.5,0.5])))
     return coeffs_matrix,K_matrix
 
 def create_clean_directory(case_dir):
@@ -542,8 +531,8 @@ def Neo_Hooke(F,k,mu):
     xsie_vol = (k/4)*(J**2 - 2*jnp.log(J) -1)
     I1_bar = (J**(-2/3))*jnp.trace(C)
     xsie_iso = 0.5*mu*(I1_bar - 3)
-    loss_factor = 1     # To prevent loss to become a negative number
-    xsie = xsie_vol + xsie_iso + loss_factor
+    loss_positive_bias = 100     # To prevent loss to become a negative number
+    xsie = xsie_vol + xsie_iso + loss_positive_bias
 
     # Stress Tensor
     S_vol = J*p*invC
