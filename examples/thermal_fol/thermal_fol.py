@@ -12,11 +12,11 @@ import pickle
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # cleaning & logging
-    working_directory_name = 'results'
+    working_directory_name = 'thermal_fol'
     case_dir = os.path.join('.', working_directory_name)
-    clean_dir = True
-    if clean_dir:
-        create_clean_directory(working_directory_name)
+    # clean_dir = True
+    # if clean_dir:
+    create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,"fol_thermal_3D.log"))
 
     # importing mesh & creating model info
