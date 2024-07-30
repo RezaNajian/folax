@@ -30,7 +30,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # creation of fe model and loss function
     fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model)
+    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3})
 
     # fourier control
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),

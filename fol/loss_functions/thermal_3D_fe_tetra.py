@@ -9,6 +9,8 @@ import jax.numpy as jnp
 from jax import jit,grad
 from functools import partial
 from fol.tools.decoration_functions import *
+from fol.tools.fem_utilities import *
+from fol.computational_models.fe_model import FiniteElementModel
 
 class ThermalLoss3DTetra(FiniteElementLoss):
     """FE-based Thermal loss
@@ -17,42 +19,40 @@ class ThermalLoss3DTetra(FiniteElementLoss):
 
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self, name: str, fe_model, loss_settings: dict):
-        super().__init__(name,fe_model,["T"])
-        self.loss_settings = loss_settings
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
+        super().__init__(name,fe_model,["T"],{**loss_settings,"compute_dims":3})
+        self.shape_function = TetrahedralShapeFunction()
 
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,te,body_force):
-        xyze = jnp.array([xyze[::3], xyze[1::3], xyze[2::3]]).T
-        gauss_points = [0]
-        gauss_weights = [2]
-        fe = jnp.zeros((te.size,1))
-        ke = jnp.zeros((te.size, te.size))
-        for i, xi in enumerate(gauss_points):
-            for j, eta in enumerate(gauss_points):
-                for k, zeta in enumerate(gauss_points):
-                    Nf = jnp.array([1 - xi - eta - zeta, xi, eta, zeta])
+        xyze = jnp.array([xyze[::3], xyze[1::3], xyze[2::3]])
+        @jit
+        def compute_at_gauss_point(xi,eta,zeta,total_weight):
+            Nf = self.shape_function.evaluate(xi,eta,zeta)
+            conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
+                                    self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
+            dN_dxi = self.shape_function.derivatives(xi,eta,zeta)
+            J = jnp.dot(dN_dxi.T, xyze.T)
+            detJ = jnp.linalg.det(J)
+            invJ = jnp.linalg.inv(J)
+            B = jnp.dot(invJ,dN_dxi.T)
+            gp_stiffness = conductivity_at_gauss * jnp.dot(B.T, B) * detJ * total_weight
+            gp_f = total_weight * detJ * body_force *  Nf.reshape(-1,1) 
+            return gp_stiffness,gp_f
+        @jit
+        def vmap_compatible_compute_at_gauss_point(gp_index):
+            return compute_at_gauss_point(self.g_points[self.dim*gp_index],
+                                          self.g_points[self.dim*gp_index+1],
+                                          self.g_points[self.dim*gp_index+2],
+                                          self.g_weights[self.dim*gp_index] * 
+                                          self.g_weights[self.dim*gp_index+1]* 
+                                          self.g_weights[self.dim*gp_index+2])
 
-                    conductivity_at_gauss = jnp.dot(Nf, de.squeeze()) * (1 + 
-                                            self.loss_settings["beta"]*(jnp.dot(Nf,te.squeeze()))**self.loss_settings["c"])
-
-                    dN_dxi = jnp.array([-1, 1, 0, 0])
-                    dN_deta = jnp.array([-1, 0, 1, 0])
-                    dN_dzeta = jnp.array([-1, 0, 0, 1])
-                    
-                    J = jnp.dot(jnp.array([dN_dxi, dN_deta,dN_dzeta]), xyze)
-                    detJ = jnp.linalg.det(J)
-                    invJ = jnp.linalg.inv(J)
-
-                    B = jnp.array([dN_dxi, dN_deta, dN_dzeta])
-                    B = jnp.dot(invJ,B)
-
-                    ke += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j] * gauss_weights[k]  
-                    fe += gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * body_force *  Nf.reshape(-1,1) 
-
-        element_residuals = jax.lax.stop_gradient(ke @ te - fe)
-
-        return ((te.T @ element_residuals)[0,0]), (ke @ te - fe), ke
+        k_gps,f_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.num_gp**self.dim))
+        Se = jnp.sum(k_gps, axis=0)
+        Fe = jnp.sum(f_gps, axis=0)
+        element_residuals = jax.lax.stop_gradient(Se @ te - Fe)
+        return  ((te.T @ element_residuals)[0,0]), 2 * (Se @ te - Fe), 2 * Se
 
     def ComputeElementEnergy(self,xyze,de,te,body_force=jnp.zeros((1,1))):
         return self.ComputeElement(xyze,de,te,body_force)[0]
