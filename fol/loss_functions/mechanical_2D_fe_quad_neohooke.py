@@ -33,8 +33,8 @@ class MechanicalLoss2D(FiniteElementLoss):
         def compute_at_gauss_point(xi,eta,total_weight):
             N = self.shape_function.evaluate(xi,eta)
             e_at_gauss = jnp.dot(N, de.squeeze())
-            k_at_gauss = self.e / (3 * (1 - 2*self.v))
-            mu_at_gauss = self.e / (2 * (1 + self.v))
+            k_at_gauss = e_at_gauss / (3 * (1 - 2*self.v))
+            mu_at_gauss = e_at_gauss / (2 * (1 + self.v))
             dN_dxi = self.shape_function.derivatives(xi,eta)
             J = jnp.dot(dN_dxi.T, xye.T)
             detJ = jnp.linalg.det(J)
