@@ -1,6 +1,5 @@
 """
- Authors: Reza Najian Asl, https://github.com/RezaNajian,
-           Kianoosh Taghikhani, https://github.com/kianoosh1989
+ Authors: Kianoosh Taghikhani, https://github.com/kianoosh1989
  Date: July, 2024
  License: FOL/License.txt
 """
