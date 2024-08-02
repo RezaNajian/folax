@@ -3,11 +3,13 @@
  Date: April, 2024
  License: FOL/License.txt
 """
-from  .fe_loss import FiniteElementLoss
 import jax
 import jax.numpy as jnp
 from jax import jit
 from functools import partial
+from  .fe_loss import FiniteElementLoss
+from fol.tools.fem_utilities import *
+from fol.computational_models.fe_model import FiniteElementModel
 
 class ThermalLoss2D(FiniteElementLoss):
     """FE-based 2D Thermal loss
@@ -15,36 +17,37 @@ class ThermalLoss2D(FiniteElementLoss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model, ordered_dofs:list):
-        super().__init__(name,fe_model,["T"])
+    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
+        super().__init__(name,fe_model,["T"],{**loss_settings,"compute_dims":2})
+        self.shape_function = QuadShapeFunction()
 
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,Ke,Te,body_force):
-        xye = jnp.array([xyze[::3], xyze[1::3]]).T
-        gauss_points = [-1 / jnp.sqrt(3), 1 / jnp.sqrt(3)]
-        gauss_weights = [1, 1]
+        xye = jnp.array([xyze[::3], xyze[1::3]])
         Te = Te.reshape(-1,1)
-        Fe = jnp.zeros((4,1))
-        elem_stiffness = jnp.zeros((4, 4))
-        for i, xi in enumerate(gauss_points):
-            for j, eta in enumerate(gauss_points):
-                Nf = jnp.array([0.25 * (1 - xi) * (1 - eta), 
-                                0.25 * (1 + xi) * (1 - eta), 
-                                0.25 * (1 + xi) * (1 + eta), 
-                                0.25 * (1 - xi) * (1 + eta)])
-                conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
-                dN_dxi = jnp.array([-(1 - eta), 1 - eta, 1 + eta, -(1 + eta)]) * 0.25
-                dN_deta = jnp.array([-(1 - xi), -(1 + xi), 1 + xi, 1 - xi]) * 0.25
-                J = jnp.dot(jnp.array([dN_dxi, dN_deta]), xye)
-                detJ = jnp.linalg.det(J)
-                invJ = jnp.linalg.inv(J)
-                B = jnp.array([dN_dxi, dN_deta])
-                B = jnp.dot(invJ,B)
-                elem_stiffness += conductivity_at_gauss * jnp.dot(B.T, B) * detJ * gauss_weights[i] * gauss_weights[j]  
-                Fe += gauss_weights[i] * gauss_weights[j] * detJ * body_force *  Nf.reshape(-1,1) 
-        
-        element_residuals = jax.lax.stop_gradient(elem_stiffness @ Te - Fe)
-        return  ((Te.T @ element_residuals)[0,0]), 2 * (elem_stiffness @ Te - Fe), 2 * elem_stiffness
+        @jit
+        def compute_at_gauss_point(xi,eta,total_weight):
+            Nf = self.shape_function.evaluate(xi,eta)
+            conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
+            dN_dxi = self.shape_function.derivatives(xi,eta)
+            J = jnp.dot(dN_dxi.T, xye.T)
+            detJ = jnp.linalg.det(J)
+            invJ = jnp.linalg.inv(J)
+            B = jnp.dot(invJ,dN_dxi.T)
+            gp_stiffness = conductivity_at_gauss * jnp.dot(B.T, B) * detJ * total_weight
+            gp_f = total_weight * detJ * body_force *  Nf.reshape(-1,1) 
+            return gp_stiffness,gp_f
+        @jit
+        def vmap_compatible_compute_at_gauss_point(gp_index):
+            return compute_at_gauss_point(self.g_points[self.dim*gp_index],
+                                          self.g_points[self.dim*gp_index+1],
+                                          self.g_weights[self.dim*gp_index] * self.g_weights[self.dim*gp_index+1])
+
+        k_gps,f_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.num_gp**self.dim))
+        Se = jnp.sum(k_gps, axis=0)
+        Fe = jnp.sum(f_gps, axis=0)
+        element_residuals = jax.lax.stop_gradient(Se @ Te - Fe)
+        return  ((Te.T @ element_residuals)[0,0]), 2 * (Se @ Te - Fe), 2 * Se
     
     def ComputeElementEnergy(self,xyze,de,uvwe,body_force=0.0):
         return self.ComputeElement(xyze,de,uvwe,body_force)[0]

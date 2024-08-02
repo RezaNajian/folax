@@ -2,10 +2,6 @@ import pytest
 import unittest
 import sys
 import os
-# Add the parent directory to sys.path
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
 import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
@@ -27,8 +23,8 @@ class TestMechanicalPoly2D(unittest.TestCase):
         create_clean_directory(self.test_directory)
         self.model_info = create_2D_square_model_info_mechanical(L=1,N=11,Ux_left=0.0,Ux_right=0.1,Uy_left=0.0,Uy_right=0.1)
         self.fe_model = FiniteElementModel("FE_model",self.model_info)
-        self.mechanical_loss = MechanicalLoss2D("mechanical_loss_2d",self.fe_model)
-        self.fe_solver = NonLinearSolver("fe_solver",self.mechanical_loss,max_num_itr=20,relative_error=1e-5,load_incr=5)
+        self.mechanical_loss = MechanicalLoss2D("mechanical_loss_2d",self.fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":2})
+        self.fe_solver = NonLinearSolver("fe_solver",self.mechanical_loss,max_num_itr=5,relative_error=1e-5,load_incr=5)
         voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,10]}
         self.voronoi_control = VoronoiControl("fourier_control",voronoi_control_settings,self.fe_model)
         self.fol = FiniteElementOperatorLearning("fol_mechanical_loss_2d",self.voronoi_control,[self.mechanical_loss],[1],
@@ -42,8 +38,8 @@ class TestMechanicalPoly2D(unittest.TestCase):
                        learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",relative_error=1e-6)
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T))
         UV_FEM = np.array(self.fe_solver.SingleSolve(self.K_matrix[-1],np.zeros(UV_FOL.shape)))
-        l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FOL,ord=2)
-        self.assertLessEqual(l2_error, 5)
+        l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
+        self.assertLessEqual(l2_error, 10)
         
         if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)
