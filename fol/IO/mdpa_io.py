@@ -117,8 +117,8 @@ class MdpaIO(InputOutput):
         self.points = np.fromfile(f, count=num_nodes * 4, sep=" ").reshape((num_nodes, 4))
         # The first number is the index
         self.points = self.points[:, 1:] * self.scale_factor
-
-        fol_print(f"{self.points.shape[0]} points read ")
+        self.total_number_nodes = self.points.shape[0]
+        fol_print(f"{self.total_number_nodes} points read ")
 
     def __ReadCells(self, f, environ=None):
         t = None
@@ -141,7 +141,8 @@ class MdpaIO(InputOutput):
             # Subtract one to account for the fact that python indices are 0-based.
             self.cells[-1][1].append(np.array(data[-num_nodes_per_elem:]) - 1)
 
-        fol_print(f"{len(self.cells[-1][1])} cells read ")
+        self.total_number_elements = len(self.cells[-1][1])
+        fol_print(f"{self.total_number_elements} cells read ")
 
     def __ReadSubModelPart(self, f, environ=None):
         if environ is not None:
@@ -159,7 +160,35 @@ class MdpaIO(InputOutput):
 
             self.point_sets[model_part_name] = node_ids
             fol_print(f"({model_part_name},{len(node_ids)} nodes) read ")
-            
+
+    def __getitem__(self, key):
+        return self.io.point_data[key]
+    
+    def __setitem__(self, key, value):
+        self.io.point_data[key] = value
+
+    def GetNumberOfNodes(self):
+        return self.total_number_nodes
+    
+    def GetSetNumberOfNodes(self,point_set_name):
+        if point_set_name in self.point_sets.keys():
+            return len(self.point_sets[point_set_name])
+        else:
+            raise ValueError(f"Set {point_set_name} does not exist ! ")
+
+    def GetSetNodesIds(self,point_set_name):
+        if point_set_name in self.point_sets.keys():
+            return self.point_sets[point_set_name]
+        else:
+            raise ValueError(f"Set {point_set_name} does not exist ! ")
+
+    def GetNumberOfElements(self):
+        return self.total_number_elements
+
+    def Export(self,export_dir:str=".",format:str="vtk"):
+        file_name=self.file_name.split('.')[0]+"."+format
+        self.io.write(os.path.join(export_dir, file_name),file_format=format)
+
     def Finalize(self) -> None:
         pass
 
