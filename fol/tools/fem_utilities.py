@@ -314,7 +314,16 @@ class MaterialModel:
             voigt = voigt.at[0,0].set(tensor[0,0])
             voigt = voigt.at[1,0].set(tensor[1,1])
             voigt = voigt.at[2,0].set(tensor[0,1])
-        return voigt
+            return voigt
+        elif tensor.size == 9:
+            voigt = jnp.zeros((6,1))
+            voigt = voigt.at[0,0].set(tensor[0,0])
+            voigt = voigt.at[1,0].set(tensor[1,1])
+            voigt = voigt.at[2,0].set(tensor[2,2])
+            voigt = voigt.at[3,0].set(tensor[1,2])
+            voigt = voigt.at[4,0].set(tensor[0,2])
+            voigt = voigt.at[5,0].set(tensor[0,1])
+            return voigt
 
     def FourthTensorToVoigt(self,Cf):
         """
@@ -331,7 +340,20 @@ class MaterialModel:
             C = C.at[2,0].set(C[0,2])
             C = C.at[2,1].set(C[1,2])
             C = C.at[2,2].set(Cf[0,1,0,1])
-        return C
+            return C
+        elif Cf.size == 81: 
+            C = jnp.zeros((6, 6))
+            indices = [
+                (0, 0), (1, 1), (2, 2), 
+                (1, 2), (0, 2), (0, 1)
+                ]
+            
+            for I, (i, j) in enumerate(indices):
+                for J, (k, l) in enumerate(indices):
+                    C = C.at[I, J].set(Cf[i, j, k, l])
+            
+            return C
+
 
 class NeoHookianModel(MaterialModel):
     """
