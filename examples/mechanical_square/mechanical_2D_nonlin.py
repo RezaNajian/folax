@@ -14,7 +14,7 @@ import pickle, time
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = 'mechanical_2D'
+    working_directory_name = 'mechanical_2D_nonlin'
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -23,14 +23,14 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     model_settings = {"L":1,
                     "N":10,
                     "Ux_left":0.0,"Ux_right":0.1,
-                    "Uy_left":0.0,"Uy_right":0.0}
+                    "Uy_left":0.0,"Uy_right":0.1}
 
     # creation of the model
     model_info = create_2D_square_model_info_mechanical(**model_settings)
 
     # creation of the objects
     fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model)
+    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":2})
 
     # fourier control
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
@@ -62,10 +62,10 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     np.savetxt(solution_file,K_matrix)
 
     # specify id of the K of interest
-    eval_id = 69
+    eval_id = 25
 
     # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_2d],[50,50],
+    fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_2d],[1],
                                         "swish",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
 
@@ -82,17 +82,17 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     solve_FE = True
     if solve_FE:
         first_fe_solver = NonLinearSolver("first_fe_solver",mechanical_loss_2d,relative_error=1e-5,
-                                          absolute_error=1e-5,max_num_itr=5,load_incr=5)
+                                          absolute_error=1e-5,max_num_itr=20,load_incr=5)
         start_time = time.process_time()
         FE_UV = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(2*fe_model.GetNumberOfNodes())))  
         print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
 
         relative_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
-    # plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
-    #                 subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute_error"], fig_title=None, cmap='viridis',
-    #                     block_bool=True, colour_bar=True, colour_bar_name=None,
-    #                     X_axis_name=None, Y_axis_name=None, show=True, file_name=None)
+    plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
+                    subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute_error"], fig_title=None, cmap='viridis',
+                        block_bool=True, colour_bar=True, colour_bar_name=None,
+                        X_axis_name=None, Y_axis_name=None, show=True, file_name=None)
     
     if clean_dir:
         shutil.rmtree(case_dir)

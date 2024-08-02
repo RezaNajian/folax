@@ -29,7 +29,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # creation of the objects
     fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model)
+    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",fe_model,{"young_modulus":1,"poisson_ratio":0.3,"num_gp":2})
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
     voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
@@ -72,15 +72,15 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
         relative_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
-    # plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
-    #                 subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute error"], fig_title=None, cmap='viridis',
-    #                     block_bool=False, colour_bar=True, colour_bar_name=None,
-    #                     X_axis_name='X', Y_axis_name='Y', show=True, file_name='plot_U_error.png')
+    plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
+                    subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute error"], fig_title=None, cmap='viridis',
+                        block_bool=False, colour_bar=True, colour_bar_name=None,
+                        X_axis_name='X', Y_axis_name='Y', show=True, file_name='plot_U_error.png')
 
-    # plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],relative_error[1::2]], 
-    #                 subplot_titles= ['Heterogeneity', 'FOL_V', 'FE_V', "absolute error"], fig_title=None, cmap='viridis',
-    #                     block_bool=False, colour_bar=True, colour_bar_name=None,
-    #                     X_axis_name='X', Y_axis_name='Y', show=True, file_name='plot_V_error.png')
+    plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],relative_error[1::2]], 
+                    subplot_titles= ['Heterogeneity', 'FOL_V', 'FE_V', "absolute error"], fig_title=None, cmap='viridis',
+                        block_bool=False, colour_bar=True, colour_bar_name=None,
+                        X_axis_name='X', Y_axis_name='Y', show=True, file_name='plot_V_error.png')
     
     if clean_dir:
         shutil.rmtree(case_dir)
