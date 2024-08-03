@@ -14,7 +14,7 @@ import pickle
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = "box_3D_tetra"
+    working_directory_name = "box_3D_tetra_nonlin"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -96,7 +96,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
-    solve_FE = True
+    solve_FE = False
     clean_dir = False
 
     # Parse the command-line arguments

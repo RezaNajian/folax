@@ -70,16 +70,13 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol.Initialize()
 
     start_time = time.process_time()
-    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id,:].reshape(-1,1).T,batch_size=1,num_epochs=100,
+    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id,:].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
                 learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
                 relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
-
-    print(f"\n############### FOL train took: {time.process_time() - start_time} s ###############\n")
 
     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T))
 
     # solve FE here
-    solve_FE = True
     if solve_FE:
         first_fe_solver = NonLinearSolver("first_fe_solver",mechanical_loss_2d,relative_error=1e-5,
                                           absolute_error=1e-5,max_num_itr=5,load_incr=4)
@@ -89,10 +86,10 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
         relative_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         
-    plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
-                    subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute_error"], fig_title=None, cmap='viridis',
-                        block_bool=True, colour_bar=True, colour_bar_name=None,
-                        X_axis_name=None, Y_axis_name=None, show=True, file_name=None)
+        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2],relative_error[::2]], 
+                        subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute_error"], fig_title=None, cmap='viridis',
+                            block_bool=True, colour_bar=True, colour_bar_name=None,
+                            X_axis_name=None, Y_axis_name=None, show=False, file_name=os.path.join(case_dir,'plot_results.png'))
     
     if clean_dir:
         shutil.rmtree(case_dir)
