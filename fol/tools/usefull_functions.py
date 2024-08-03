@@ -448,6 +448,32 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
 
     return coeffs_matrix,K_matrix
 
+def create_random_voronoi_samples(voronoi_control,numberof_sample):
+    # N = int(voronoi_control.GetNumberOfControlledVariables()**0.5)
+    number_seeds = voronoi_control.numberof_seeds
+    rangeofValues = voronoi_control.k_rangeof_values
+    numberofVar = voronoi_control.GetNumberOfVariables()
+    K_matrix = np.zeros((numberof_sample,voronoi_control.GetNumberOfControlledVariables()))
+    coeffs_matrix = np.zeros((numberof_sample,numberofVar))
+    
+    for i in range(numberof_sample):
+        x_coords = np.random.rand(number_seeds)
+        y_coords = np.random.rand(number_seeds)
+        if isinstance(rangeofValues, range):
+            K_values = np.random.uniform(rangeofValues[0],rangeofValues[-1],number_seeds)
+        if isinstance(rangeofValues, list):
+            K_values = np.random.choice(rangeofValues, size=number_seeds)
+        
+        Kcoeffs = np.zeros((0,numberofVar))
+        Kcoeffs = np.concatenate((x_coords.reshape(1,-1), y_coords.reshape(1,-1), K_values.reshape(1,-1)), axis=1)
+        K = voronoi_control.ComputeControlledVariables(Kcoeffs)
+        K_matrix[i,:] = K
+        coeffs_matrix[i,:] = Kcoeffs
+
+    # K_matrix = np.vstack((K_matrix,0.5*np.ones(K_matrix.shape[1])))
+    # coeffs_matrix = np.vstack((coeffs_matrix,np.array([-0.5,0.5,0.5,-0.5, 0.5,0.5,-0.5,-0.5, 0.5,0.5,0.5,0.5])))
+    return coeffs_matrix,K_matrix
+
 def create_clean_directory(case_dir):
     # Check if the directory exists
     if os.path.exists(case_dir):
@@ -456,3 +482,70 @@ def create_clean_directory(case_dir):
     
     # Create the new directory
     os.makedirs(case_dir)
+
+
+def TensorToVoigt(tensor):
+    if tensor.size == 4:
+        voigt = jnp.zeros((3,1))
+        voigt = voigt.at[0,0].set(tensor[0,0])
+        voigt = voigt.at[1,0].set(tensor[1,1])
+        voigt = voigt.at[2,0].set(tensor[0,1])
+    return voigt
+    
+def fourth_order_identity_tensor(dim=3):
+    I = jnp.zeros((dim, dim, dim, dim))
+    I = jnp.einsum('ik,jl->ijkl',jnp.eye(dim),jnp.eye(dim))
+    return I
+    
+def diad_special(A,B,dim):
+    C = jnp.zeros((dim, dim, dim, dim))
+    C = 0.5*(jnp.einsum('ik,jl->ijkl',A,B) + jnp.einsum('il,jk->ijkl',A,B))
+    return C
+    
+def FourthTensorToVoigt(Cf):
+    if Cf.size == 16:
+        C = jnp.zeros((3,3))
+        C = C.at[0,0].set(Cf[0,0,0,0])
+        C = C.at[0,1].set(Cf[0,0,1,1])
+        C = C.at[0,2].set(Cf[0,0,0,1])
+        C = C.at[1,0].set(C[0,1])
+        C = C.at[1,1].set(Cf[1,1,1,1])
+        C = C.at[1,2].set(Cf[1,1,0,1])
+        C = C.at[2,0].set(C[0,2])
+        C = C.at[2,1].set(C[1,2])
+        C = C.at[2,2].set(Cf[0,1,0,1])
+    return C
+
+
+def Neo_Hooke(F,k,mu):
+    C = jnp.dot(F.T,F)
+    invC = jnp.linalg.inv(C)
+    J0 = jnp.linalg.det(F)
+    eps = 1e-12
+    J = jnp.where(jnp.abs(J0)<eps, eps, J0)
+    # if jnp.abs(J) < 1e-12:
+    #     raise ValueError("Deformation gradient determinant is too small, possible degenerate element.")
+    p = (k/4)*(2*J-2*J**(-1))
+    dp_dJ = (k/4)*(2 + 2*J**(-2))
+    # Strain Energy
+    xsie_vol = (k/4)*(J**2 - 2*jnp.log(J) -1)
+    I1_bar = (J**(-2/3))*jnp.trace(C)
+    xsie_iso = 0.5*mu*(I1_bar - 3)
+    loss_positive_bias = 100     # To prevent loss to become a negative number
+    xsie = xsie_vol + xsie_iso + loss_positive_bias
+
+    # Stress Tensor
+    S_vol = J*p*invC
+    I_fourth = fourth_order_identity_tensor(C.shape[0])
+    P = I_fourth - (1/3)*jnp.einsum('ij,kl->ijkl', invC, C)
+    S_bar = mu*jnp.eye(C.shape[0])
+    S_iso = (J**(-2/3))*jnp.einsum('ijkl,kl->ij',P,S_bar)
+    Se = S_vol + S_iso
+
+    P_bar = diad_special(invC,invC,invC.shape[0]) - (1/3)*jnp.einsum('ij,kl->ijkl',invC,invC)
+    C_vol = (J*p + dp_dJ*J**2)*jnp.einsum('ij,kl->ijkl',invC,invC) - 2*J*p*diad_special(invC,invC,invC.shape[0])
+    C_iso = (2/3)*(J**(-2/3))*jnp.vdot(S_bar,C)*P_bar - \
+            (2/3)*(jnp.einsum('ij,kl->ijkl',invC,S_iso) + jnp.einsum('ij,kl->ijkl',S_iso,invC))
+    C_tangent_fourth = C_vol + C_iso
+    
+    return xsie, Se, C_tangent_fourth
