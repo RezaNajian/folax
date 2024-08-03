@@ -51,16 +51,8 @@ def main(fol_num_epochs=10,clean_dir=False):
 
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-    # now save K matrix 
-    export_Ks = False
-    if export_Ks:
-        for i in range(K_matrix.shape[0]):
-            solution_file = os.path.join(case_dir, f"K_{i}.vtu")
-            mdpa_io.io.point_data['K'] = np.array(K_matrix[i,:])
-            mdpa_io.io.write(solution_file)
-
     eval_id = -1
-    mdpa_io.io.point_data['K'] = np.array(K_matrix[eval_id,:])
+    mdpa_io['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
@@ -71,11 +63,10 @@ def main(fol_num_epochs=10,clean_dir=False):
                 learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
                 relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
 
-    solution_file = os.path.join(case_dir, f"K_{eval_id}_comp.vtu")
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
-    mdpa_io.io.point_data['U_FOL'] = FOL_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
+    mdpa_io['U_FOL'] = FOL_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
 
-    mdpa_io.io.write(os.path.join(case_dir,"hook.vtk"))
+    mdpa_io.Export(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)
