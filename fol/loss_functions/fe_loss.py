@@ -194,16 +194,16 @@ class FiniteElementLoss(Loss):
         for dof_index,dof in enumerate(self.dofs):
             dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
             full_matrix = full_matrix.at[dirichlet_indices,:].set(0)
-            full_matrix = full_matrix.at[dirichlet_indices,dirichlet_indices].set(1)  
+            full_matrix = full_matrix.at[dirichlet_indices,dirichlet_indices].set(1)
         return full_matrix
 
-    @partial(jit, static_argnums=(0,))
-    def ApplyBCOnDOFs(self,full_dof_vector):
+    @partial(jit, static_argnums=(0,2,))
+    def ApplyBCOnDOFs(self,full_dof_vector,load_increment=1):
         full_dof_vector = full_dof_vector.reshape(-1)
         for dof_index,dof in enumerate(self.dofs):
             # set values on drichlet dofs 
             dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_dof_vector = full_dof_vector.at[dirichlet_indices].set(self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
+            full_dof_vector = full_dof_vector.at[dirichlet_indices].set(load_increment*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
         return full_dof_vector
             
 
