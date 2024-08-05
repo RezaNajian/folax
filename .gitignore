@@ -7,3 +7,4 @@ build/
 *.egg-info/
 dist/
 build/
+play_ground/
