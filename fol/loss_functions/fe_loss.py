@@ -64,7 +64,7 @@ class FiniteElementLoss(Loss):
             g_points,g_weights = GaussQuadrature().one_point_GQ
             self.loss_settings["num_gp"] = 1
             self.num_gp = 1
-            warnings.warn(f"number of gauss points is set to 1 for loss {self.GetName()}!")
+            fol_warning(f"number of gauss points is set to 1 for loss {self.GetName()}!")
 
         if not "compute_dims" in self.loss_settings.keys():
             raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")

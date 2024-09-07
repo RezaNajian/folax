@@ -118,7 +118,7 @@ class MdpaIO(InputOutput):
         # The first number is the index
         self.points = self.points[:, 1:] * self.scale_factor
         self.total_number_nodes = self.points.shape[0]
-        fol_print(f"{self.total_number_nodes} points read ")
+        fol_info(f"{self.total_number_nodes} points read ")
 
     def __ReadCells(self, f, environ=None):
         t = None
@@ -142,7 +142,7 @@ class MdpaIO(InputOutput):
             self.cells[-1][1].append(np.array(data[-num_nodes_per_elem:]) - 1)
 
         self.total_number_elements = len(self.cells[-1][1])
-        fol_print(f"{self.total_number_elements} cells read ")
+        fol_info(f"{self.total_number_elements} cells read ")
 
     def __ReadSubModelPart(self, f, environ=None):
         if environ is not None:
@@ -159,7 +159,7 @@ class MdpaIO(InputOutput):
                 node_ids.append(int(line.strip())-1)
 
             self.point_sets[model_part_name] = node_ids
-            fol_print(f"({model_part_name},{len(node_ids)} nodes) read ")
+            fol_info(f"({model_part_name},{len(node_ids)} nodes) read ")
 
     def __getitem__(self, key):
         return self.io.point_data[key]
