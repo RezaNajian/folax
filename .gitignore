@@ -3,6 +3,7 @@
 *.npy
 *.png
 *.msh
+*.log
 build/
 *.egg-info/
 dist/
