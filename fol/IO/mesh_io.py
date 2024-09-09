@@ -24,18 +24,21 @@ class MeshIO(InputOutput):
         self.mesh_io.cell_data_to_sets('cell_tags')
         self.node_ids = jnp.arange(len(self.mesh_io.points))
         self.nodes_coordinates = self.scale_factor * jnp.array(self.mesh_io.points)
+        fol_info(f"{len(self.node_ids)} points read ")
         
         #create elemnt nodes dict based on element types
         self.elements_nodes = {}
         for elements_info in self.mesh_io.cells:
             self.elements_nodes[elements_info.type] = jnp.array(elements_info.data)
+            fol_info(f"{len(elements_info.data)} {elements_info.type} elements read ")
         
         # create node sets
-        self.point_sets = {}
+        self.node_sets = {}
         for tag,tag_info_list in self.mesh_io.point_tags.items():
             if len(tag_info_list)>1:
                 point_set_name = tag_info_list[1]
-                self.point_sets[point_set_name] = jnp.array(self.mesh_io.point_sets[f"set-key-{tag}"])
+                self.node_sets[point_set_name] = jnp.array(self.mesh_io.point_sets[f"set-key-{tag}"])
+                fol_info(f"({point_set_name},{len(self.node_sets[point_set_name])} nodes) read ")
                 
         # TODO: create element sets 
         self.element_sets = {}

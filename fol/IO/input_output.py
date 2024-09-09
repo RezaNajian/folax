@@ -24,7 +24,7 @@ class InputOutput(ABC):
         self.node_ids = jnp.array([])
         self.nodes_coordinates = jnp.array([])
         self.elements_nodes = {}
-        self.point_sets = {}
+        self.node_sets = {}
         self.element_sets = {}
         self.mesh_io = None
         self.is_initialized = False
@@ -64,6 +64,9 @@ class InputOutput(ABC):
 
     def GetElementsNodes(self,element_type) -> jnp.array:
         return self.elements_nodes[element_type]
+    
+    def GetNodeSet(self,set_name) -> jnp.array:
+        return self.node_sets[set_name]
     
     def __getitem__(self, key):
         return self.mesh_io.point_data[key]
