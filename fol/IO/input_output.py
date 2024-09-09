@@ -4,6 +4,7 @@
  License: FOL/License.txt
 """
 from abc import ABC, abstractmethod
+import jax.numpy as jnp
 
 class InputOutput(ABC):
     """Base abstract input-output class.
@@ -14,6 +15,13 @@ class InputOutput(ABC):
     """
     def __init__(self, io_name: str) -> None:
         self.__name = io_name
+        self.node_ids = jnp.array([])
+        self.nodes_coordinates = jnp.array([])
+        self.elements_nodes = {}
+        self.point_sets = {}
+        self.element_sets = {}
+        self.mesh_io = None
+        self.is_initialized = False
 
     def GetName(self) -> str:
         return self.__name
@@ -26,6 +34,30 @@ class InputOutput(ABC):
 
         """
         pass
+
+    def GetNodesIds(self) -> jnp.array:
+        return self.node_ids
+    
+    def GetNumberOfNodes(self) -> int:
+        return len(self.node_ids)
+
+    def GetNodesCoordinates(self) -> jnp.array:
+        return self.nodes_coordinates
+    
+    def GetNodesX(self) -> jnp.array:
+        return self.nodes_coordinates[:,0]
+    
+    def GetNodesY(self) -> jnp.array:
+        return self.nodes_coordinates[:,1]
+    
+    def GetNodesZ(self) -> jnp.array:
+        return self.nodes_coordinates[:,2]
+    
+    def GetElementsIds(self,element_type) -> jnp.array:
+        return jnp.arange(len(self.elements_nodes[element_type]))
+
+    def GetElementsNodes(self,element_type) -> jnp.array:
+        return self.elements_nodes[element_type]
 
     @abstractmethod
     def Finalize(self) -> None:
