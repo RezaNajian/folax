@@ -4,7 +4,6 @@
  License: FOL/License.txt
 """
 import os
-import numpy as np
 import jax.numpy as jnp
 from  .input_output import InputOutput
 from fol.tools.decoration_functions import *
@@ -17,11 +16,6 @@ class MeshIO(InputOutput):
         1. Initalizes and finalizes the meshio.
 
     """
-    @print_with_timestamp_and_execution_time
-    def __init__(self,io_name:str,file_name:str,case_dir:str=".") -> None:
-        super().__init__(io_name)
-        self.file_name = file_name
-        self.case_dir = case_dir
 
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
@@ -29,7 +23,7 @@ class MeshIO(InputOutput):
         self.mesh_io.point_data_to_sets('point_tags')
         self.mesh_io.cell_data_to_sets('cell_tags')
         self.node_ids = jnp.arange(len(self.mesh_io.points))
-        self.nodes_coordinates = jnp.array(self.mesh_io.points)
+        self.nodes_coordinates = self.scale_factor * jnp.array(self.mesh_io.points)
         
         #create elemnt nodes dict based on element types
         self.elements_nodes = {}
@@ -47,9 +41,6 @@ class MeshIO(InputOutput):
         self.element_sets = {}
 
         self.is_initialized = True
-
-    def Finalize(self) -> None:
-        pass
 
 
 

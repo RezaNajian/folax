@@ -5,6 +5,9 @@
 """
 from abc import ABC, abstractmethod
 import jax.numpy as jnp
+import numpy as np
+import os
+from fol.tools.decoration_functions import *
 
 class InputOutput(ABC):
     """Base abstract input-output class.
@@ -13,8 +16,11 @@ class InputOutput(ABC):
         1. Initalizes and finalizes the IO.
 
     """
-    def __init__(self, io_name: str) -> None:
+    def __init__(self, io_name: str, file_name:str, case_dir:str=".", scale_factor:float=1) -> None:
         self.__name = io_name
+        self.file_name = file_name
+        self.case_dir = case_dir
+        self.scale_factor = scale_factor
         self.node_ids = jnp.array([])
         self.nodes_coordinates = jnp.array([])
         self.elements_nodes = {}
@@ -58,15 +64,17 @@ class InputOutput(ABC):
 
     def GetElementsNodes(self,element_type) -> jnp.array:
         return self.elements_nodes[element_type]
+    
+    def __getitem__(self, key):
+        return self.mesh_io.point_data[key]
+    
+    def __setitem__(self, key, value):
+        self.mesh_io.point_data[key] = np.array(value)
 
-    @abstractmethod
-    def Finalize(self) -> None:
-        """Finalizes the io.
-
-        This method finalizes the io. 
-
-        """
-        pass
+    @print_with_timestamp_and_execution_time
+    def Finalize(self,export_dir:str=".",export_format:str="vtk") -> None:
+        file_name=self.file_name.split('.')[0]+"."+export_format
+        self.mesh_io.write(os.path.join(export_dir, file_name),file_format=export_format)
 
 
 
