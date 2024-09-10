@@ -61,6 +61,9 @@ class InputOutput(ABC):
     
     def GetElementsIds(self,element_type) -> jnp.array:
         return jnp.arange(len(self.elements_nodes[element_type]))
+    
+    def GetNumberOfElements(self,element_type) -> jnp.array:
+        return len(self.elements_nodes[element_type])
 
     def GetElementsNodes(self,element_type) -> jnp.array:
         return self.elements_nodes[element_type]
