@@ -11,7 +11,7 @@ from jax import jit,grad
 from functools import partial
 from abc import abstractmethod
 from fol.tools.decoration_functions import *
-from fol.computational_models.fe_model import FiniteElementModel
+from fol.mesh_input_output.mesh import Mesh
 from fol.tools.fem_utilities import *
 
 class FiniteElementLoss(Loss):
@@ -20,32 +20,50 @@ class FiniteElementLoss(Loss):
     This is the base class for the loss functions require FE formulation.
 
     """
-    def __init__(self, name: str, fe_model: FiniteElementModel, ordered_dofs: list, loss_settings: dict={}):
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name)
-        self.fe_model = fe_model
-        self.dofs = ordered_dofs
         self.loss_settings = loss_settings
-        self.number_of_dirichlet_dofs = 0
-        self.number_of_unknown_dofs = 0
-        for dof in self.dofs:
-            if not dof in self.fe_model.GetDofsDict().keys():
-                raise ValueError(f"No boundary conditions found for dof {dof} in dofs_dict of fe model ! ")
-            if not "non_dirichlet_nodes_ids" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No non_dirichlet_nodes_ids found for dof {dof} in dofs_dict of fe model ! ")
-            if not "dirichlet_nodes_ids" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No dirichlet_nodes_ids found for dof {dof} in dofs_dict of fe model ! ")
-            if not "dirichlet_nodes_dof_value" in self.fe_model.GetDofsDict()[dof].keys():
-                raise ValueError(f"No dirichlet_nodes_dof_value found for dof {dof} in dofs_dict of fe model ! ")
+        self.dofs = self.loss_settings["ordered_dofs"]
+        self.element_type = self.loss_settings["element_type"]
+        self.fe_mesh = fe_mesh
+        if "dirichlet_bc_dict" not in self.loss_settings.keys():
+            fol_error("dirichlet_bc_dict should provided in the loss settings !")
 
-            self.number_of_dirichlet_dofs += self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"].shape[-1]
-            self.number_of_unknown_dofs += self.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"].shape[-1]
+    def __CreateDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
+        number_dofs_per_node = len(dofs_list)
+        dirichlet_indices = []
+        dirichlet_values = [] 
+        dirichlet_dofs_boundary_dict = {}       
+        for dof_index,dof in enumerate(dofs_list):
+            dirichlet_dofs_boundary_dict[dof] = {}
+            for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
+                boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
+                dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
 
-        if len(self.dofs) * self.fe_model.GetNumberOfNodes() != self.number_of_dirichlet_dofs + self.number_of_unknown_dofs:
-            raise ValueError(f"number of dirichlet dofs: {self.number_of_dirichlet_dofs} + number of unknown dofs:" \
-                             + f"{self.number_of_unknown_dofs} do not match with number of dofs: {len(self.dofs)} * number of nodes: {self.fe_model.GetNumberOfNodes()} ")
+                boundary_start_index = len(dirichlet_indices)
+                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
 
-        self.total_number_of_dofs = len(self.dofs) * self.fe_model.GetNumberOfNodes()
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
+                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
+                dirichlet_values.extend(dirichlet_bc_values.tolist())
+        
+        self.dirichlet_indices = jnp.array(dirichlet_indices)
+        self.dirichlet_values = jnp.array(dirichlet_values)
+        all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
+        self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
+
+    def Initialize(self) -> None:
         self.number_dofs_per_node = len(self.dofs)
+        self.total_number_of_dofs = len(self.dofs) * self.fe_mesh.GetNumberOfNodes()
+        self.__CreateDofsDict(self.dofs,self.loss_settings["dirichlet_bc_dict"])
+        self.number_of_unknown_dofs = self.non_dirichlet_indices.size
+
+        # create full solution vector
+        self.solution_vector = jnp.zeros(self.total_number_of_dofs)
+        # apply dirichlet bcs
+        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():
@@ -64,7 +82,6 @@ class FiniteElementLoss(Loss):
             g_points,g_weights = GaussQuadrature().one_point_GQ
             self.loss_settings["num_gp"] = 1
             self.num_gp = 1
-            fol_warning(f"number of gauss points is set to 1 for loss {self.GetName()}!")
 
         if not "compute_dims" in self.loss_settings.keys():
             raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")
@@ -81,8 +98,7 @@ class FiniteElementLoss(Loss):
             self.g_points = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points]).flatten()
             self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
-    def Initialize(self) -> None:
-        pass
+        self.__initialized = True
 
     def Finalize(self) -> None:
         pass

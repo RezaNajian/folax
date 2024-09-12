@@ -10,22 +10,27 @@ from jax import jit
 from functools import partial
 from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
-from fol.computational_models.fe_model import FiniteElementModel
+from fol.mesh_input_output.mesh import Mesh
 
 class MechanicalLoss3DTetra(FiniteElementLoss):
     """FE-based Mechanical loss
 
-    This is the base class for the loss functions require FE formulation.
-
     """
-    @print_with_timestamp_and_execution_time
-    def __init__(self, name: str, fe_model: FiniteElementModel, loss_settings: dict={}):
-        super().__init__(name,fe_model,["Ux","Uy","Uz"],{**loss_settings,"compute_dims":3})
-        self.shape_function = TetrahedralShapeFunction()
+    
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        super().__init__(name,{**loss_settings,"compute_dims":3,
+                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "element_type":"tetra"},fe_mesh)
+        if "material_dict" not in self.loss_settings.keys():
+            fol_error("material_dict should provided in the loss settings !")
 
+    @print_with_timestamp_and_execution_time
+    def Initialize(self) -> None:  
+        super().Initialize() 
+        self.shape_function = TetrahedralShapeFunction()
         # construction of the constitutive matrix
-        self.e = self.loss_settings["young_modulus"]
-        self.v = self.loss_settings["poisson_ratio"]
+        self.e = self.loss_settings["material_dict"]["young_modulus"]
+        self.v = self.loss_settings["material_dict"]["poisson_ratio"]
         c1 = self.e / ((1.0 + self.v) * (1.0 - 2.0 * self.v))
         c2 = c1 * (1.0 - self.v)
         c3 = c1 * self.v
