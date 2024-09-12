@@ -35,7 +35,7 @@ _mdpa_to_meshio_type = {
     "Hexahedra3D20": "hexahedron20",
 }
 
-class MeshIO(ABC):
+class Mesh(ABC):
     """Base abstract input-output class.
 
     The base abstract InputOutput class has the following responsibilities.
@@ -78,8 +78,11 @@ class MeshIO(ABC):
             # create node sets
             self.node_sets = {}
             for tag,tag_info_list in self.mesh_io.point_tags.items():
-                if len(tag_info_list)>1:
-                    point_set_name = tag_info_list[1]
+                filtered_tag_info_list = [item for item in tag_info_list if 'Group_Of_All_Nodes' not in item]
+                if len(filtered_tag_info_list)>1:
+                    fol_error(f" the input mesh is not valid ! point set {filtered_tag_info_list} is not unique !")
+                elif len(filtered_tag_info_list)==1:
+                    point_set_name = filtered_tag_info_list[0]
                     self.node_sets[point_set_name] = jnp.array(self.mesh_io.point_sets[f"set-key-{tag}"])
                     
             # TODO: create element sets 

@@ -14,6 +14,7 @@ class Loss(ABC):
     """
     def __init__(self, loss_name: str) -> None:
         self.__name = loss_name
+        self.__initialized = False
 
     def GetName(self) -> str:
         return self.__name

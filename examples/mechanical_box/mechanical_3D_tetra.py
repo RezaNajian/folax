@@ -5,7 +5,7 @@ import numpy as np
 from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
 from fol.solvers.fe_solver import FiniteElementSolver
-from fol.IO.mesh_io import MeshIO
+from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
@@ -19,23 +19,27 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
+    # create mesh_io
+    fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
 
-    # import mesh
-    point_bc_settings = {"Ux":{"left":0.0},
-                        "Uy":{"left":0.0,"right":-0.05},
-                        "Uz":{"left":0.0,"right":-0.05}}
-
-    io = MeshIO("fol_io",'../meshes/',"box_3D_coarse.med",point_bc_settings)
-    model_info = io.Import()
-
-    # creation of fe model and loss function
-    fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3})
+    # create fe-based loss function
+    bc_dict = {"Ux":{"left":0.0},
+                "Uy":{"left":0.0,"right":-0.05},
+                "Uz":{"left":0.0,"right":-0.05}}
+    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
+    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                                   "material_dict":material_dict},
+                                                                                   fe_mesh=fe_mesh)
 
     # fourier control
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
                                 "beta":20,"min":1e-1,"max":1}
-    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
+    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
+
+
+    fe_mesh.Initialize()
+    mechanical_loss_3d.Initialize()
+    fourier_control.Initialize()
 
     # create some random coefficients & K for training
     create_random_coefficients = False
@@ -58,12 +62,13 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     # now save K matrix 
-    export_Ks = False
+    export_Ks = True
     if export_Ks:
         for i in range(K_matrix.shape[0]):
-            solution_file = os.path.join(case_dir, f"K_{i}.vtu")
-            io.mesh_io.point_data['K'] = np.array(K_matrix[i,:])
-            io.mesh_io.write(solution_file)
+            fe_mesh[f'K_{i}'] = np.array(K_matrix[i,:])
+        fe_mesh.Finalize(export_dir=case_dir)
+
+    exit()
 
     eval_id = 69
     io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
