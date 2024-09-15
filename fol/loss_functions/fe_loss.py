@@ -98,13 +98,38 @@ class FiniteElementLoss(Loss):
             self.g_points = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points]).flatten()
             self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
+        @jit
+        def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
+            solution_vector = jnp.zeros(self.total_number_of_dofs)
+            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            return solution_vector
+
+        @jit
+        def ConstructFullDofVectorParametricLearning(known_dofs: jnp.array,unknown_dofs: jnp.array):
+            solution_vector = jnp.zeros(self.total_number_of_dofs)
+            solution_vector = self.solution_vector.at[self.dirichlet_indices].set(known_dofs)
+            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            return solution_vector  
+
+        if self.loss_settings.get("parametric_boundary_learning"):
+            self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+        else:
+            self.full_dof_vector_function = ConstructFullDofVector
+
         self.__initialized = True
+
+    @partial(jit, static_argnums=(0,))
+    def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
+        return self.full_dof_vector_function(known_dofs,unknown_dofs)
 
     def Finalize(self) -> None:
         pass
 
     def GetNumberOfUnknowns(self):
         return self.number_of_unknown_dofs
+    
+    def GetTotalNumberOfDOFs(self):
+        return self.total_number_of_dofs
 
     @abstractmethod
     def ComputeElementEnergy(self):
@@ -134,93 +159,56 @@ class FiniteElementLoss(Loss):
     def ComputeElementsEnergies(self,total_control_vars,total_primal_vars):
         # parallel calculation of energies
         return jax.vmap(self.ComputeElementEnergyVmapCompatible,(0,None,None,None,None,None,None)) \
-                        (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
-                        ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
+                        (self.fe_mesh.GetElementsIds(self.element_type),self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesX(),self.fe_mesh.GetNodesY(),self.fe_mesh.GetNodesZ(),
                         total_control_vars,total_primal_vars)
 
-    # @partial(jit, static_argnums=(0,))
+    # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeResiduals(self,total_control_vars,total_primal_vars):
+    def ComputeResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
         # parallel calculation of residuals
-        elements_residuals = jax.vmap(self.ComputeElementResidualsVmapCompatible,(0,None,None,None,None,None,None)) \
-                                                (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
-                                                ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
-                                                total_control_vars,total_primal_vars)
-
-        problem_size = self.number_dofs_per_node*self.fe_model.GetNumberOfNodes()
-        residuals = jnp.zeros(problem_size)
-        for elem_idx, element_nodes in enumerate(self.fe_model.GetElementsNodes()):
-            dof_idx = ((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +jnp.arange(3)).reshape(-1)
-            residuals = residuals.at[dof_idx].add(jnp.squeeze(elements_residuals[elem_idx]))
-
-        return residuals
-    
-    # @partial(jit, static_argnums=(0,))
-    @print_with_timestamp_and_execution_time
-    def ComputeResidualsAndStiffness(self,total_control_vars,total_primal_vars):
-        # parallel calculation of residuals
-        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualsAndStiffnessVmapCompatible,(0,None,None,None,None,None,None)) \
-                                                (self.fe_model.GetElementsIds(),self.fe_model.GetElementsNodes()
-                                                ,self.fe_model.GetNodesX(),self.fe_model.GetNodesY(),self.fe_model.GetNodesZ(),
-                                                total_control_vars,total_primal_vars)
-
-        problem_size = self.number_dofs_per_node*self.fe_model.GetNumberOfNodes()
-        residuals = jnp.zeros(problem_size)
-        stiffness = jnp.zeros((problem_size,problem_size))
-        for elem_idx, element_nodes in enumerate(self.fe_model.GetElementsNodes()):
-            dof_idx = ((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +jnp.arange(self.number_dofs_per_node)).reshape(-1)
-            residuals = residuals.at[dof_idx].add(jnp.squeeze(elements_residuals[elem_idx]))
-            stiffness = stiffness.at[dof_idx[:, None],dof_idx].add(elements_stiffness[elem_idx])
-
-        return residuals,stiffness
+        elements_residuals = jnp.squeeze(jax.vmap(self.ComputeElementResidualsVmapCompatible,(0,None,None,None,None,None,None)) \
+                                     (self.fe_mesh.GetElementsIds(self.element_type),self.fe_mesh.GetElementsNodes(self.element_type),
+                                      self.fe_mesh.GetNodesX(),self.fe_mesh.GetNodesY(),self.fe_mesh.GetNodesZ(),
+                                      total_control_vars,total_primal_vars))
+        
+        residuals_vector = jnp.zeros((self.total_number_of_dofs))
+        for dof_idx in range(self.number_dofs_per_node):
+            residuals_vector = residuals_vector.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].add(jnp.squeeze(elements_residuals[:,dof_idx::self.number_dofs_per_node]))
+        return residuals_vector
 
     @partial(jit, static_argnums=(0,))
     def ComputeTotalEnergy(self,total_control_vars,total_primal_vars):
-        return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_primal_vars))
-    
+        return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_primal_vars)) 
+
+    @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
-    def Compute_DR_DC(self,total_control_vars,total_primal_vars):
-        return jax.jacfwd(self.Compute_R,argnums=0)(total_control_vars,total_primal_vars)
-    
-    @partial(jit, static_argnums=(0,))
-    def ExtendUnknowDOFsWithBC(self,unknown_dofs):
-        full_dofs = jnp.zeros(self.total_number_of_dofs)
-        unknown_dof_start_index = 0
-        for dof_index,dof in enumerate(self.dofs):
-            # apply drichlet dofs
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_dofs = full_dofs.at[dirichlet_indices].set(self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
-            # apply non-drichlet dofs
-            non_dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["non_dirichlet_nodes_ids"] + dof_index
-            unknown_dof_end_index = unknown_dof_start_index + non_dirichlet_indices.shape[-1]
-            full_dofs = full_dofs.at[non_dirichlet_indices].set(unknown_dofs[unknown_dof_start_index:unknown_dof_end_index])
-            unknown_dof_start_index = unknown_dof_end_index
-        return full_dofs
+    def ComputeResidualVectorAD(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
+        return jax.grad(self.ComputeTotalEnergy,argnums=1)(total_control_vars,total_primal_vars)
+
+    # @partial(jit, static_argnums=(0,))
+    # def Compute_DR_DC(self,total_control_vars,total_primal_vars):
+    #     return jax.jacfwd(self.Compute_R,argnums=0)(total_control_vars,total_primal_vars)
     
     @partial(jit, static_argnums=(0,))
     def ApplyBCOnR(self,full_residual_vector):
         for dof_index,dof in enumerate(self.dofs):
             # set residuals on drichlet dofs to zero
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
+            dirichlet_indices = self.number_dofs_per_node*self.fe_mesh.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
             full_residual_vector = full_residual_vector.at[dirichlet_indices].set(0.0)
         return full_residual_vector
     
     @partial(jit, static_argnums=(0,))
     def ApplyBCOnMatrix(self,full_matrix):
         for dof_index,dof in enumerate(self.dofs):
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
+            dirichlet_indices = self.number_dofs_per_node*self.fe_mesh.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
             full_matrix = full_matrix.at[dirichlet_indices,:].set(0)
             full_matrix = full_matrix.at[dirichlet_indices,dirichlet_indices].set(1)
         return full_matrix
 
     @partial(jit, static_argnums=(0,2,))
-    def ApplyBCOnDOFs(self,full_dof_vector,load_increment=1):
-        full_dof_vector = full_dof_vector.reshape(-1)
-        for dof_index,dof in enumerate(self.dofs):
-            # set values on drichlet dofs 
-            dirichlet_indices = self.number_dofs_per_node*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_ids"] + dof_index
-            full_dof_vector = full_dof_vector.at[dirichlet_indices].set(load_increment*self.fe_model.GetDofsDict()[dof]["dirichlet_nodes_dof_value"])
-        return full_dof_vector
+    def ApplyDirichletBC(self,full_dof_vector:jnp.array,load_increment:float=1.0):
+        return full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
             
 
 

@@ -20,7 +20,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # create mesh_io
-    fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
+    fe_mesh = Mesh("fol_io","box_3D_fine.med",'../meshes/')
 
     # create fe-based loss function
     bc_dict = {"Ux":{"left":0.0},
@@ -36,10 +36,11 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                 "beta":20,"min":1e-1,"max":1}
     fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
 
-
     fe_mesh.Initialize()
     mechanical_loss_3d.Initialize()
     fourier_control.Initialize()
+
+    
 
     # create some random coefficients & K for training
     create_random_coefficients = False
@@ -59,40 +60,49 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         
         coeffs_matrix = loaded_dict["coeffs_matrix"]
 
-    K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
+    
+
+    K_matrix = jnp.ones((1,fe_mesh.GetNumberOfNodes()))
+
 
     # now save K matrix 
-    export_Ks = True
+    export_Ks = False
     if export_Ks:
         for i in range(K_matrix.shape[0]):
             fe_mesh[f'K_{i}'] = np.array(K_matrix[i,:])
         fe_mesh.Finalize(export_dir=case_dir)
 
-    exit()
-
     eval_id = 69
-    io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
+    fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
                                         "tanh",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
 
-    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+    # fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=1,
+    #             learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
+    #             relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+    
+    # sol = mechanical_loss_3d.GetSolution()
+    # fe_mesh['solution'] = np.array(sol).reshape((fe_mesh.GetNumberOfNodes(), 3))
+    
+    # fe_mesh.Finalize(export_dir=case_dir)
+    # exit()
 
-    solution_file = os.path.join(case_dir, f"K_{eval_id}_comp.vtu")
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
-    io.mesh_io.point_data['U_FOL'] = FOL_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
+    fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+
+
+    solve_FE = True
 
     # solve FE here
     if solve_FE:
         first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_3d)
-        FE_UVW = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(3*fe_model.GetNumberOfNodes())))  
-        io.model_io.point_data['U_FE'] = FE_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
+        FE_UVW = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.ones(3*fe_mesh.GetNumberOfNodes())))  
+        # fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
-    io.mesh_io.write(solution_file)
+    fe_mesh.Finalize(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)
