@@ -4,6 +4,7 @@
  License: FOL/License.txt
 """
 from abc import ABC, abstractmethod
+import jax.numpy as jnp
 
 class Loss(ABC):
     """Base abstract loss class.
@@ -24,6 +25,13 @@ class Loss(ABC):
         """Initializes the loss.
 
         This method initializes the loss. This is only called once in the whole training process.
+
+        """
+        pass
+
+    @abstractmethod
+    def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
+        """Returns vector of all dofs.
 
         """
         pass

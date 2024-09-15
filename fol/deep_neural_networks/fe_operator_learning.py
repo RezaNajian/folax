@@ -10,10 +10,12 @@ from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
 from jax import random,jit,vmap
 from functools import partial
 from fol.tools.decoration_functions import *
+from fol.loss_functions.loss import Loss
+from fol.controls.control import Control
 
 class FiniteElementOperatorLearning(DeepNetwork):
     @print_with_timestamp_and_execution_time
-    def __init__(self,NN_name:str,control,loss_functions:list,hidden_layers:list,activation_function:str,
+    def __init__(self,NN_name:str,control:Control,loss_functions:list[Loss],hidden_layers:list,activation_function:str,
                  load_NN_params:bool=False,NN_params_file_name:str=None,working_directory='.'):
         super().__init__(NN_name,load_NN_params,NN_params_file_name,working_directory)
         self.control = control
@@ -150,7 +152,7 @@ class FiniteElementOperatorLearning(DeepNetwork):
         def ForwardPassWithBC(x_input,NN_params):
             y_output = self.ForwardPass(x_input,NN_params)
             for loss_function in self.loss_functions:
-                y_output_full = loss_function.ExtendUnknowDOFsWithBC(y_output)
+                y_output_full = loss_function.GetFullDofVector(x_input,y_output)
             return y_output_full
         return jnp.squeeze(vmap(ForwardPassWithBC, (0,None))(batch_X,self.NN_params))
 
