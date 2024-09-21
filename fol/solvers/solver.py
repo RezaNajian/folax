@@ -4,6 +4,9 @@
  License: FOL/License.txt
 """
 from abc import ABC, abstractmethod
+from fol.tools.decoration_functions import *
+import jax.numpy as jnp
+import jax
 
 class Solver(ABC):
     """Base abstract solver class.
@@ -28,13 +31,12 @@ class Solver(ABC):
         pass
 
     @abstractmethod
-    def Solve(self) -> None:
-        """Solves for unknows.
-
-        This method solves for the unknowns.
-
-        """
+    def Solve(self,control_vars:jnp.array,dofs:jnp.array):
         pass
+
+    @print_with_timestamp_and_execution_time
+    def BatchSolve(self,batch_control_vars:jnp.array,batch_dofs:jnp.array):
+        return jnp.squeeze(jax.vmap(self.Solve, (0,0))(batch_control_vars,batch_dofs))
 
     @abstractmethod
     def Finalize(self) -> None:
