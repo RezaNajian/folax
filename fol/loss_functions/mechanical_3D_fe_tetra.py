@@ -94,10 +94,24 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ uvwe - Fe)
         return  ((uvwe.T @ element_residuals)[0,0]), (Se @ uvwe - Fe), Se
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeJacobianIndices(self,nodes_ids:jnp.array):
+        '''
+        Given the node tags of a quad shell, return the corresponding indices (rows, columns) of this quad in the global stiffness matrix.
+        '''
+        indices_dof = jnp.hstack((jnp.linspace(nodes_ids[0]*3,nodes_ids[0]*3+2,3,dtype='int32'),
+                                  jnp.linspace(nodes_ids[1]*3,nodes_ids[1]*3+2,3,dtype='int32'),
+                                  jnp.linspace(nodes_ids[2]*3,nodes_ids[2]*3+2,3,dtype='int32'),
+                                  jnp.linspace(nodes_ids[3]*3,nodes_ids[3]*3+2,3,dtype='int32'))) #indices represented the dofs of this quad
+        rows,cols = jnp.meshgrid(indices_dof,indices_dof,indexing='ij')#rows and columns
+        indices = jnp.vstack((rows.ravel(),cols.ravel())).T #indices in global stiffness matrix
+        return indices
 
     def ComputeElementEnergy(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
         return self.ComputeElement(xyze,de,uvwe,body_force)[0]
 
+    @partial(jit, static_argnums=(0,))
     def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
         _,re,ke = self.ComputeElement(xyze,de,uvwe,body_force)
         return re,ke

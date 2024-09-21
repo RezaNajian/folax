@@ -7,10 +7,10 @@ import jax
 import jax.numpy as jnp
 from jax import jit
 from functools import partial
-from  .residual_based_solver import ResidualBasedSolver
+from  .fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.decoration_functions import *
 
-class NonLinearSolver(ResidualBasedSolver):
+class NonLinearSolver(FiniteElementLinearResidualBasedSolver):
     """Nonlinear solver class.
 
     """
