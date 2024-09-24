@@ -133,76 +133,129 @@ class FiniteElementLoss(Loss):
         return self.total_number_of_dofs
 
     @abstractmethod
-    def ComputeElementEnergy(self):
-        pass
-
-    @abstractmethod
-    def ComputeElementResiduals(self):
-        pass
-
-    @abstractmethod
-    def ComputeElementStiffness(self):
-        pass
-
-    @abstractmethod
-    def ComputeElementResidualsAndStiffness(self):
-        pass
-
-    @abstractmethod
-    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,P):
-        pass
-
-    @abstractmethod
-    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,P):
-        pass
-
-    @abstractmethod
-    def ComputeElementResidualsAndStiffnessVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,P):
+    def ComputeElement(self,
+                       elem_xyz:jnp.array,
+                       elem_controls:jnp.array,
+                       elem_dofs:jnp.array) -> tuple[float, jnp.array, jnp.array]:
         pass
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElementsEnergies(self,total_control_vars,total_primal_vars):
+    def ComputeElementEnergy(self,
+                             elem_xyz:jnp.array,
+                             elem_controls:jnp.array,
+                             elem_dofs:jnp.array) -> float:
+        return self.ComputeElement(elem_xyz,elem_controls,elem_dofs)[0]
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementEnergyVmapCompatible(self,
+                                           element_id:jnp.integer,
+                                           elements_nodes:jnp.array,
+                                           xyz:jnp.array,
+                                           full_control_vector:jnp.array,
+                                           full_dof_vector:jnp.array):
+        return self.ComputeElementEnergy(xyz[elements_nodes[element_id],:],
+                                         full_control_vector[elements_nodes[element_id]],
+                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementsEnergies(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
         # parallel calculation of energies
-        return jax.vmap(self.ComputeElementEnergyVmapCompatible,(0,None,None,None,None,None,None)) \
-                        (self.fe_mesh.GetElementsIds(self.element_type),self.fe_mesh.GetElementsNodes(self.element_type),
-                        self.fe_mesh.GetNodesX(),self.fe_mesh.GetNodesY(),self.fe_mesh.GetNodesZ(),
-                        total_control_vars,total_primal_vars)
+        return jax.vmap(self.ComputeElementEnergyVmapCompatible,(0,None,None,None,None)) \
+                        (self.fe_mesh.GetElementsIds(self.element_type),
+                        self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesCoordinates(),
+                        total_control_vars,
+                        total_primal_vars)
 
     @partial(jit, static_argnums=(0,))
-    def ComputeTotalEnergy(self,total_control_vars,total_primal_vars):
+    def ComputeTotalEnergy(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
         return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_primal_vars)) 
 
-    @print_with_timestamp_and_execution_time
-    @partial(jit, static_argnums=(0,))
-    def ComputeResidualVectorAD(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
-        return jax.grad(self.ComputeTotalEnergy,argnums=1)(total_control_vars,total_primal_vars)
-
-    # NOTE: this function should not be jitted since it is tested and gets much slower
-    @print_with_timestamp_and_execution_time
-    def ComputeResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
-        # parallel calculation of residuals
-        elements_residuals = jnp.squeeze(jax.vmap(self.ComputeElementResidualsVmapCompatible,(0,None,None,None,None,None,None)) \
-                                     (self.fe_mesh.GetElementsIds(self.element_type),self.fe_mesh.GetElementsNodes(self.element_type),
-                                      self.fe_mesh.GetNodesX(),self.fe_mesh.GetNodesY(),self.fe_mesh.GetNodesZ(),
-                                      total_control_vars,total_primal_vars))
-        
-        residuals_vector = jnp.zeros((self.total_number_of_dofs))
-        for dof_idx in range(self.number_dofs_per_node):
-            residuals_vector = residuals_vector.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].add(jnp.squeeze(elements_residuals[:,dof_idx::self.number_dofs_per_node]))
-        return residuals_vector
-    
     @abstractmethod
-    def ComputeJacobianIndices(self,nodes_ids:jnp.array):
+    def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
         pass
 
+    @print_with_timestamp_and_execution_time
+    @partial(jit, static_argnums=(0,2,))
+    def ApplyDirichletBCOnDofVector(self,full_dof_vector:jnp.array,load_increment:float=1.0):
+        return full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
+
+    @partial(jit, static_argnums=(0,))
+    def ApplyDirichletBCOnElementResidualAndJacobian(self,
+                                                     elem_res:jnp.array,
+                                                     elem_jac:jnp.array,
+                                                     elem_BC_vec:jnp.array,
+                                                     elem_mask_BC_vec:jnp.array):
+
+        BC_matrix = jnp.zeros((elem_jac.shape))
+        BC_matrix = jnp.fill_diagonal(BC_matrix, elem_BC_vec, inplace=False)
+
+        mask_BC_matrix = jnp.zeros((elem_jac.shape))
+        mask_BC_matrix = jnp.fill_diagonal(mask_BC_matrix, elem_mask_BC_vec, inplace=False)
+
+        masked_diag_entries = jnp.diag(mask_BC_matrix @ elem_jac @ mask_BC_matrix)
+        mask_BC_matrix = jnp.zeros((elem_jac.shape))
+        mask_BC_matrix = jnp.fill_diagonal(mask_BC_matrix, masked_diag_entries, inplace=False)
+
+        return   BC_matrix @ elem_res, BC_matrix @ elem_jac + mask_BC_matrix
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementResidualAndJacobian(self,
+                                          elem_xyz:jnp.array,
+                                          elem_controls:jnp.array,
+                                          elem_dofs:jnp.array,
+                                          elem_BC:jnp.array,
+                                          elem_mask_BC:jnp.array):
+        _,re,ke = self.ComputeElement(elem_xyz,elem_controls,elem_dofs)
+        return self.ApplyDirichletBCOnElementResidualAndJacobian(re,ke,elem_BC,elem_mask_BC)
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementResidualAndJacobianVmapCompatible(self,element_id:jnp.integer,
+                                                        elements_nodes:jnp.array,
+                                                        xyz:jnp.array,
+                                                        full_control_vector:jnp.array,
+                                                        full_dof_vector:jnp.array,
+                                                        full_dirichlet_BC_vec:jnp.array,
+                                                        full_mask_dirichlet_BC_vec:jnp.array):
+        return self.ComputeElementResidualAndJacobian(xyz[elements_nodes[element_id],:],
+                                                      full_control_vector[elements_nodes[element_id]],
+                                                      full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
+                                                      full_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
+                                                      full_mask_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeSingleLoss(self,full_control_params:jnp.array,unknown_dofs:jnp.array):
+        elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
+                                                      self.GetFullDofVector(full_control_params,
+                                                                            unknown_dofs))
+        # some extra calculation for reporting and not traced
+        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
+        max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
+        min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
+        return jnp.sum(elems_energies)**2,(min_elem_energy,max_elem_energy,avg_elem_energy)
+    
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array, apply_dirichlet_bc:bool=True):
-        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualsAndStiffnessVmapCompatible,(0,None,None,None,None,None,None)) \
-                                                            (self.fe_mesh.GetElementsIds(self.element_type),self.fe_mesh.GetElementsNodes(self.element_type),
-                                                            self.fe_mesh.GetNodesX(),self.fe_mesh.GetNodesY(),self.fe_mesh.GetNodesZ(),
-                                                            total_control_vars,total_primal_vars)
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
         
+        BC_vector = jnp.ones((self.total_number_of_dofs))
+        BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
+        mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
+        mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
+        
+        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None)) \
+                                                            (self.fe_mesh.GetElementsIds(self.element_type),
+                                                             self.fe_mesh.GetElementsNodes(self.element_type),
+                                                             self.fe_mesh.GetNodesCoordinates(),
+                                                             total_control_vars,
+                                                             total_primal_vars,
+                                                             BC_vector,
+                                                             mask_BC_vector)
+
         # first compute the global residual vector
         residuals_vector = jnp.zeros((self.total_number_of_dofs))
         for dof_idx in range(self.number_dofs_per_node):
@@ -210,51 +263,9 @@ class FiniteElementLoss(Loss):
 
         # second compute the global jacobian matrix  
         jacobian_data = jnp.ravel(elements_stiffness)
-
-        indices = jax.vmap(self.ComputeJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
-        indices = indices.reshape(-1,2)
+        jacobian_indices = jax.vmap(self.ComputeElementJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
+        jacobian_indices = jacobian_indices.reshape(-1,2)
         
-        if apply_dirichlet_bc:
-            # extract non-dirichlet BCs
-            mask = ~jnp.isin(indices[:, 0], self.dirichlet_indices)
-            jacobian_data = jacobian_data[mask]
-            indices = indices[mask]
-            # add dirichlet BCs
-            diag_dr_bc_indices = jnp.hstack([self.dirichlet_indices.reshape(-1,1), self.dirichlet_indices.reshape(-1,1)])
-            indices = jnp.vstack([indices,diag_dr_bc_indices])
-            jacobian_data = jnp.append(jacobian_data, jnp.ones((len(self.dirichlet_indices))))
-
-            # apply dirichlet BCs on residual vector  
-            residuals_vector = residuals_vector.at[self.dirichlet_indices].set(0)
+        sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
         
-        K = sparse.BCOO((jacobian_data,indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
-        return K.sum_duplicates(), residuals_vector
-
-    # NOTE this function return residual and jacobian matrix by differentiating the linear energy functions 
-    # which only hold for linear problems   
-    @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVectorAD(self,total_control_vars: jnp.array,total_primal_vars: jnp.array, apply_dirichlet_bc:bool=True):
-        @jit
-        def JitComputeJacobianMatrixAndResidualVectorAD(total_control_vars,total_primal_vars):
-            residuals_AD_func = jax.grad(self.ComputeTotalEnergy,argnums=1)
-            jacobian_AD_func = jax.jacfwd(residuals_AD_func,argnums=1)
-            return jnp.squeeze(0.5*jacobian_AD_func(total_control_vars,total_primal_vars)),0.5*residuals_AD_func(total_control_vars,total_primal_vars)
-
-        jacobian_AD, residuals_AD = JitComputeJacobianMatrixAndResidualVectorAD(total_control_vars,total_primal_vars)
-
-        if apply_dirichlet_bc:
-            # apply dirichlet BCs on residual vector  
-            residuals_AD = residuals_AD.at[self.dirichlet_indices].set(0)
-            # apply dirichlet BCs on jacobian matrix  
-            jacobian_AD = jacobian_AD.at[self.dirichlet_indices,:].set(0)
-            jacobian_AD = jacobian_AD.at[self.dirichlet_indices,self.dirichlet_indices].set(1)
-
-        return jacobian_AD, residuals_AD
-
-    @print_with_timestamp_and_execution_time
-    @partial(jit, static_argnums=(0,2,))
-    def ApplyDirichletBC(self,full_dof_vector:jnp.array,load_increment:float=1.0):
-        return full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
-            
-
-
+        return sparse_jacobian, residuals_vector
