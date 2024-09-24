@@ -26,6 +26,7 @@ class FiniteElementSolver(Solver):
         self.linear_solver_settings = {"solver":"jax-bicgstab","tol":1e-6,"atol":1e-6,
                                        "maxiter":1000,"pre-conditioner":"ilu"}
 
+    @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
 
         if "linear_solver_settings" in self.fe_solver_settings.keys():
@@ -54,7 +55,7 @@ class FiniteElementSolver(Solver):
                                     tol=self.linear_solver_settings["tol"],
                                     atol=self.linear_solver_settings["atol"],
                                     maxiter=self.linear_solver_settings["maxiter"])
-        return dofs_vector + delta_dofs
+        return delta_dofs
     
     @print_with_timestamp_and_execution_time
     def JaxDirectLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
@@ -65,7 +66,7 @@ class FiniteElementSolver(Solver):
                              indptr=A_sp_scipy.indptr, b=-residual_vector,
                              tol=self.linear_solver_settings["tol"])
         
-        return dofs_vector + delta_dofs
+        return delta_dofs
     
     @print_with_timestamp_and_execution_time
     def PETScLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
@@ -90,7 +91,7 @@ class FiniteElementSolver(Solver):
         delta_dofs = PETSc.Vec().createSeq(len(residual_vector))
         ksp.solve(rhs, delta_dofs)
 
-        return dofs_vector + delta_dofs.getArray()
+        return delta_dofs.getArray()
 
     def Finalize(self) -> None:
         pass

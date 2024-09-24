@@ -2,7 +2,7 @@ import pytest
 import unittest
 import os
 import numpy as np
-from fol.mesh_input_output.mesh_io import MeshIO
+from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
 
 class TestMeshIO(unittest.TestCase):
@@ -16,9 +16,9 @@ class TestMeshIO(unittest.TestCase):
         test_name = 'test_mesh_io'
         self.test_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_name)
         create_clean_directory(self.test_directory)
-        self.mdpa_io = MeshIO("mdpa_io",file_name="coarse_sphere.mdpa",
+        self.mdpa_io = Mesh("mdpa_io",file_name="coarse_sphere.mdpa",
                               case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"meshes"))
-        self.med_io = MeshIO("med_io",file_name="box_3D_coarse.med",
+        self.med_io = Mesh("med_io",file_name="box_3D_coarse.med",
                               case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"meshes"))
 
     def test_io(self):

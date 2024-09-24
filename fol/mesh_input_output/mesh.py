@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import numpy as np
 import os
 import meshio
-from meshio import Mesh
 from fol.tools.decoration_functions import *
 
 _mdpa_to_meshio_type = {
@@ -103,7 +102,7 @@ class Mesh(ABC):
                         elif environ.startswith("Begin SubModelPart "):
                             self.__ReadKratosSubModelPart(f, environ)
 
-            self.mesh_io = Mesh(self.nodes_coordinates,self.elements_nodes)
+            self.mesh_io = meshio.Mesh(self.nodes_coordinates,self.elements_nodes)
         
         fol_info(f"{len(self.node_ids)} points read ")
         for element_type,element_nodes in self.elements_nodes.items():
