@@ -24,7 +24,7 @@ class FiniteElementSolver(Solver):
         self.fe_loss_function = fe_loss_function
         self.fe_solver_settings = fe_solver_settings
         self.linear_solver_settings = {"solver":"jax-bicgstab","tol":1e-6,"atol":1e-6,
-                                       "maxiter":10000,"pre-conditioner":"ilu"}
+                                       "maxiter":1000,"pre-conditioner":"ilu"}
 
     def Initialize(self) -> None:
 
@@ -33,15 +33,19 @@ class FiniteElementSolver(Solver):
                                                             self.fe_solver_settings["linear_solver_settings"])
 
         linear_solver = self.linear_solver_settings["solver"]
+        available_linear_solver = ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres",
+                                   "JAX-direct","JAX-bicgstab"]
 
-        if linear_solver=="jax-direct":
-            self.LinearSolve = self.JaxDirectLinearSolve
-        elif linear_solver=="jax-bicgstab":
+        if linear_solver=="JAX-direct":
+            self.LinearSolve = self.JaxDirectLinearSolver
+        elif linear_solver=="JAX-bicgstab":
             self.LinearSolve = self.JaxBicgstabLinearSolver
         elif linear_solver in ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres"]:
-            self.LinearSolve = self.PETScLinearSolve
+            self.LinearSolve = self.PETScLinearSolver
             self.PETSc_ksp_type = linear_solver.split('-')[1]
-
+        else:
+            fol_error(f"linear solver {linear_solver} does exist, available options are {available_linear_solver}")
+        
     @print_with_timestamp_and_execution_time
     def JaxBicgstabLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
         delta_dofs, info = bicgstab(tangent_matrix,
@@ -53,7 +57,7 @@ class FiniteElementSolver(Solver):
         return dofs_vector + delta_dofs
     
     @print_with_timestamp_and_execution_time
-    def JaxDirectLinearSolve(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
+    def JaxDirectLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
         A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
                                             shape=tangent_matrix.shape)
         
@@ -64,7 +68,7 @@ class FiniteElementSolver(Solver):
         return dofs_vector + delta_dofs
     
     @print_with_timestamp_and_execution_time
-    def PETScLinearSolve(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
+    def PETScLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
         A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
                                             shape=tangent_matrix.shape)
 

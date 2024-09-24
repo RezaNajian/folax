@@ -2,9 +2,8 @@ import sys
 import os
 
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
-from fol.solvers.fe_solver import FiniteElementSolver
+from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
@@ -13,6 +12,7 @@ from fol.tools.logging_functions import *
 import pickle
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
+    
     # directory & save handling
     working_directory_name = "box_3D_tetra"
     case_dir = os.path.join('.', working_directory_name)
@@ -20,7 +20,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # create mesh_io
-    fe_mesh = Mesh("fol_io","box_3D_fine.med",'../meshes/')
+    fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
 
     # create fe-based loss function
     bc_dict = {"Ux":{"left":0.0},
@@ -40,8 +40,6 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     mechanical_loss_3d.Initialize()
     fourier_control.Initialize()
 
-    
-
     # create some random coefficients & K for training
     create_random_coefficients = False
     if create_random_coefficients:
@@ -60,10 +58,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         
         coeffs_matrix = loaded_dict["coeffs_matrix"]
 
-    
-
-    K_matrix = jnp.ones((1,fe_mesh.GetNumberOfNodes()))
-
+    K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     # now save K matrix 
     export_Ks = False
@@ -80,27 +75,20 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                         "tanh",load_NN_params=False,working_directory=working_directory_name)
     fol.Initialize()
 
-    # fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=1,
-    #             learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-    #             relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
-    
-    # sol = mechanical_loss_3d.GetSolution()
-    # fe_mesh['solution'] = np.array(sol).reshape((fe_mesh.GetNumberOfNodes(), 3))
-    
-    # fe_mesh.Finalize(export_dir=case_dir)
-    # exit()
+    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
+                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
+                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
 
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
-
-    solve_FE = True
-
     # solve FE here
     if solve_FE:
-        first_fe_solver = FiniteElementSolver("first_fe_solver",mechanical_loss_3d)
-        FE_UVW = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.ones(3*fe_mesh.GetNumberOfNodes())))  
-        # fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"}}
+        first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d,fe_setting)
+        first_fe_solver.Initialize()
+        FE_UVW = np.array(first_fe_solver.Solve(K_matrix[eval_id],jnp.ones(3*fe_mesh.GetNumberOfNodes())))  
+        fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     fe_mesh.Finalize(export_dir=case_dir)
 
