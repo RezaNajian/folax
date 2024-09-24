@@ -9,57 +9,57 @@ from jax import jit
 from functools import partial
 from  .fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.decoration_functions import *
+from fol.tools.usefull_functions import *
+from fol.loss_functions.fe_loss import FiniteElementLoss
 
-class NonLinearSolver(FiniteElementLinearResidualBasedSolver):
+class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBasedSolver):
     """Nonlinear solver class.
 
     """
-    @print_with_timestamp_and_execution_time
-    def __init__(self, solver_name: str, fe_loss_function, 
-                 max_num_itr = 20, relative_error=1e-8, absolute_error=1e-8, load_incr= 5) -> None:
-        super().__init__(solver_name)
-        self.fe_loss_function = fe_loss_function
-        self.max_num_itr = max_num_itr
-        self.relative_error = relative_error
-        self.absolute_error = absolute_error
-        self.load_increment = int(load_incr)
 
-    # @partial(jit, static_argnums=(0,))
     @print_with_timestamp_and_execution_time
-    def SingleSolve(self,current_control_vars,current_dofs):
-        for load_fac in range(self.load_increment):
-            print(f"NonLinearSolver::SingleSolve: loadStep; increment:{load_fac+1}")
-            applied_BC_dofs = self.fe_loss_function.ApplyBCOnDOFs(current_dofs,((load_fac+1)/self.load_increment))
-            for i in range(self.max_num_itr):
-                R,K_mat = self.fe_loss_function.ComputeResidualsAndStiffness(current_control_vars,applied_BC_dofs)
-                applied_BC_R = self.fe_loss_function.ApplyBCOnR(R)
-                res_norm = jnp.linalg.norm(applied_BC_R,ord=2)
-                if res_norm<self.absolute_error:
-                    print(f"NonLinearSolver::SingleSolve: converged; iterations:{i+1},residuals_norm:{res_norm}")
-                    # return applied_BC_dofs
+    def __init__(self, fe_solver_name: str, fe_loss_function: FiniteElementLoss, fe_solver_settings:dict={}) -> None:
+        super().__init__(fe_solver_name,fe_loss_function,fe_solver_settings)
+        self.nonlinear_solver_settings = {"rel_tol":1e-8,
+                                           "abs_tol":1e-8,
+                                           "maxiter":20,
+                                           "load_incr":5}
+
+    @print_with_timestamp_and_execution_time
+    def Initialize(self) -> None:
+        super().Initialize() 
+        if "nonlinear_solver_settings" in self.fe_solver_settings.keys():
+            self.nonlinear_solver_settings = UpdateDefaultDict(self.nonlinear_solver_settings,
+                                                                self.fe_solver_settings["nonlinear_solver_settings"])
+    @print_with_timestamp_and_execution_time
+    def Solve(self,current_control_vars,current_dofs):
+        load_increament = self.nonlinear_solver_settings["load_incr"]
+        for load_fac in range(load_increament):
+            fol_info(f"loadStep; increment:{load_fac+1}")
+            applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
+            for i in range(self.nonlinear_solver_settings["maxiter"]):
+                BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                                                                    current_control_vars,applied_BC_dofs)
+                res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
+                if res_norm<self.nonlinear_solver_settings["abs_tol"]:
+                    fol_info(f"converged; iterations:{i+1},residuals_norm:{res_norm}")
                     break
                     
-                applied_BC_K_mat = self.fe_loss_function.ApplyBCOnMatrix(K_mat)
-                delta_dofs = jnp.linalg.solve(applied_BC_K_mat, -applied_BC_R)
+                delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
                 applied_BC_dofs += delta_dofs
 
-                if delta_norm<self.relative_error:
-                    print(f"NonLinearSolver::SingleSolve: converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
-                    # return applied_BC_dofs
+                if delta_norm<self.nonlinear_solver_settings["rel_tol"]:
+                    fol_info(f"converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
                     break
-                elif i+1==self.max_num_itr:
-                    print(f"NonLinearSolver::SingleSolve: maximum num iterations:{i+1} acheived,delta_norm:{delta_norm},residuals_norm:{res_norm}")
-                    # return applied_BC_dofs
+                elif i+1==self.nonlinear_solver_settings["maxiter"]:
+                    fol_info(f"maximum num iterations:{i+1} acheived,delta_norm:{delta_norm},residuals_norm:{res_norm}")
                     break
                 else:
-                    print(f"NonLinearSolver::SingleSolve: iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
+                    fol_info(f"iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
             current_dofs = applied_BC_dofs
         return applied_BC_dofs
-    # @partial(jit, static_argnums=(0,))
-    @print_with_timestamp_and_execution_time
-    def BatchSolve(self,batch_control_vars,batch_dofs):
-        return jnp.squeeze(jax.vmap(self.SingleSolve, (0,0))(batch_control_vars,batch_dofs))
+
 
 
 
