@@ -96,9 +96,7 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
     
     @partial(jit, static_argnums=(0,))
     def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
-        '''
-        Given the node tags of a quad shell, return the corresponding indices (rows, columns) of this quad in the global stiffness matrix.
-        '''
+
         indices_dof = jnp.hstack((jnp.linspace(nodes_ids[0]*3,nodes_ids[0]*3+2,3,dtype='int32'),
                                   jnp.linspace(nodes_ids[1]*3,nodes_ids[1]*3+2,3,dtype='int32'),
                                   jnp.linspace(nodes_ids[2]*3,nodes_ids[2]*3+2,3,dtype='int32'),
