@@ -56,6 +56,10 @@ class FiniteElementLoss(Loss):
         self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
 
     def Initialize(self) -> None:
+
+        if self.initialized:
+            return
+
         self.number_dofs_per_node = len(self.dofs)
         self.total_number_of_dofs = len(self.dofs) * self.fe_mesh.GetNumberOfNodes()
         self.__CreateDofsDict(self.dofs,self.loss_settings["dirichlet_bc_dict"])
@@ -117,7 +121,7 @@ class FiniteElementLoss(Loss):
         else:
             self.full_dof_vector_function = ConstructFullDofVector
 
-        self.__initialized = True
+        self.initialized = True
 
     @partial(jit, static_argnums=(0,))
     def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
