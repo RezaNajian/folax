@@ -64,6 +64,10 @@ class Mesh(ABC):
         This method initializes the io.
 
         """
+
+        if self.is_initialized:
+            return
+
         if self.mesh_format != "mdpa":
             self.mesh_io = meshio.read(os.path.join(self.case_dir, self.file_name))
             self.mesh_io.point_data_to_sets('point_tags')

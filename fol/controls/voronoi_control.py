@@ -10,16 +10,19 @@ from scipy.spatial import Voronoi, KDTree
 import numpy as np
 from functools import partial
 from jax.nn import sigmoid
+from fol.mesh_input_output.mesh import Mesh
 from fol.tools.decoration_functions import *
 
 class VoronoiControl(Control):
-    @print_with_timestamp_and_execution_time
-    def __init__(self,control_name: str,control_settings,fe_model):
-        super().__init__(control_name)
-        self.fe_model = fe_model
-        self.settings = control_settings
-        self.numberof_seeds = self.settings["numberof_seeds"]
 
+    def __init__(self,control_name: str,control_settings, fe_mesh: Mesh):
+        super().__init__(control_name)
+        self.settings = control_settings
+        self.fe_mesh = fe_mesh
+
+    @print_with_timestamp_and_execution_time
+    def Initialize(self) -> None:
+        self.numberof_seeds = self.settings["numberof_seeds"]
         if isinstance(self.settings["k_rangeof_values"],tuple):
             start, end = self.settings["k_rangeof_values"]
             self.k_rangeof_values = range(start,end)
@@ -28,16 +31,13 @@ class VoronoiControl(Control):
 
         # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
         self.num_control_vars = self.numberof_seeds * 3 
-        self.num_controlled_vars = self.fe_model.GetNumberOfNodes()
+        self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
 
     def GetNumberOfVariables(self):
         return self.num_control_vars
     
     def GetNumberOfControlledVariables(self):
         return self.num_controlled_vars
-
-    def Initialize(self) -> None:
-        pass
 
     def Finalize(self) -> None:
         pass
