@@ -176,9 +176,14 @@ class FiniteElementLoss(Loss):
     def ComputeTotalEnergy(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
         return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_primal_vars)) 
 
-    @abstractmethod
+    @partial(jit, static_argnums=(0,))
     def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
-        pass
+        nodes_ids *= self.number_dofs_per_node
+        nodes_ids += jnp.arange(self.number_dofs_per_node).reshape(-1,1)
+        indices_dof = nodes_ids.T.flatten()
+        rows,cols = jnp.meshgrid(indices_dof,indices_dof,indexing='ij')#rows and columns
+        indices = jnp.vstack((rows.ravel(),cols.ravel())).T #indices in global stiffness matrix
+        return indices
 
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,2,))

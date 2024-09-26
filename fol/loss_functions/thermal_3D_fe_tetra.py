@@ -54,13 +54,3 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ te - Fe)
         return  ((te.T @ element_residuals)[0,0]), (Se @ te - Fe), Se
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
-        indices_dof = jnp.hstack((jnp.linspace(nodes_ids[0],nodes_ids[0],1,dtype='int32'),
-                                  jnp.linspace(nodes_ids[1],nodes_ids[1],1,dtype='int32'),
-                                  jnp.linspace(nodes_ids[2],nodes_ids[2],1,dtype='int32'),
-                                  jnp.linspace(nodes_ids[3],nodes_ids[3],1,dtype='int32'))) #indices represented the dofs of this quad
-        rows,cols = jnp.meshgrid(indices_dof,indices_dof,indexing='ij')#rows and columns
-        indices = jnp.vstack((rows.ravel(),cols.ravel())).T #indices in global stiffness matrix
-        return indices
