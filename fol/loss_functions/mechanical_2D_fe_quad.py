@@ -68,14 +68,3 @@ class MechanicalLoss2D(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ uve - Fe)
         return  ((uve.T @ element_residuals)[0,0]), (Se @ uve - Fe), Se
-    
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
-
-        indices_dof = jnp.hstack((jnp.linspace(nodes_ids[0]*2,nodes_ids[0]*2+1,2,dtype='int32'),
-                                  jnp.linspace(nodes_ids[1]*2,nodes_ids[1]*2+1,2,dtype='int32'),
-                                  jnp.linspace(nodes_ids[2]*2,nodes_ids[2]*2+1,2,dtype='int32'),
-                                  jnp.linspace(nodes_ids[3]*2,nodes_ids[3]*2+1,2,dtype='int32'))) #indices represented the dofs of this quad
-        rows,cols = jnp.meshgrid(indices_dof,indices_dof,indexing='ij')#rows and columns
-        indices = jnp.vstack((rows.ravel(),cols.ravel())).T #indices in global stiffness matrix
-        return indices

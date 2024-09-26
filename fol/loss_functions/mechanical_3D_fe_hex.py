@@ -45,8 +45,7 @@ class MechanicalLoss3D(FiniteElementLoss):
         self.D = D
 
     @partial(jit, static_argnums=(0,))
-    def ComputeElement(self,xyze,de,uvwe,body_force):
-        xyze = jnp.array([xyze[::3], xyze[1::3], xyze[2::3]]).T
+    def ComputeElement(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
         num_elem_nodes = 8
         gauss_points = [-1 / jnp.sqrt(3), 1 / jnp.sqrt(3)]
         gauss_weights = [1, 1]
@@ -100,54 +99,3 @@ class MechanicalLoss3D(FiniteElementLoss):
                     fe = fe + gauss_weights[i] * gauss_weights[j] * gauss_weights[k] * detJ * (N.T @ body_force)
 
         return (uvwe.T @ (ke @ uvwe - fe))[0,0], 2 * (ke @ uvwe - fe), 2 * ke
-
-    def ComputeElementEnergy(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
-        return self.ComputeElement(xyze,de,uvwe,body_force)[0]
-
-    def ComputeElementResidualsAndStiffness(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
-        _,re,ke = self.ComputeElement(xyze,de,uvwe,body_force)
-        return re,ke
-
-    def ComputeElementResiduals(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
-        return self.ComputeElement(xyze,de,uvwe,body_force)[1]
-    
-    def ComputeElementStiffness(self,xyze,de,uvwe,body_force=jnp.zeros((3,1))):
-        return self.ComputeElement(xyze,de,uvwe,body_force)[2]
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementResidualsVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UVW):
-        return self.ComputeElementResiduals(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
-                                                                     Y[elements_nodes[element_id]],
-                                                                     Z[elements_nodes[element_id]]))),
-                                                                     C[elements_nodes[element_id]],
-                                                                     UVW[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementResidualsAndStiffnessVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UVW):
-        return self.ComputeElementResidualsAndStiffness(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
-                                                                     Y[elements_nodes[element_id]],
-                                                                     Z[elements_nodes[element_id]]))),
-                                                                     C[elements_nodes[element_id]],
-                                                                     UVW[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergyVmapCompatible(self,element_id,elements_nodes,X,Y,Z,C,UVW):
-        return self.ComputeElementEnergy(jnp.ravel(jnp.column_stack((X[elements_nodes[element_id]],
-                                                                     Y[elements_nodes[element_id]],
-                                                                     Z[elements_nodes[element_id]]))),
-                                                                     C[elements_nodes[element_id]],
-                                                                     UVW[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                                     jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params,unknown_dofs):
-        elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.ExtendUnknowDOFsWithBC(unknown_dofs))
-        # some extra calculation for reporting and not traced
-        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
-        max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
-        min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(0,max_elem_energy,avg_elem_energy)
-
