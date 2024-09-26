@@ -61,6 +61,10 @@ class TestMechanicalNL2D(unittest.TestCase):
         else:
             plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FOL[0::2],UV_FOL[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FOL-KUV-dist.png"))
             plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FEM[0::2],UV_FEM[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FEM-KUV-dist.png"))
+            self.fe_mesh['K'] = np.array(self.K_matrix[-1,:])
+            self.fe_mesh['UV_FOL'] = np.array(UV_FOL)
+            self.fe_mesh['UV_FEM'] = np.array(UV_FEM)
+            self.fe_mesh.Finalize(export_dir=self.test_directory)
 
 if __name__ == '__main__':
     unittest.main()

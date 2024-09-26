@@ -23,7 +23,7 @@ class FiniteElementSolver(Solver):
         super().__init__(fe_solver_name)
         self.fe_loss_function = fe_loss_function
         self.fe_solver_settings = fe_solver_settings
-        self.linear_solver_settings = {"solver":"jax-bicgstab","tol":1e-6,"atol":1e-6,
+        self.linear_solver_settings = {"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                        "maxiter":1000,"pre-conditioner":"ilu"}
 
     @print_with_timestamp_and_execution_time
