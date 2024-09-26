@@ -2,7 +2,6 @@ import pytest
 import unittest
 import os
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
@@ -57,6 +56,9 @@ class TestMechanical2D(unittest.TestCase):
         else:
             plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FOL[0::2],UV_FOL[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FOL-KUV-dist.png"))
             plot_mesh_vec_data(1,[self.K_matrix[-1,:],UV_FEM[0::2],UV_FEM[1::2]],["K","U","V"],file_name=os.path.join(self.test_directory,"FEM-KUV-dist.png"))
-
+            self.fe_mesh['K'] = np.array(self.K_matrix[-1,:])
+            self.fe_mesh['UV_FOL'] = np.array(UV_FOL)
+            self.fe_mesh['UV_FEM'] = np.array(UV_FEM)
+            self.fe_mesh.Finalize(export_dir=self.test_directory)
 if __name__ == '__main__':
     unittest.main()

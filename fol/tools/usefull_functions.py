@@ -183,7 +183,10 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     return meshio_obj
 
-def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
+def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
+
+    # create empty fe mesh object
+    fe_mesh = Mesh("box_io","box.")
 
     settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
     X = settings.points[:,0]
@@ -203,19 +206,20 @@ def create_3D_box_model_info_thermal(Nx,Ny,Nz,Lx,Ly,Lz,T_left,T_right,case_dir):
 
     left_boundary_node_ids = jnp.array(left_boundary_node_ids)
     right_boundary_node_ids = jnp.array(right_boundary_node_ids)
-    none_boundary_node_ids = jnp.array(none_boundary_node_ids)
 
-    left_boundary_nodes_values = T_left * jnp.ones(left_boundary_node_ids.shape)
-    right_boundary_nodes_values = T_right * jnp.ones(right_boundary_node_ids.shape)
+    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
+    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
 
-    boundary_nodes = jnp.concatenate([left_boundary_node_ids, right_boundary_node_ids])
-    boundary_values = jnp.concatenate([left_boundary_nodes_values, right_boundary_nodes_values])
+    fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
 
-    nodes_dict = {"nodes_ids":jnp.arange(Y.shape[-1]),"X":X,"Y":Y,"Z":Z}
-    elements_dict = {"elements_ids":jnp.arange(len(settings.cells_dict['hexahedron'])),
-                     "elements_nodes":jnp.array(settings.cells_dict['hexahedron'])}
-    dofs_dict = {"T":{"non_dirichlet_nodes_ids":none_boundary_node_ids,"dirichlet_nodes_ids":boundary_nodes,"dirichlet_nodes_dof_value":boundary_values}}
-    return {"nodes_dict":nodes_dict,"elements_dict":elements_dict,"dofs_dict":dofs_dict},settings
+    fe_mesh.node_sets = {"left":left_boundary_node_ids,
+                         "right":right_boundary_node_ids}
+    
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
+
+    fe_mesh.is_initialized = True
+
+    return fe_mesh
 
 def create_2D_square_mesh(L,N):
 
