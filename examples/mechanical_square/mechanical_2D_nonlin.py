@@ -2,7 +2,6 @@ import sys
 import os
 
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
 from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
