@@ -1,9 +1,8 @@
 import os,time,sys
 import numpy as np
-from fol.IO.mesh_io import MeshIO
-from fol.computational_models.fe_model import FiniteElementModel
+from fol.mesh_input_output.mesh import Mesh
 from fol.loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
-from fol.solvers.nonlinear_solver import NonLinearSolver
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
 from fol.tools.usefull_functions import *
@@ -17,24 +16,26 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,"fol_thermal_3D.log"))
 
-    # importing mesh & creating model info
-    point_bc_settings = {"T":{"left_fol":1,"right_fol":0.1}}
-    io = MeshIO("fol_io",'../meshes/',"fol_3D_tet_mesh_coarse.med",point_bc_settings)
-    # io = MeshIO("fol_io",'.',"fol_3D_tet_mesh.med",point_bc_settings)
-    model_info = io.Import()
+    # create mesh_io
+    fe_mesh = Mesh("fol_io","fol_3D_tet_mesh_coarse.med",'../meshes/')
 
-    # create FE model
-    fe_model = FiniteElementModel("FE_model",model_info)
+    # create fe-based loss function
+    bc_dict = {"T":{"left_fol":1,"right_fol":0.1}}
 
-    # create thermal loss
-    thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",fe_model,{"beta":2,"c":4})
+    thermal_loss_3d = ThermalLoss3DTetra("thermal_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                          "beta":2,"c":4},
+                                                                            fe_mesh=fe_mesh)
 
     # create Fourier parametrization/control
     x_freqs = np.array([1,2,3])
     y_freqs = np.array([1,2,3])
     z_freqs = np.array([0])
     fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":5,"min":1e-1,"max":1}
-    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
+    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
+
+    fe_mesh.Initialize()
+    thermal_loss_3d.Initialize()
+    fourier_control.Initialize()
 
     # create some random coefficients & K for training
     create_random_coefficients = False
@@ -55,17 +56,15 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         coeffs_matrix = loaded_dict["coeffs_matrix"]
         K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-    # export random Fourier-based K fields 
+    # now save K matrix 
     export_Ks = False
     if export_Ks:
         for i in range(K_matrix.shape[0]):
-            solution_file = os.path.join(case_dir, f"K_{i}.vtu")
-            io.mesh_io.point_data['K'] = np.array(K_matrix[i,:])
-            io.mesh_io.write(solution_file)
+            fe_mesh[f'K_{i}'] = np.array(K_matrix[i,:])
+        fe_mesh.Finalize(export_dir=case_dir)
 
-    # specify id of the K of interest
     eval_id = 5
-    io.mesh_io.point_data['K'] = np.array(K_matrix[eval_id,:])
+    fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",fourier_control,[thermal_loss_3d],[1],
@@ -75,22 +74,23 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                 learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
                 NN_params_save_file_name="NN_params_"+working_directory_name)
 
-    solution_file = os.path.join(case_dir, f"K_{eval_id}_comp.vtu")
     FOL_T = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
-    io.mesh_io.point_data['T_FOL'] = FOL_T.reshape((fe_model.GetNumberOfNodes(), 1))
+    fe_mesh['T_FOL'] = FOL_T.reshape((fe_mesh.GetNumberOfNodes(), 1))
 
     # solve FE here
     if solve_FE: 
-        first_fe_solver = NonLinearSolver("first_fe_solver",thermal_loss_3d,relative_error=1e-5,max_num_itr=20)
-        start_time = time.process_time()
-        FE_T = np.array(first_fe_solver.SingleSolve(K_matrix[eval_id],np.zeros(fe_model.GetNumberOfNodes())))  
-        print(f"\n############### FE solve took: {time.process_time() - start_time} s ###############\n")
-        io.mesh_io.point_data['T_FE'] = FE_T.reshape((fe_model.GetNumberOfNodes(), 1))
+        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
+                      "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
+                                                    "maxiter":20,"load_incr":1}}
+        nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",thermal_loss_3d,fe_setting)
+        nonlin_fe_solver.Initialize()
+        FE_T = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(fe_mesh.GetNumberOfNodes())))  
+        fe_mesh['T_FE'] = FE_T.reshape((fe_mesh.GetNumberOfNodes(), 1))
 
         relative_error = 100 * (abs(FOL_T.reshape(-1,1)-FE_T.reshape(-1,1)))/abs(FE_T.reshape(-1,1))
-        io.mesh_io.point_data['relative_error'] = relative_error.reshape((fe_model.GetNumberOfNodes(), 1))
+        fe_mesh['relative_error'] = relative_error.reshape((fe_mesh.GetNumberOfNodes(), 1))
 
-    io.mesh_io.write(solution_file)
+    fe_mesh.Finalize(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)

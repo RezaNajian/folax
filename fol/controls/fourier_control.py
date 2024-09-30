@@ -8,14 +8,24 @@ import jax.numpy as jnp
 from jax import jit,jacfwd
 from functools import partial
 from jax.nn import sigmoid
+from fol.mesh_input_output.mesh import Mesh
 from fol.tools.decoration_functions import *
 
 class FourierControl(Control):
-    @print_with_timestamp_and_execution_time
-    def __init__(self,control_name: str,control_settings,fe_model):
+    
+    def __init__(self,control_name: str,control_settings: dict, fe_mesh: Mesh):
         super().__init__(control_name)
-        self.fe_model = fe_model
         self.settings = control_settings
+        self.fe_mesh = fe_mesh
+
+    def GetNumberOfVariables(self):
+        return self.num_control_vars
+    
+    def GetNumberOfControlledVariables(self):
+        return self.num_controlled_vars
+
+    @print_with_timestamp_and_execution_time
+    def Initialize(self) -> None:
         if "min" in self.settings.keys():
             self.min = self.settings["min"]
         else:
@@ -32,16 +42,8 @@ class FourierControl(Control):
         self.num_y_freqs = self.y_freqs.shape[-1]
         self.num_z_freqs = self.z_freqs.shape[-1]
         self.num_control_vars = self.num_x_freqs * self.num_y_freqs * self.num_z_freqs + 1
-        self.num_controlled_vars = self.fe_model.GetNumberOfNodes()
-
-    def GetNumberOfVariables(self):
-        return self.num_control_vars
-    
-    def GetNumberOfControlledVariables(self):
-        return self.num_controlled_vars
-
-    def Initialize(self) -> None:
-        pass
+        self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
+        self.__initialized = True
 
     def Finalize(self) -> None:
         pass
@@ -56,7 +58,7 @@ class FourierControl(Control):
         for freq_x in self.x_freqs:
             for freq_y in self.y_freqs:
                 for freq_z in self.z_freqs:
-                    K += variable_vector[coeff_counter] * jnp.cos(freq_x * jnp.pi * self.fe_model.GetNodesX()) * jnp.cos(freq_y * jnp.pi * self.fe_model.GetNodesY()) * jnp.cos(freq_z * jnp.pi * self.fe_model.GetNodesZ())
+                    K += variable_vector[coeff_counter] * jnp.cos(freq_x * jnp.pi * self.fe_mesh.GetNodesX()) * jnp.cos(freq_y * jnp.pi * self.fe_mesh.GetNodesY()) * jnp.cos(freq_z * jnp.pi * self.fe_mesh.GetNodesZ())
                     coeff_counter += 1
 
         return (self.max-self.min) * sigmoid(self.beta*(K-0.5)) + self.min

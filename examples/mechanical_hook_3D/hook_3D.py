@@ -1,35 +1,43 @@
 
 import numpy as np
-from fol.computational_models.fe_model import FiniteElementModel
+from fol.mesh_input_output.mesh import Mesh
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
-from fol.IO.mdpa_io import MdpaIO
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
 import pickle
 
-def main(fol_num_epochs=10,clean_dir=False):
+def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
     working_directory_name = "results"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
-    point_bc_settings = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
-                        "Uy":{"support_horizontal_1":0.0},
-                        "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
-    mdpa_io = MdpaIO("mdpa_io","hook.mdpa",bc_settings=point_bc_settings,scale_factor=1.0)
-    model_info = mdpa_io.Import()
+    # create mesh_io
+    fe_mesh = Mesh("fol_io","hook.mdpa")
 
-    # creation of fe model and loss function
-    fe_model = FiniteElementModel("FE_model",model_info)
-    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",fe_model,{"young_modulus":1,"poisson_ratio":0.3})
+    # create fe-based loss function
+    bc_dict = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
+               "Uy":{"support_horizontal_1":0.0},
+               "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
+
+    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
+    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                                   "material_dict":material_dict},
+                                                                                   fe_mesh=fe_mesh)
 
     # fourier control
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
                                 "beta":20,"min":1e-1,"max":1}
-    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_model)
+    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
+
+
+    fe_mesh.Initialize()
+    mechanical_loss_3d.Initialize()
+    fourier_control.Initialize()
 
     # create some random coefficients & K for training
     create_random_coefficients = False
@@ -52,7 +60,7 @@ def main(fol_num_epochs=10,clean_dir=False):
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     eval_id = -1
-    mdpa_io['K'] = np.array(K_matrix[eval_id,:])
+    fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
     # now we need to create, initialize and train fol
     fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
@@ -64,9 +72,17 @@ def main(fol_num_epochs=10,clean_dir=False):
                 relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
 
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
-    mdpa_io['U_FOL'] = FOL_UVW.reshape((fe_model.GetNumberOfNodes(), 3))
+    fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
-    mdpa_io.Export(export_dir=case_dir)
+    # solve FE here
+    if solve_FE:
+        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"}}
+        first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d,fe_setting)
+        first_fe_solver.Initialize()
+        FE_UVW = np.array(first_fe_solver.Solve(K_matrix[eval_id],jnp.ones(3*fe_mesh.GetNumberOfNodes())))  
+        fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+
+    fe_mesh.Finalize(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)
@@ -74,6 +90,7 @@ def main(fol_num_epochs=10,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
+    solve_FE = False
     clean_dir = False
 
     # Parse the command-line arguments
@@ -87,6 +104,13 @@ if __name__ == "__main__":
             except ValueError:
                 print("fol_num_epochs should be an integer.")
                 sys.exit(1)
+        elif arg.startswith("solve_FE="):
+            value = arg.split("=")[1]
+            if value.lower() in ['true', 'false']:
+                solve_FE = value.lower() == 'true'
+            else:
+                print("solve_FE should be True or False.")
+                sys.exit(1)
         elif arg.startswith("clean_dir="):
             value = arg.split("=")[1]
             if value.lower() in ['true', 'false']:
@@ -95,8 +119,8 @@ if __name__ == "__main__":
                 print("clean_dir should be True or False.")
                 sys.exit(1)
         else:
-            print("Usage: python thermal_fol.py fol_num_epochs=10 clean_dir=False")
+            print("Usage: python thermal_fol.py fol_num_epochs=10 solve_FE=False clean_dir=False")
             sys.exit(1)
 
     # Call the main function with the parsed values
-    main(fol_num_epochs, clean_dir)
+    main(fol_num_epochs, solve_FE,clean_dir)
