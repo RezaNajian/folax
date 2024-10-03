@@ -8,7 +8,16 @@ setup(
         'meshio',
         'jax',
         'jaxopt',
-        'gmsh'
+        'gmsh',
+        'matplotlib',
+        'tqdm',
+        'mpi4py',
+        'numpy',
+        'scipy',
+        'petsc',
+        'petsc4py',
+        'h5py',
+        'pytest'
     ],
     author='FOL team',
     author_email='r.najian@hotmail.com',
