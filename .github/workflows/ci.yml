@@ -1,6 +1,6 @@
-# This workflow will install FOL & its dependencies and then it runs the tests 
+# This workflow installs FOL & its dependencies and then runs the tests 
 
-name: Python package
+name: CI
 
 on:
   push:
