@@ -51,7 +51,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
         self.fol.Train(loss_functions_weights=[1],X_train=self.coeffs_matrix[-1,:].reshape(-1,1).T,batch_size=1,num_epochs=200,
                        learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",relative_error=1e-6)
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T))
-        UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1],np.zeros(UV_FOL.shape)))
+        UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1].reshape(-1,1),np.zeros(UV_FOL.shape)))
         l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
         self.assertLessEqual(l2_error, 10)
         
