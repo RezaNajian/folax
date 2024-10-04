@@ -1,12 +1,12 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
  Date: April, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from abc import ABC, abstractmethod
 import jax.numpy as jnp
 from functools import partial
-from jax import jit
+from jax import jit,jacfwd
 import jax
 from fol.tools.decoration_functions import *
 
@@ -19,7 +19,9 @@ class Control(ABC):
     """
     def __init__(self, control_name: str) -> None:
         self.__name = control_name
-        self.__initialized = False
+        self.initialized = False
+        self.num_control_vars = None
+        self.num_controlled_vars = None
 
     def GetName(self) -> str:
         return self.__name
@@ -33,19 +35,11 @@ class Control(ABC):
         """
         pass
 
-    @abstractmethod
     def GetNumberOfVariables(self):
-        """Returns number of variables of the control.
-
-        """
-        pass
+        return self.num_control_vars
     
-    @abstractmethod
     def GetNumberOfControlledVariables(self):
-        """Returns number of controlled variables
-
-        """
-        pass
+        return self.num_controlled_vars
 
     @abstractmethod
     def ComputeControlledVariables(self,variable_vector:jnp.array) -> None:
@@ -62,12 +56,9 @@ class Control(ABC):
         """
         return jnp.squeeze(jax.vmap(self.ComputeControlledVariables,(0))(batch_variable_vector))
 
-    @abstractmethod
-    def ComputeJacobian(self,variable_vector:jnp.array) -> None:
-        """Computes jacobian of the control w.r.t input variable vector.
-
-        """
-        pass
+    @partial(jit, static_argnums=(0,))
+    def ComputeJacobian(self,control_vec):
+        return jnp.squeeze(jacfwd(self.ComputeControlledVariables,argnums=0)(control_vec))
 
     @abstractmethod
     def Finalize(self) -> None:

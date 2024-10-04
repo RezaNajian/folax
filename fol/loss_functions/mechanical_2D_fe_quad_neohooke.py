@@ -1,7 +1,7 @@
 """
  Authors: Kianoosh Taghikhani, https://github.com/kianoosh1989
  Date: July, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from  .fe_loss import FiniteElementLoss
 import jax

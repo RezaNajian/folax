@@ -1,7 +1,7 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
  Date: April, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from .deep_network import DeepNetwork 
 import jax

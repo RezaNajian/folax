@@ -17,9 +17,9 @@ class TestMeshIO(unittest.TestCase):
         self.test_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_name)
         create_clean_directory(self.test_directory)
         self.mdpa_io = Mesh("mdpa_io",file_name="coarse_sphere.mdpa",
-                              case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"meshes"))
+                              case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
         self.med_io = Mesh("med_io",file_name="box_3D_coarse.med",
-                              case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"meshes"))
+                              case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
 
     def test_io(self):
         self.mdpa_io.Initialize()

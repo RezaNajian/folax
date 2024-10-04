@@ -1,7 +1,7 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
  Date: June, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from abc import ABC
 import jax.numpy as jnp
