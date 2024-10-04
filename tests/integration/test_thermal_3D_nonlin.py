@@ -19,7 +19,7 @@ class TestMechanical3D(unittest.TestCase):
         test_name = 'test_thermal_3D_nonlin'
         self.test_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_name)
         create_clean_directory(self.test_directory)
-        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"meshes"))
+        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
         dirichlet_bc_dict = {"T":{"left":1,"right":0.1}}
         self.thermal_loss = ThermalLoss3DTetra("thermal",loss_settings={"dirichlet_bc_dict":dirichlet_bc_dict,
                                                                         "beta":0,"c":4},

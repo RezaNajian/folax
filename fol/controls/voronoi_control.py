@@ -1,15 +1,14 @@
 """
  Authors: Kianoosh Taghikhani, https://github.com/kianoosh1989
  Date: July, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from  .control import Control
 import jax.numpy as jnp
-from jax import jit,jacfwd,pure_callback,ShapeDtypeStruct
+from jax import jit,pure_callback,ShapeDtypeStruct
 from scipy.spatial import Voronoi, KDTree
 import numpy as np
 from functools import partial
-from jax.nn import sigmoid
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.decoration_functions import *
 
@@ -32,15 +31,6 @@ class VoronoiControl(Control):
         # The number 3 stands for the following: x coordinates array, y coordinates array, and K values
         self.num_control_vars = self.numberof_seeds * 3 
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
-
-    def GetNumberOfVariables(self):
-        return self.num_control_vars
-    
-    def GetNumberOfControlledVariables(self):
-        return self.num_controlled_vars
-
-    def Finalize(self) -> None:
-        pass
     
     def compute_K_host(self,x_coord,y_coord,k_values):
         N = int(self.num_controlled_vars**0.5)
@@ -77,6 +67,6 @@ class VoronoiControl(Control):
         result_shape = ShapeDtypeStruct(K.shape, K.dtype)
         return pure_callback(self.compute_K_host, result_shape,x_coord,y_coord,k_values)
     
-    @partial(jit, static_argnums=(0,))
-    def ComputeJacobian(self,control_vec):
-        return jnp.squeeze(jacfwd(self.ComputeControlledVariables,argnums=0)(control_vec))
+    @print_with_timestamp_and_execution_time
+    def Finalize(self) -> None:
+        pass

@@ -1,7 +1,7 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
  Date: May, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from abc import ABC, abstractmethod
 from fol.tools.decoration_functions import *

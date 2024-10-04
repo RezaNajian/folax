@@ -1,7 +1,7 @@
 """
  Authors: Kianoosh Taghikhani, https://github.com/kianoosh1989
  Date: May, 2024
- License: FOL/License.txt
+ License: FOL/LICENSE
 """
 from  .mechanical_3D_fe_tetra import MechanicalLoss3DTetra
 import jax
