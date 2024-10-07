@@ -8,11 +8,16 @@ import jax.numpy as jnp
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 from fol.loss_functions.fe_loss import FiniteElementLoss
+from  .solver import Solver
 from jax.experimental.sparse import BCOO
 from jax.scipy.sparse.linalg import bicgstab
 from jax.experimental.sparse.linalg import spsolve
-from petsc4py import PETSc
-from  .solver import Solver
+try:
+    from petsc4py import PETSc
+    petsc_available = True
+except ImportError:
+    petsc_available = False
+
 
 class FiniteElementSolver(Solver):
     """FE-based solver class.
@@ -42,8 +47,12 @@ class FiniteElementSolver(Solver):
         elif linear_solver=="JAX-bicgstab":
             self.LinearSolve = self.JaxBicgstabLinearSolver
         elif linear_solver in ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres"]:
-            self.LinearSolve = self.PETScLinearSolver
-            self.PETSc_ksp_type = linear_solver.split('-')[1]
+            if petsc_available:
+                self.LinearSolve = self.PETScLinearSolver
+                self.PETSc_ksp_type = linear_solver.split('-')[1]
+            else:
+                fol_warning(f"petsc4py is not available, falling back to the defualt iterative solver: JAX-bicgstab ")
+                self.LinearSolve = self.JaxBicgstabLinearSolver
         else:
             fol_error(f"linear solver {linear_solver} does exist, available options are {available_linear_solver}")
         
