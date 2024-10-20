@@ -85,7 +85,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+                                                    "maxiter":1000,"pre-conditioner":"ilu"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                     "maxiter":5,"load_incr":4}}
         nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d,fe_setting)
