@@ -2,25 +2,25 @@ import sys
 import os
 
 import numpy as np
-from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
+from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.voronoi_control import VoronoiControl
+from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
-from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = 'mechanical_2D_poly'
+    working_directory_name = 'mechanical_2D_poly_lin'
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
     
     # problem setup
     model_settings = {"L":1,"N":10,
-                    "Ux_left":0.0,"Ux_right":0.1,
-                    "Uy_left":0.0,"Uy_right":0.1}
+                    "Ux_left":0.0,"Ux_right":0.05,
+                    "Uy_left":0.0,"Uy_right":0.05}
 
     # creation of the model
     fe_mesh = create_2D_square_mesh(L=1,N=10)
@@ -36,9 +36,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                                                               fe_mesh=fe_mesh)
 
     # k_rangeof_values in the following could be a certain amount of values from a list instead of a tuple
-    voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
-    # voronoi_control_settings = {"numberof_seeds":10,"k_rangeof_values":(0,1)}
-    voronoi_control = VoronoiControl("first_voronoi_control",voronoi_control_settings,fe_mesh)
+    # voronoi_control_settings = {"numberof_seeds":5,"k_rangeof_values":[10,20,30,40,50,60,70,80,90,100]}
+    voronoi_control_settings = {"number_of_seeds":5,"E_values":(0.1,1)}
+    voronoi_control = VoronoiControl2D("first_voronoi_control",voronoi_control_settings,fe_mesh)
 
     fe_mesh.Initialize()
     mechanical_loss_2d.Initialize()
@@ -61,34 +61,34 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol.Initialize()
 
     fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+                learning_rate=0.0001,optimizer="adam",convergence_criterion="total_loss",
+                relative_error=1e-12,absolute_error=1e-12,NN_params_save_file_name="NN_params_"+working_directory_name)
 
     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
     fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+                                                    "maxiter":1000,"pre-conditioner":"ilu"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                     "maxiter":10,"load_incr":5}}
-        nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d,fe_setting)
-        nonlin_fe_solver.Initialize()
-        FE_UV = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
+        linear_fe_solver.Initialize()
+        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
-        
-        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2],absolute_error[::2]], 
-                        subplot_titles= ['Heterogeneity', 'FOL_U', 'FE_U', "absolute error"], fig_title=None, cmap='viridis',
-                            block_bool=False, colour_bar=True, colour_bar_name=None,
-                            X_axis_name='X', Y_axis_name='Y', show=False, file_name=os.path.join(case_dir,'plot_U_error.png'))
 
-        plot_mesh_vec_data(model_settings["L"], [K_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2],absolute_error[1::2]], 
-                        subplot_titles= ['Heterogeneity', 'FOL_V', 'FE_V', "absolute error"], fig_title=None, cmap='viridis',
-                            block_bool=False, colour_bar=True, colour_bar_name=None,
-                            X_axis_name='X', Y_axis_name='Y', show=False, file_name=os.path.join(case_dir,'plot_V_error.png'))
+        vectors_list = [K_matrix[eval_id],FE_UV[::2],FOL_UV[::2]]
+        plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_U.png'),dir="U")
+        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_U.png'), loss_settings=material_dict)
+        
+        vectors_list = [K_matrix[eval_id],FE_UV[1::2],FOL_UV[1::2]]
+        plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_V.png'),dir="V")
+        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_V.png'), loss_settings=material_dict)
+        
     
     fe_mesh.Finalize(export_dir=case_dir)
 
@@ -98,7 +98,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
-    solve_FE = False
+    solve_FE = True
     clean_dir = False
 
     # Parse the command-line arguments
