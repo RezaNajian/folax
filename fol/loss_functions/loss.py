@@ -37,6 +37,13 @@ class Loss(ABC):
         pass
 
     @abstractmethod
+    def GetNumberOfUnknowns(self) -> int:
+        """Get number of unknowns, i.e., dofs
+
+        """
+        pass
+
+    @abstractmethod
     def ComputeSingleLoss(self) -> None:
         """Computes the single loss.
 

@@ -55,9 +55,9 @@ class FiniteElementLoss(Loss):
         all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
         self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
 
-    def Initialize(self) -> None:
+    def Initialize(self,reinitialize=False) -> None:
 
-        if self.initialized:
+        if self.initialized and not reinitialize:
             return
 
         self.number_dofs_per_node = len(self.dofs)

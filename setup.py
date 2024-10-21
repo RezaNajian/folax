@@ -7,7 +7,8 @@ setup(
     install_requires=[
         'meshio',
         'jax',
-        'jaxopt',
+        'flax',
+        'optax',
         'gmsh',
         'matplotlib',
         'tqdm',

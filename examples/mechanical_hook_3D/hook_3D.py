@@ -1,9 +1,12 @@
 
 import numpy as np
+import optax
+from flax import nnx
+import jax
 from fol.mesh_input_output.mesh import Mesh
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
@@ -62,16 +65,41 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     eval_id = -1
     fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
-    # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",fourier_control,[mechanical_loss_3d],[1],
-                                        "tanh",load_NN_params=False,working_directory=working_directory_name)
+    # design NN for learning
+    class MLP(nnx.Module):
+        def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.in_features = in_features
+            self.out_features = out_features
+
+        def __call__(self, x: jax.Array) -> jax.Array:
+            x = self.dense1(x)
+            x = jax.nn.swish(x)
+            x = self.dense2(x)
+            return x
+
+    fol_net = MLP(fourier_control.GetNumberOfVariables(),1, 
+                  mechanical_loss_3d.GetNumberOfUnknowns(), 
+                  rngs=nnx.Rngs(0))
+
+    # create fol optax-based optimizer
+    chained_transform = optax.chain(optax.normalize_by_update_norm(), 
+                                    optax.adam(1e-3))
+    
+    fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+                                             loss_function=mechanical_loss_3d,
+                                             flax_neural_network=fol_net,
+                                             optax_optimizer=chained_transform,
+                                             checkpoint_settings={"restore_state":False,
+                                             "state_directory":case_dir+"/flax_state"},
+                                             working_directory=case_dir)
     fol.Initialize()
 
-    fol.Train(loss_functions_weights=[1],X_train=coeffs_matrix[eval_id].reshape(-1,1).T,batch_size=1,num_epochs=fol_num_epochs,
-                learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
+    fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),
+                convergence_settings={"num_epochs":fol_num_epochs})
 
-    FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T))
+    FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     # solve FE here

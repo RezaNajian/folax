@@ -28,8 +28,8 @@ class MechanicalLoss2D(FiniteElementLoss):
             fol_error("material_dict should provided in the loss settings !")
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self) -> None:  
-        if self.initialized:
+    def Initialize(self,reinitialize=False) -> None:  
+        if self.initialized and not reinitialize:
             return
         super().Initialize() 
         self.shape_function = QuadShapeFunction()

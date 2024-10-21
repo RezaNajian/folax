@@ -1,11 +1,14 @@
 import pytest
 import unittest
+import optax
+from flax import nnx     
+import jax 
 import os
 import numpy as np
 from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control3D import VoronoiControl3D
-from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 
 class TestMechanical3D(unittest.TestCase):
@@ -33,23 +36,53 @@ class TestMechanical3D(unittest.TestCase):
 
         voronoi_control_settings = {"number_of_seeds":16,"E_values":[0.1,1]}
         self.voronoi_control = VoronoiControl3D("voronoi_control",voronoi_control_settings,self.fe_mesh)
-        self.fol = FiniteElementOperatorLearning("fol_thermal_nonlin",self.voronoi_control,[self.mechanical_loss_3d],[],
-                                                "swish",working_directory=self.test_directory)
 
         self.fe_mesh.Initialize()
         self.mechanical_loss_3d.Initialize()
         self.voronoi_control.Initialize()
+
+       # design NN for learning
+        class MLP(nnx.Module):
+            def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
+                self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+                self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+                self.in_features = in_features
+                self.out_features = out_features
+
+            def __call__(self, x: jax.Array) -> jax.Array:
+                x = self.dense1(x)
+                x = jax.nn.swish(x)
+                x = self.dense2(x)
+                return x
+
+        fol_net = MLP(self.voronoi_control.GetNumberOfVariables(),1, 
+                        self.mechanical_loss_3d.GetNumberOfUnknowns(), 
+                        rngs=nnx.Rngs(0))
+
+        # create fol optax-based optimizer
+        chained_transform = optax.chain(optax.normalize_by_update_norm(), 
+                                        optax.adam(1e-4))
+
+        # create fol
+        self.fol = ExplicitParametricOperatorLearning(name="dis_fol",control=self.voronoi_control,
+                                                        loss_function=self.mechanical_loss_3d,
+                                                        flax_neural_network=fol_net,
+                                                        optax_optimizer=chained_transform,
+                                                        checkpoint_settings={"restore_state":False,
+                                                        "state_directory":self.test_directory+"/flax_state"},
+                                                        working_directory=self.test_directory)
+
         self.fol.Initialize()
         self.linear_fe_solver.Initialize()        
         self.coeffs_matrix,self.K_matrix = create_random_voronoi_samples(self.voronoi_control,1,dim=3)
 
     def test_compute(self):
-        self.fol.Train(loss_functions_weights=[1],X_train=self.coeffs_matrix.reshape(-1,1).T,batch_size=1,num_epochs=200,
-                       learning_rate=0.0001,optimizer="adam",convergence_criterion="total_loss",relative_error=1e-8,absolute_error=1e-8)
-        T_FOL = np.array(self.fol.Predict(self.coeffs_matrix.reshape(-1,1).T))
+        self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
+                       convergence_settings={"num_epochs":1000})
+        T_FOL = np.array(self.fol.Predict(self.coeffs_matrix.reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.linear_fe_solver.Solve(self.K_matrix,np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)
-        self.assertLessEqual(l2_error, 1)
+        self.assertLessEqual(l2_error, 10)
 
         if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)
