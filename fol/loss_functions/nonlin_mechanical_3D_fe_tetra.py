@@ -18,7 +18,9 @@ class NonLinearMechanicalLoss3DTetra(MechanicalLoss3DTetra):
 
     """
     @print_with_timestamp_and_execution_time
-    def Initialize(self) -> None: 
+    def Initialize(self,reinitialize=False) -> None:  
+        if self.initialized and not reinitialize:
+            return
         super().Initialize() 
         self.shape_function = TetrahedralShapeFunction()
         self.material_model = NeoHookianModel()

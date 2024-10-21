@@ -23,6 +23,12 @@ class ThermalLoss3DTetra(FiniteElementLoss):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["T"],  
                                "element_type":"tetra"},fe_mesh)
+        
+    @print_with_timestamp_and_execution_time
+    def Initialize(self,reinitialize=False) -> None:  
+        if self.initialized and not reinitialize:
+            return
+        super().Initialize() 
         self.shape_function = TetrahedralShapeFunction()
 
     @partial(jit, static_argnums=(0,))

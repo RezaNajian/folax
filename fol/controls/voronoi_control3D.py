@@ -17,7 +17,11 @@ class VoronoiControl3D(Control):
         self.fe_mesh = fe_mesh
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self) -> None:
+    def Initialize(self,reinitialize=False) -> None:
+
+        if self.initialized and not reinitialize:
+            return
+        
         self.number_of_seeds = self.settings["number_of_seeds"]
         if not isinstance(self.settings["E_values"],tuple) and not isinstance(self.settings["E_values"],list):
             raise(ValueError("'E values' should be either tuple or list"))
@@ -25,6 +29,8 @@ class VoronoiControl3D(Control):
         # 4 stands for the following: x coordinates array, y, z, and E values
         self.num_control_vars = self.number_of_seeds * 4 
         self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
+
+        self.initialized = True
 
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self, variable_vector: jnp.array):

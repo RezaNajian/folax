@@ -1,11 +1,14 @@
 import pytest
 import unittest
+import optax
+from flax import nnx     
+import jax 
 import os
 import numpy as np
 from fol.loss_functions.thermal_3D_fe_hex import ThermalLoss3D
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 
 class TestThermal3D(unittest.TestCase):
@@ -29,21 +32,50 @@ class TestThermal3D(unittest.TestCase):
         self.fe_solver = FiniteElementLinearResidualBasedSolver("lin_fe_solver",self.thermal_loss)
         fourier_control_settings = {"x_freqs":np.array([0]),"y_freqs":np.array([0]),"z_freqs":np.array([0]),"beta":2}
         self.fourier_control = FourierControl("fourier_control",fourier_control_settings,self.fe_mesh)
-        self.fol = FiniteElementOperatorLearning("first_fol",self.fourier_control,[self.thermal_loss],[],
-                                                "swish",working_directory=self.test_directory)
-        
+
         self.fe_mesh.Initialize()
         self.thermal_loss.Initialize()
         self.fourier_control.Initialize()
+
+        # design NN for learning
+        class MLP(nnx.Module):
+            def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
+                self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+                self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+                self.in_features = in_features
+                self.out_features = out_features
+
+            def __call__(self, x: jax.Array) -> jax.Array:
+                x = self.dense1(x)
+                x = jax.nn.swish(x)
+                x = self.dense2(x)
+                return x
+
+        fol_net = MLP(self.fourier_control.GetNumberOfVariables(),1, 
+                        self.thermal_loss.GetNumberOfUnknowns(), 
+                        rngs=nnx.Rngs(0))
+
+        # create fol optax-based optimizer
+        chained_transform = optax.chain(optax.normalize_by_update_norm(), 
+                                        optax.adam(1e-3))
+
+        # create fol
+        self.fol = ExplicitParametricOperatorLearning(name="dis_fol",control=self.fourier_control,
+                                                        loss_function=self.thermal_loss,
+                                                        flax_neural_network=fol_net,
+                                                        optax_optimizer=chained_transform,
+                                                        checkpoint_settings={"restore_state":False,
+                                                        "state_directory":self.test_directory+"/flax_state"},
+                                                        working_directory=self.test_directory)
+
         self.fol.Initialize()
         self.fe_solver.Initialize()
-
         self.coeffs_matrix,self.K_matrix = create_random_fourier_samples(self.fourier_control,0)
 
     def test_compute(self):
-        self.fol.Train(loss_functions_weights=[1],X_train=self.coeffs_matrix[-1,:].reshape(-1,1).T,batch_size=1,num_epochs=200,
-                       learning_rate=0.001,optimizer="adam",convergence_criterion="total_loss",relative_error=1e-6)
-        T_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T))
+        self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
+                       convergence_settings={"num_epochs":1000})
+        T_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1,:],np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)
         self.assertLessEqual(l2_error, 1)

@@ -26,6 +26,13 @@ class ThermalLoss3D(FiniteElementLoss):
                                "element_type":"hexahedron"},fe_mesh)
         self.shape_function = HexahedralShapeFunction()
 
+    @print_with_timestamp_and_execution_time
+    def Initialize(self,reinitialize=False) -> None:  
+        if self.initialized and not reinitialize:
+            return
+        super().Initialize() 
+        self.shape_function = HexahedralShapeFunction()
+
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,te,body_force=0):
         @jit

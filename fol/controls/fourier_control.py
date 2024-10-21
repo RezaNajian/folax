@@ -19,7 +19,10 @@ class FourierControl(Control):
         self.fe_mesh = fe_mesh
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self) -> None:
+    def Initialize(self,reinitialize=False) -> None:
+        if self.initialized and not reinitialize:
+            return
+
         if "min" in self.settings.keys():
             self.min = self.settings["min"]
         else:
