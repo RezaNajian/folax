@@ -17,7 +17,7 @@ from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
 from fol.tools.usefull_functions import *
 
-class ExplicitParametricOperatorLearning(DeepNetwork):
+class ImplicitParametricOperatorLearning(DeepNetwork):
     """
     A class for explicit parametric operator learning in deep neural networks.
 
@@ -89,14 +89,14 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the provided flax neural netwrok does not have out_features "\
                       "which specifies the size of the output layer") 
 
-        if self.flax_neural_network.in_features != self.control.GetNumberOfVariables():
+        if self.flax_neural_network.in_features != self.control.GetNumberOfVariables() + 3:
             fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
-                      f"does not match the size of control variables {self.control.GetNumberOfVariables()}")
+                      f"does not match the input size implicit/neural field which is {self.control.GetNumberOfVariables() + 3}")
 
-        if self.flax_neural_network.out_features != self.loss_function.GetNumberOfUnknowns():
+        if self.flax_neural_network.out_features != len(self.loss_function.dofs):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
-                      f" does not match the size of unknowns of the loss function {self.loss_function.GetNumberOfUnknowns()}")
-    
+                      f" does not match the number of the loss function {self.loss_function.dofs}")
+
     def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
         """
         Creates batches from the input dataset.
@@ -133,7 +133,7 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
                 yield batch_x, batch_y
             else:
                 yield batch_x,
-    
+
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         """
@@ -154,7 +154,9 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         jnp.ndarray
             The loss value for the single data point.
         """
-        nn_output = nn_model(x_set[0])
+
+        tiled_input = jnp.hstack((jnp.tile(x_set[0], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+        nn_output = nn_model(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
         control_output = self.control.ComputeControlledVariables(x_set[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
@@ -207,8 +209,13 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         jnp.ndarray
             The predicted outputs, mapped to the full DoF vector.
         """
-        batch_Y = self.flax_neural_network(batch_X)
-        return vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
+        prediction = []
+        for i in range(batch_X.shape[0]):
+            tiled_input = jnp.hstack((jnp.tile(batch_X[i], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+            nn_output = self.flax_neural_network(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
+            full_dof = self.loss_function.GetFullDofVector(batch_X[i],nn_output)
+            prediction.append(full_dof)
+        return jnp.array(prediction)
 
     def Finalize(self):
         pass
