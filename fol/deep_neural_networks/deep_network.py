@@ -5,7 +5,7 @@
 """
 import os
 from abc import ABC,abstractmethod
-from typing import Iterator,Tuple
+from typing import Tuple
 from tqdm import trange
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
@@ -123,43 +123,6 @@ class DeepNetwork(ABC):
             The name of the deep learning model.
         """
         return self.name
-    
-    def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
-        """
-        Creates batches from the input dataset.
-
-        This method splits the input data into batches of a specified size, 
-        yielding input data and optionally target labels if provided.
-
-        Parameters
-        ----------
-        data : Tuple[jnp.ndarray, jnp.ndarray]
-            A tuple of input data and target labels.
-        batch_size : int
-            The number of samples per batch.
-
-        Yields
-        ------
-        Iterator[jnp.ndarray]
-            Batches of input data and optionally target labels.
-        """
-
-        # Unpack data into data_x and data_y
-        if len(data) > 1:
-            data_x, data_y = data  
-            if data_x.shape[0] != data_y.shape[0]:
-                fol_error("data_x and data_y must have the same number of samples.")
-        else:
-            data_x = data[0]
-
-        # Iterate over the dataset and yield batches of data_x and data_y
-        for i in range(0, data_x.shape[0], batch_size):
-            batch_x = data_x[i:i+batch_size, :]
-            if len(data) > 1:
-                batch_y = data_y[i:i+batch_size, :]
-                yield batch_x, batch_y
-            else:
-                yield batch_x,
 
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
