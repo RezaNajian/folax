@@ -1,8 +1,6 @@
 import sys
 import os
 import optax
-from flax import nnx
-import jax
 import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh
@@ -11,10 +9,11 @@ from fol.deep_neural_networks.implicit_parametric_operator_learning import Impli
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-import pickle, time
+from siren_nn import Siren
+import pickle
 
 # directory & save handling
-working_directory_name = 'implicit_mechanical_2D'
+working_directory_name = 'siren_implicit_mechanical_2D'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -66,34 +65,19 @@ else:
 
 K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
+export_Ks = False
+if export_Ks:
+    for i in range(K_matrix.shape[0]):
+        fe_mesh[f'K_{i}'] = np.array(K_matrix[i,:])
+    fe_mesh.Finalize(export_dir=case_dir)
+    exit()
+
 # specify id of the K of interest
-eval_id = 25
+eval_id = 0
 
-# design NN for learning
-class MLP(nnx.Module):
-    def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-        self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs)
-        self.dense2 = nnx.Linear(dmid, dmid, rngs=rngs)
-        self.dense3 = nnx.Linear(dmid, out_features, rngs=rngs)
-        self.in_features = in_features
-        self.out_features = out_features
+# design siren NN for learning
+siren_NN = Siren(13,2,[50,50])
 
-    def __call__(self, x: jax.Array) -> jax.Array:
-        x = self.dense1(x)
-        x = jax.nn.swish(x)
-        x = self.dense2(x)
-        x = jax.nn.swish(x)
-        x = self.dense3(x)
-        return x
-
-# here we create netwrok for implicit learning
-# Note : 
-#       input size = 3 for (x,y,z) + number of control variables
-#       output size = number of degree of freedoms 
-fol_net = MLP(3+fourier_control.GetNumberOfVariables(),
-              100,
-              len(mechanical_loss_2d.dofs),
-              rngs=nnx.Rngs(0))
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -102,7 +86,7 @@ chained_transform = optax.chain(optax.normalize_by_update_norm(),
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                         loss_function=mechanical_loss_2d,
-                                        flax_neural_network=fol_net,
+                                        flax_neural_network=siren_NN,
                                         optax_optimizer=chained_transform,
                                         checkpoint_settings={"restore_state":False,
                                         "state_directory":case_dir+"/flax_state"},
@@ -113,7 +97,9 @@ fol.Initialize()
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),batch_size=100,
             convergence_settings={"num_epochs":2000,"relative_error":1e-100},
-            plot_settings={"plot_save_rate":1000})
+            plot_settings={"plot_save_rate":1000},
+            save_settings={"save_nn_model":False})
+
 
 FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
 fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))

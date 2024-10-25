@@ -67,27 +67,24 @@ else:
 K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
 # specify id of the K of interest
-eval_id = 25
+eval_id = 0
 
 # design NN for learning
 class MLP(nnx.Module):
     def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
         self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs)
-        self.dense2 = nnx.Linear(dmid, dmid, rngs=rngs)
-        self.dense3 = nnx.Linear(dmid, out_features, rngs=rngs)
+        self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs)
         self.in_features = in_features
         self.out_features = out_features
 
     def __call__(self, x: jax.Array) -> jax.Array:
         x = self.dense1(x)
-        x = jax.nn.relu(x)
+        x = jax.nn.swish(x)
         x = self.dense2(x)
-        x = jax.nn.relu(x)
-        x = self.dense3(x)
         return x
 
 fol_net = MLP(fourier_control.GetNumberOfVariables(),
-              100,
+              1,
               mechanical_loss_2d.GetNumberOfUnknowns(),
               rngs=nnx.Rngs(0))
 
@@ -107,7 +104,7 @@ fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
 fol.Initialize()
 
 fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":20000,"relative_error":1e-10},
+            convergence_settings={"num_epochs":1000,"absolute_error":1e-6,"relative_error":1e-10},
             plot_settings={"plot_save_rate":1000})
 
 FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
