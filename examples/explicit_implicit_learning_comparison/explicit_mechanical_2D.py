@@ -72,8 +72,8 @@ eval_id = 0
 # design NN for learning
 class MLP(nnx.Module):
     def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-        self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs)
-        self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs)
+        self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs, kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+        self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs, kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
         self.in_features = in_features
         self.out_features = out_features
 
@@ -104,7 +104,7 @@ fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
 fol.Initialize()
 
 fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":1000,"absolute_error":1e-6,"relative_error":1e-10},
+            convergence_settings={"num_epochs":1000,"absolute_error":1e-100,"relative_error":1e-100},
             plot_settings={"plot_save_rate":1000})
 
 FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
