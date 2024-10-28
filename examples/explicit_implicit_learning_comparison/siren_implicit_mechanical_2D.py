@@ -58,7 +58,7 @@ if create_random_coefficients:
     with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'wb') as f:
         pickle.dump(export_dict,f)
 else:
-    with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'rb') as f:
+    with open(f'fourier_control_dict_N_{51}.pkl', 'rb') as f:
         loaded_dict = pickle.load(f)
     
     coeffs_matrix = loaded_dict["coeffs_matrix"]
@@ -88,24 +88,24 @@ fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                         loss_function=mechanical_loss_2d,
                                         flax_neural_network=siren_NN,
                                         optax_optimizer=chained_transform,
-                                        checkpoint_settings={"restore_state":False,
+                                        checkpoint_settings={"restore_state":True,
                                         "state_directory":case_dir+"/flax_state"},
                                         working_directory=case_dir)
 
 fol.Initialize()
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":2000,"relative_error":1e-100},
-            plot_settings={"plot_save_rate":1000},
-            save_settings={"save_nn_model":False})
+# fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),batch_size=100,
+#             convergence_settings={"num_epochs":2000,"relative_error":1e-100},
+#             plot_settings={"plot_save_rate":1000},
+#             save_settings={"save_nn_model":True})
 
 
 FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
 fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                             "maxiter":10,"load_incr":5}}
