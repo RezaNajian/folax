@@ -1,6 +1,6 @@
 """
  Authors: Reza Najian Asl, https://github.com/RezaNajian
- Date: April, 2024
+ Date: October, 2024
  License: FOL/LICENSE
 """
 
@@ -43,12 +43,14 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
                  flax_neural_network:nnx.Module,
                  optax_optimizer:GradientTransformation,
                  checkpoint_settings:dict={},
-                 working_directory='.'
+                 working_directory='.',
+                 free_param=False
                  ):
         super().__init__(name,loss_function,flax_neural_network,
                          optax_optimizer,checkpoint_settings,
                          working_directory)
         self.control = control
+        self.free_param = free_param
         
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
@@ -97,6 +99,18 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
                       f" does not match the number of the loss function {self.loss_function.dofs}")
 
+        # NN input creator
+        if self.free_param:
+            @jit
+            def nn_input_creator(input_control_vars):
+                return jnp.hstack((input_control_vars.reshape(-1,1),self.loss_function.fe_mesh.GetNodesCoordinates()))
+            self.nn_input_creator = nn_input_creator
+        else:
+            @jit
+            def nn_input_creator(input_control_vars):
+                return jnp.hstack((jnp.tile(input_control_vars, (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+            self.nn_input_creator = nn_input_creator
+    
     def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
         """
         Creates batches from the input dataset.
@@ -154,10 +168,7 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         jnp.ndarray
             The loss value for the single data point.
         """
-
-        tiled_input = jnp.hstack((jnp.tile(x_set[0], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
-        # nn_output = nn_model(self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-        nn_output = nn_model(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
+        nn_output = nn_model(self.nn_input_creator(x_set[0])).flatten()[self.loss_function.non_dirichlet_indices]
         control_output = self.control.ComputeControlledVariables(x_set[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
@@ -212,9 +223,7 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         """
         prediction = []
         for i in range(batch_X.shape[0]):
-            tiled_input = jnp.hstack((jnp.tile(batch_X[i], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
-            # nn_output = self.flax_neural_network(self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-            nn_output = self.flax_neural_network(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
+            nn_output = self.flax_neural_network(self.nn_input_creator(batch_X[i])).flatten()[self.loss_function.non_dirichlet_indices]
             full_dof = self.loss_function.GetFullDofVector(batch_X[i],nn_output)
             prediction.append(full_dof)
         return jnp.array(prediction)
