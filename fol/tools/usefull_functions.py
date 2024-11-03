@@ -57,6 +57,54 @@ def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cma
     if file_name is not None:
         plt.savefig(file_name)
 
+def plot_mesh_vec_data_phasefield(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
+                       block_bool=False, colour_bar=True, colour_bar_name=None,
+                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
+    num_vectors = len(vectors_list)
+    if num_vectors < 1 or num_vectors > 4:
+        raise ValueError("vectors_list must contain between 1 and 4 elements.")
+
+    if subplot_titles is not None and len(subplot_titles) != num_vectors:
+        raise ValueError("subplot_titles must have the same number of elements as vectors_list if provided.")
+
+    # Determine the grid size for the subplots
+    grid_size = math.ceil(math.sqrt(num_vectors))
+    fig, axs = plt.subplots(grid_size, grid_size, figsize=(5*grid_size, 5*grid_size), squeeze=False)
+    
+    # Flatten the axs array and hide unused subplots if any
+    axs = axs.flatten()
+    for ax in axs[num_vectors:]:
+        ax.axis('off')
+
+    for i, squared_mesh_vec_data in enumerate(vectors_list):
+        N = int((squared_mesh_vec_data.reshape(-1, 1).shape[0])**0.5)
+        im = axs[i].imshow(squared_mesh_vec_data.reshape(N, N), cmap=cmap, extent=[0, L, 0, L],vmin = -1, vmax = 1)
+
+        if subplot_titles is not None:
+            axs[i].set_title(subplot_titles[i])
+        else:
+            axs[i].set_title(f'Plot {i+1}')
+
+        if colour_bar:
+            fig.colorbar(im, ax=axs[i], fraction=0.046, pad=0.04)
+
+        if X_axis_name is not None:
+            axs[i].set_xlabel(X_axis_name)
+
+        if Y_axis_name is not None:
+            axs[i].set_ylabel(Y_axis_name)
+
+    if fig_title is not None:
+        plt.suptitle(fig_title)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if show:
+        plt.show(block=block_bool)
+
+    if file_name is not None:
+        plt.savefig(file_name)
+
 def plot_data_input(input_morph, num_columns, filename):
 
     N = int(input_morph.shape[1]**0.5)

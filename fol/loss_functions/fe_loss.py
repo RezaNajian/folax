@@ -68,7 +68,12 @@ class FiniteElementLoss(Loss):
         # create full solution vector
         self.solution_vector = jnp.zeros(self.total_number_of_dofs)
         # apply dirichlet bcs
-        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+        if self.dirichlet_indices.size == 0:
+            pass
+        else:
+            self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+
+        
 
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():

@@ -38,7 +38,6 @@ fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,
                             "beta":20,"min":1e-1,"max":1}
 fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
 
-
 fe_mesh.Initialize()
 thermal_loss_2d.Initialize()
 fourier_control.Initialize()
@@ -75,7 +74,6 @@ eval_id = 0
 
 # design siren NN for learning
 siren_NN = Siren(13,1,[50,50])
-
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
