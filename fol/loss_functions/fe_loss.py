@@ -254,12 +254,12 @@ class FiniteElementLoss(Loss):
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
-        
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):   
         BC_vector = jnp.ones((self.total_number_of_dofs))
-        BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
-        mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
+        if self.dirichlet_indices.size > 0:
+            BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
+            mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
         
         elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None)) \
                                                             (self.fe_mesh.GetElementsIds(self.element_type),

@@ -7,7 +7,7 @@ import jax
 from fol.loss_functions.thermal_transient_2D_fe_quad import ThermalTransientLoss2DQuad
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.no_control import NoControl
-from fol.deep_neural_networks.implicit_transient_parametric_operator_learning import ImplicitParametricOperatorLearning
+from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_super_res import ImplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -27,21 +27,30 @@ model_settings = {"L":1,"N":50,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
+mesh_res_rate = 5
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
+fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
 
 # create fe-based loss function
-bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}
+bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
 
-material_dict = {"rho":1,"cp":10.0,"dt":0.05}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.05}
 thermal_loss_2d = ThermalTransientLoss2DQuad("thermal_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
                                                                             fe_mesh=fe_mesh)
+thermal_loss_2d_pred = ThermalTransientLoss2DQuad("thermal_loss_2d_pred",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                            "num_gp":2,
+                                                                            "material_dict":material_dict},
+                                                                            fe_mesh=fe_mesh_pred)
+
 
 no_control = NoControl("No_Control",fe_mesh)
 
 fe_mesh.Initialize()
+fe_mesh_pred.Initialize()
 thermal_loss_2d.Initialize()
+thermal_loss_2d_pred.Initialize()
 no_control.Initialize()
 
 # create some random coefficients & K for training
@@ -98,7 +107,7 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-siren_NN = Siren(4,1,[50,50])
+siren_NN = Siren(4,1,[100,100])
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -107,6 +116,7 @@ chained_transform = optax.chain(optax.normalize_by_update_norm(),
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=no_control,
                                         loss_function=thermal_loss_2d,
+                                        loss_function_pred=thermal_loss_2d_pred,
                                         flax_neural_network=siren_NN,
                                         optax_optimizer=chained_transform,
                                         checkpoint_settings={"restore_state":False,
@@ -117,21 +127,23 @@ fol.Initialize()
 
 t_init = 0.0
 t_current = t_init
-num_steps = 5
+num_steps = 10
 FOL_T_temp = T_matrix
-FOL_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
+FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 # For the first time step
 fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
             convergence_settings={"num_epochs":2000,"relative_error":1e-8},
             plot_settings={"plot_save_rate":1000},
             save_settings={"save_nn_model":True})
+FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
 FOL_T_temp = np.array(fol.Predict(jnp.array([t_current]))).reshape(-1)
-FOL_T[:,0] = FOL_T_temp
+FOL_T[:,0] = FOL_T_temp_fine
 # For the subsequent time steps the checkpoint function should be activated
 for i in range(num_steps-1):
     t_current += material_dict["dt"]
     fol = ImplicitParametricOperatorLearning(name="dis_fol",control=no_control,
                                             loss_function=thermal_loss_2d,
+                                            loss_function_pred=thermal_loss_2d_pred,
                                             flax_neural_network=siren_NN,
                                             optax_optimizer=chained_transform,
                                             checkpoint_settings={"restore_state":True,
@@ -142,8 +154,9 @@ for i in range(num_steps-1):
                 convergence_settings={"num_epochs":2000,"relative_error":1e-8},
                 plot_settings={"plot_save_rate":1000},
                 save_settings={"save_nn_model":True})
+    FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
+    FOL_T[:,i+1] = FOL_T_temp_fine
     FOL_T_temp = np.array(fol.Predict(jnp.array([t_current]))).reshape(-1)
-    FOL_T[:,i+1] = FOL_T_temp
 
 fe_mesh['T_FOL'] = FOL_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 # solve FE here
@@ -151,10 +164,11 @@ fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol
                                             "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                             "maxiter":10,"load_incr":5}}
-linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",thermal_loss_2d,fe_setting)
+linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",thermal_loss_2d_pred,fe_setting)
 linear_fe_solver.Initialize()
-FE_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
-FE_T_temp = T_matrix#[eval_id]
+FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
+# FE_T_temp = T_matrix#[eval_id]
+FE_T_temp = np.full((fe_mesh_pred.GetNumberOfNodes()),0.0)
 for i in range(num_steps):
     FE_T_temp = np.array(linear_fe_solver.Solve(FE_T_temp,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
     FE_T[:,i] = FE_T_temp    
@@ -169,11 +183,11 @@ plot_mesh_vec_data(1,[coeffs_matrix[eval_id],FOL_T[:,0], FOL_T[:,2], FOL_T[:,-1]
                    file_name=os.path.join(case_dir,"FOL-T-dist.png"))
 plot_mesh_vec_data(1,[coeffs_matrix[eval_id],FE_T[:,0], FE_T[:,2], FE_T[:,-1]],
                    ["T_init","T_1","T_3","T_fin"],
-                   fig_title="conductivity and FEM solution",cmap = "jet",
+                   fig_title="Initial condition and FEM solution",cmap = "jet",
                    file_name=os.path.join(case_dir,"FEM-T-dist.png"))
 plot_mesh_vec_data(1,[coeffs_matrix[eval_id],absolute_error[:,0], absolute_error[:,2], absolute_error[:,-1]],
                    ["T_init","Error_1","Error_3","Error_fin"],
-                   fig_title="conductivity and FEM solution",cmap = "jet",
+                   fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)

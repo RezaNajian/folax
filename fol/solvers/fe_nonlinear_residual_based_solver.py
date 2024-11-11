@@ -8,11 +8,12 @@ import jax.numpy as jnp
 from jax import jit
 from functools import partial
 from  .fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
+from  .fe_solver import FiniteElementSolver
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 from fol.loss_functions.fe_loss import FiniteElementLoss
 
-class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBasedSolver):
+class FiniteElementNonLinearResidualBasedSolver(FiniteElementSolver):
     """Nonlinear solver class.
 
     """
@@ -36,7 +37,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
         load_increament = self.nonlinear_solver_settings["load_incr"]
         for load_fac in range(load_increament):
             fol_info(f"loadStep; increment:{load_fac+1}")
-            applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
+            applied_BC_dofs = current_dofs#self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
             for i in range(self.nonlinear_solver_settings["maxiter"]):
                 BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)

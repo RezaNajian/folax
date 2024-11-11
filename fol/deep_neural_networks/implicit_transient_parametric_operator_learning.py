@@ -45,7 +45,8 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
                  checkpoint_settings:dict={},
                  working_directory='.'
                  ):
-        super().__init__(name,loss_function,flax_neural_network,
+        super().__init__(name,loss_function,
+                         flax_neural_network,
                          optax_optimizer,checkpoint_settings,
                          working_directory)
         self.control = control
