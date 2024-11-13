@@ -16,6 +16,9 @@ import pickle
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
+import time 
+from datetime import datetime
+
 # directory & save handling
 working_directory_name = 'siren_implicit_AllenCahn_2D'
 case_dir = os.path.join('.', working_directory_name)
@@ -23,24 +26,27 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":50,
+model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-
+num_steps = 50
 # creation of the model
-mesh_res_rate = 5
+mesh_res_rate = 4
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate)
 # create fe-based loss function
 bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
+Dirichlet_BCs = False
 
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.0005,"epsilon":0.1}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.001,"epsilon":0.05}
+dt_res_rate = 1
+material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_2d = AllenCahnLoss2DQuad("Phasefield_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
                                                                             fe_mesh=fe_mesh)
 phasefield_loss_2d_pred = AllenCahnLoss2DQuad("Phasefield_loss_2d_pred",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
-                                                                            "material_dict":material_dict},
+                                                                            "material_dict":material_dict_pred},
                                                                             fe_mesh=fe_mesh_pred)
 no_control = NoControl("No_Control",fe_mesh)
 
@@ -120,12 +126,13 @@ eval_id = 0
 # design siren NN for learning
 siren_NN = Siren(4,1,[100,100])
 
-lr = 1e-3
+lr = 1e-4
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
                                 optax.adam(lr))
 
 # create fol
+start_time = time.time()
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=no_control,
                                         loss_function=phasefield_loss_2d,
                                         loss_function_pred=phasefield_loss_2d_pred,
@@ -139,12 +146,11 @@ fol.Initialize()
 
 t_init = 0.0
 t_current = t_init
-num_steps = 100
 FOL_T_temp = coeffs_matrix.flatten()
 FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 # For the first time step
 fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":400,"relative_error":1e-100},
+            convergence_settings={"num_epochs":2000,"relative_error":1e-5},
             plot_settings={"plot_save_rate":1000},
             save_settings={"save_nn_model":True})
 FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
@@ -165,41 +171,55 @@ for i in range(num_steps-1):
                                             working_directory=case_dir)
     fol.Initialize()
     fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-                convergence_settings={"num_epochs":400,"relative_error":1e-100},
+                convergence_settings={"num_epochs":2000,"relative_error":1e-5},
                 plot_settings={"plot_save_rate":1000},
                 save_settings={"save_nn_model":True})
     FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
     FOL_T[:,i+1] = FOL_T_temp_fine
     FOL_T_temp = np.array(fol.Predict(jnp.array([t_current]))).reshape(-1)
 
-fe_mesh['T_FOL'] = FOL_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
+end_time = time.time()
+execution_time = end_time - start_time
+now = datetime.now()
+current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+print(f"{current_time} - Info : iFOL part - finished in {execution_time:.4f} seconds")
+fe_mesh['T_FOL'] = FOL_T
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-10,"atol":1e-10,
-                                            "maxiter":1000,"pre-conditioner":"ilu"},
-                "nonlinear_solver_settings":{"rel_tol":1e-100,"abs_tol":1e-100,
-                                            "maxiter":10,"load_incr":1}}
+start_time = time.time()
+fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-7,"atol":1e-7,
+                                            "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
+                "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
+                                            "maxiter":20,"load_incr":1}}
 nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlinear_fe_solver",phasefield_loss_2d_pred,fe_setting)
 nonlinear_fe_solver.Initialize()
-FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
+num_steps_FE = num_steps*dt_res_rate
+FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps_FE))
 FE_T_temp = coeffs_matrix_fine.flatten()
-for i in range(num_steps):
+for i in range(num_steps_FE):
     FE_T_temp = np.array(nonlinear_fe_solver.Solve(FE_T_temp,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
-    FE_T[:,i] = FE_T_temp    
-fe_mesh['T_FE'] = FE_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
+    FE_T[:,i] = FE_T_temp   
+end_time = time.time()
+execution_time = end_time - start_time
+now = datetime.now()
+current_time = now.strftime("%Y-%m-%d %H:%M:%S")
+print(f"{current_time} - Info : FEM part - finished in {execution_time:.4f} seconds")
+ 
+fe_mesh['T_FE'] = FE_T
 
-absolute_error = np.abs(FOL_T- FE_T)
+absolute_error = np.abs(FOL_T- FE_T[:,(dt_res_rate-1)::dt_res_rate])
 fe_mesh['abs_error'] = absolute_error#.reshape((fe_mesh.GetNumberOfNodes(), 1))
-
-plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FOL_T[:,19],FOL_T[:,49],FOL_T[:,-1]],#,absolute_error
-                   ["Phi_init","Phi_20","Phi_50","Phi_fin"],
+time_list = [int(num_steps/5) - 1,int(num_steps/2) - 1,num_steps - 1]
+time_list_FE = [int(num_steps_FE/5)- 1,int(num_steps_FE/2)- 1,num_steps_FE-1] 
+plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],#,absolute_error
+                   ["","","",""],
                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
                    file_name=os.path.join(case_dir,"FOL-T-dist.png"))
-plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FE_T[:,19],FE_T[:,49],FE_T[:,-1]],
-                   ["Phi_init","Phi_20","Phi_50","Phi_fin"],
+plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FE_T[:,time_list_FE[0]],FE_T[:,time_list_FE[1]],FE_T[:,time_list_FE[2]]],
+                   ["","","",""],
                    fig_title="Initial condition and FEM solution",cmap = "jet",
                    file_name=os.path.join(case_dir,"FEM-T-dist.png"))
-plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,19],absolute_error[:,49],absolute_error[:,-1]],
-                   ["Phi_init","Error_1","Error_3","Error_fin"],
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
+                   ["","","",""],
                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
 

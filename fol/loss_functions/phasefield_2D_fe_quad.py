@@ -79,3 +79,7 @@ class AllenCahnLoss2DQuad(FiniteElementLoss):
 
         return  element_energy, element_residual, element_tangent
     
+    
+    def ComputeElementHetero(self, *args):
+        pass
+    

@@ -64,7 +64,6 @@ class ThermalTransientLoss2DQuad(FiniteElementLoss):
         Me = jnp.sum(m_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
         Te = jnp.sum(t_gps)
-        element_residual = jax.lax.stop_gradient((Me+self.dt*Se)@Te_n- Me@Te_c)
-        element_energy = 0.5*Te_n.T@Se@Te_n + Te
+        # element_residual = jax.lax.stop_gradient((Me+self.dt*Se)@Te_n- Me@Te_c) 
 
-        return element_energy, (Me+self.dt*Se)@Te_n - Me@Te_c, (Me+self.dt*Se)
+        return 0.5*Te_n.T@Se@Te_n + Te, (Me+self.dt*Se)@Te_n - Me@Te_c, (Me+self.dt*Se)
