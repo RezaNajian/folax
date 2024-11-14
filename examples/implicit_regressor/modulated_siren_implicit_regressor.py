@@ -14,7 +14,7 @@ from siren_nns import Siren
 import pickle
 
 # directory & save handling
-working_directory_name = 'implicit_autodecoder'
+working_directory_name = 'modulated_siren_implicit_regressor'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -73,7 +73,9 @@ if export_Ks:
 
 
 # design siren NN for learning
-modulated_siren_NN = Siren(input_size=13,output_size=1,hidden_layers=[100,100,100])
+modulated_siren_NN = ModulatedSiren(synthesis_input_dim=3,synthesis_output_dim=1,
+                                    modulator_input_dim=10,hidden_layers=[50,50],
+                                    modulator_skip_connections=True)
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
