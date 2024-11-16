@@ -5,11 +5,13 @@ from jax import random
 
 class Siren(nnx.Module):
   def __init__(self,input_size: int,output_size: int, 
-                    hidden_layers:list,omega:float=30):
+                hidden_layers:list,omega:float=30,
+                weight_scale:float=3.0):
 
     self.in_features=input_size
     self.out_features=output_size
     self.omega=omega
+    self.weight_scale=weight_scale
     siren_layers = hidden_layers
 
     layer_sizes = [self.in_features] +  siren_layers + [self.out_features]
@@ -20,9 +22,11 @@ class Siren(nnx.Module):
     for i, (in_dim, out_dim) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
         weight_key, bias_key = random.split(keys[i])
         if i==0:
-            weight_variance = 1 / in_dim
-        else:
+            weight_variance = self.weight_scale / in_dim
+        elif i==len(layer_sizes)-2:
             weight_variance = jnp.sqrt(6 / in_dim) / self.omega
+        else:
+            weight_variance = self.weight_scale * jnp.sqrt(6 / in_dim) / self.omega
         
         weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
         bias_variance = jnp.sqrt(1 / in_dim)
@@ -39,14 +43,16 @@ class Siren(nnx.Module):
 class ModulatedSiren(nnx.Module):
   def __init__(self, synthesis_input_dim:int, synthesis_output_dim:int,
                      modulator_input_dim:int, hidden_layers:list,
-                     omega:float=30,modulator_skip_connections:bool=True):
+                     omega:float=30,weight_scale:float=3.0,
+                     modulator_skip_connections:bool=True):
 
-    self.synthesis_input_dim = synthesis_input_dim
-    self.modulator_input_dim = modulator_input_dim
-    self.in_features = synthesis_input_dim + modulator_input_dim
-    self.out_features = synthesis_output_dim
-    self.omega = omega
-    self.skip_connect = modulator_skip_connections
+    self.synthesis_input_dim=synthesis_input_dim
+    self.modulator_input_dim=modulator_input_dim
+    self.in_features=synthesis_input_dim + modulator_input_dim
+    self.out_features=synthesis_output_dim
+    self.omega=omega
+    self.weight_scale=weight_scale
+    self.skip_connect=modulator_skip_connections
 
     synthesis_layers = [synthesis_input_dim] + hidden_layers + [synthesis_output_dim]
     modulator_layers = [modulator_input_dim] + hidden_layers
@@ -58,9 +64,11 @@ class ModulatedSiren(nnx.Module):
         for i, (in_dim, out_dim) in enumerate(zip(layers[:-1], layers[1:])):
             weight_key, bias_key = random.split(keys[i])
             if i==0:
-                weight_variance = 1 / in_dim
-            else:
+                weight_variance = self.weight_scale / in_dim
+            elif i==len(layers)-2:
                 weight_variance = jnp.sqrt(6 / in_dim) / self.omega
+            else:
+                weight_variance = self.weight_scale * jnp.sqrt(6 / in_dim) / self.omega
             weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
             bias_variance = jnp.sqrt(1 / in_dim)
             biases = nnx.Param(random.uniform(bias_key, (int(out_dim),), jnp.float32, minval=-bias_variance, maxval=bias_variance))
