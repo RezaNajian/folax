@@ -641,6 +641,7 @@ def Neo_Hooke(F,k,mu):
 
 def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     filtered_update = {k: given_dict[k] for k in default_dict 
-                    if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
+                    if k in given_dict and (isinstance(given_dict[k], type(default_dict[k])) 
+                                            or default_dict[k]==None)}
     default_dict.update(filtered_update)
     return default_dict
