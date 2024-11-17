@@ -73,7 +73,10 @@ if export_Ks:
 
 
 # design siren NN for learning
-concatenated_siren_NN = Siren(input_size=13,output_size=1,hidden_layers=[100,100,100])
+concatenated_siren_NN = Siren(input_size=13,output_size=1,
+                              hidden_layers=[100,100,100],
+                              weight_scale=1.0,
+                              omega=60)
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -90,18 +93,18 @@ fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
 
 fol.Initialize()
 
-train_start_id = 0
-train_end_id = 20
+train_start_id = 1
+train_end_id = 2
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":2000,"relative_error":1e-100,
+            convergence_settings={"num_epochs":5000,"relative_error":1e-100,
                                   "absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True})
 
-for test in range(10):
-    eval_id = np.random.randint(train_start_id, train_end_id)
+for test in range(1):
+    eval_id = train_start_id
     fe_mesh[f'Pred_K_{eval_id}'] = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
     fe_mesh[f'GT_K_{eval_id}'] = np.array(K_matrix[eval_id,:])
     fe_mesh[f'abs_error_{eval_id}'] = abs(fe_mesh[f'Pred_K_{eval_id}']-fe_mesh[f'GT_K_{eval_id}'])
