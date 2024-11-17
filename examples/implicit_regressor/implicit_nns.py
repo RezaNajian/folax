@@ -1,5 +1,6 @@
 from flax import nnx
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
+from jax.numpy import sin
 import jax
 import jax.numpy as jnp
 from jax import random
@@ -123,6 +124,7 @@ class ModulatedNetwork(nnx.Module):
         self.synthesis_NN_settings = {"input_layer_dim":None,
                                     "hidden_layers":[50,50],
                                     "output_layer_dim":None,
+                                    "activation_function":"sin",
                                     "omega":30,"weight_scale":3.0}  
 
         self.modulator_NN_settings = {"input_layer_dim":None,
@@ -184,7 +186,6 @@ class ModulatedNetwork(nnx.Module):
         layers += self.synthesis_NN_settings["hidden_layers"]
         layers += [self.synthesis_NN_settings["output_layer_dim"]]
         weight_scale = self.synthesis_NN_settings["weight_scale"]
-        self.synthesis_omega = self.synthesis_NN_settings["omega"]
         key = random.PRNGKey(0)
         keys = random.split(key, len(layers) - 1)
         self.synthesis_params = []
@@ -193,13 +194,18 @@ class ModulatedNetwork(nnx.Module):
             if i==0:
                 weight_variance = weight_scale / in_dim
             elif i==len(layers)-2:
-                weight_variance = jnp.sqrt(6 / in_dim) / self.synthesis_omega
+                weight_variance = jnp.sqrt(6 / in_dim) / self.synthesis_NN_settings["omega"]
             else:
-                weight_variance = weight_scale * jnp.sqrt(6 / in_dim) / self.synthesis_omega
+                weight_variance = weight_scale * jnp.sqrt(6 / in_dim) / self.synthesis_NN_settings["omega"]
             weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
             bias_variance = jnp.sqrt(1 / in_dim)
             biases = nnx.Param(random.uniform(bias_key, (int(out_dim),), jnp.float32, minval=-bias_variance, maxval=bias_variance))
             self.synthesis_params.append((weights, biases))
+
+        self.synthesis_act_func = globals()[self.synthesis_NN_settings["activation_function"]]
+        self.synthesis_act_func_multiplier = 1.0
+        if self.synthesis_NN_settings["activation_function"]=="sin":
+            self.synthesis_act_func_multiplier = self.synthesis_NN_settings["omega"]
 
     def initialize_modulator(self): 
         layers = [self.modulator_NN_settings["input_layer_dim"]]
@@ -207,7 +213,6 @@ class ModulatedNetwork(nnx.Module):
         self.modulator_skip_connections = self.modulator_NN_settings["skip_connections"]
         fully_connected_layers = self.modulator_NN_settings["fully_connected_layers"]
         self.modulator_input_dim = self.modulator_NN_settings["input_layer_dim"]
-        activation_function_name = self.modulator_NN_settings["activation_function"]
         key = random.PRNGKey(0)
         keys = random.split(key, len(layers) - 1)
         self.modulator_params = []
@@ -226,7 +231,7 @@ class ModulatedNetwork(nnx.Module):
             biases = nnx.Param(jnp.zeros(out_dim))
             self.modulator_params.append((weights, biases))
 
-        self.modulator_act_func = globals()[activation_function_name]
+        self.modulator_act_func = globals()[self.modulator_NN_settings["activation_function"]]
 
     def __call__(self, x: jax.Array):
 
@@ -241,7 +246,6 @@ class ModulatedNetwork(nnx.Module):
             for i in range(len(self.modulator_params)):
                 (w_modul, b_modul) = self.modulator_params[i]
                 (w_synth, b_synth) = self.synthesis_params[i]
-
                 # first compute modul NN 
                 if self.modulator_NN_settings["fully_connected_layers"]:
                     if self.modulator_skip_connections and i>0:
@@ -256,7 +260,7 @@ class ModulatedNetwork(nnx.Module):
                     x_modul = x_modul_not_act
 
                 # now compute synth NN 
-                x_synth = jnp.sin(self.synthesis_omega * (x_synth @ w_synth + b_synth + x_modul))
+                x_synth = self.synthesis_act_func(self.synthesis_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
 
         # case 2: when last layer's neurons of modulator are coupled to all synthesiser networks layers and neurons 
         elif self.coupling_settings["modulation_to_synthesis_coupling_mode"]=="last_to_all":
@@ -270,9 +274,8 @@ class ModulatedNetwork(nnx.Module):
                     x_modul = self.modulator_act_func(x_modul @ w_modul + b_modul)
 
             # then fw propagate the synthesis
-            for i in range(len(self.synthesis_params)):
-                (w_synth, b_synth) = self.synthesis_params[i]
-                x_synth = jnp.sin(self.synthesis_omega * (x_synth @ w_synth + b_synth + x_modul))
+            for (w_synth, b_synth) in self.synthesis_params[:-1]:
+                x_synth = self.synthesis_act_func(self.synthesis_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
 
         # final fw propagate of the synthesis
         final_w_synth, final_b_synth = self.synthesis_params[-1]

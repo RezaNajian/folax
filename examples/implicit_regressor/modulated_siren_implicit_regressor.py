@@ -73,14 +73,14 @@ if export_Ks:
 
 # design siren NN for learning
 modulated_siren_NN = ModulatedNetwork(synthesis_NN_settings={"input_layer_dim":3,
-                                                                  "hidden_layers":[100,100,100],
-                                                                  "output_layer_dim":1,
-                                                                  "weight_scale":3.0},
-                                           modulator_NN_settings={"input_layer_dim":10,
-                                                                  "hidden_layers":[100,100,100],
-                                                                  "fully_connected_layers":True,
-                                                                  "skip_connections":True},
-                                            coupling_settings={"modulation_to_synthesis_coupling_mode":"all_to_all"})
+                                                             "hidden_layers":[100,100,100],
+                                                             "output_layer_dim":1,
+                                                             "weight_scale":3.0},
+                                      modulator_NN_settings={"input_layer_dim":10,
+                                                             "hidden_layers":[100,100,100],
+                                                             "fully_connected_layers":True,
+                                                             "skip_connections":True},
+                                          coupling_settings={"modulation_to_synthesis_coupling_mode":"all_to_all"})
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -102,7 +102,7 @@ train_end_id = 2
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":200,"relative_error":1e-100,
+            convergence_settings={"num_epochs":2000,"relative_error":1e-100,
                                   "absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True})
