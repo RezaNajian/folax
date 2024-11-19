@@ -9,11 +9,11 @@ from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import 
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from implicit_nns import ModulatedNetwork
+from fol.deep_neural_networks.conditioned_implicit_nns import HyperNetworks
 import pickle
 
 # directory & save handling
-working_directory_name = 'modulated_siren_implicit_regressor'
+working_directory_name = 'hyper_nns_implicit_regressor'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -73,7 +73,7 @@ if export_Ks:
 
 # design siren NN for learning
 latent_size = 20
-modulated_siren_NN = ModulatedNetwork(synthesis_NN_settings={"input_layer_dim":3,
+modulated_siren_NN = HyperNetworks(synthesis_NN_settings={"input_layer_dim":3,
                                                              "hidden_layers":[100,100,100],
                                                              "output_layer_dim":1,
                                                              "weight_scale":3.0},

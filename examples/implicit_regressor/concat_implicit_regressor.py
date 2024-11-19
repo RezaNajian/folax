@@ -14,7 +14,7 @@ from siren_nns import Siren
 import pickle
 
 # directory & save handling
-working_directory_name = 'concatenated_siren_implicit_regressor'
+working_directory_name = 'concat_implicit_regressor'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
