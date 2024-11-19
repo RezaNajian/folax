@@ -117,7 +117,7 @@ class ModulatedSiren(nnx.Module):
         final_w_synth, final_b_synth = self.synthesis_params[-1]
         return x_synth @ final_w_synth + final_b_synth
   
-class ModulatedNetwork(nnx.Module):
+class HyperNetworks(nnx.Module):
     def __init__(self,synthesis_NN_settings:dict,modulator_NN_settings:dict,
                 coupling_settings:dict={}):
                 
@@ -158,7 +158,7 @@ class ModulatedNetwork(nnx.Module):
         # if self.modulator_NN_settings["fully_connected_layers"]==False and self.modulator_NN_settings["skip_connections"]==True:
         #     fol_error(f"in the modulator network, fully_connected_layers can not be False when skip_connections is True !")
 
-        self.in_features = self.synthesis_NN_settings["input_layer_dim"] + self.modulator_NN_settings["input_layer_dim"]
+        self.in_features = self.modulator_NN_settings["input_layer_dim"]
 
         self.out_features = self.synthesis_NN_settings["output_layer_dim"]
 
