@@ -91,9 +91,9 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the provided flax neural netwrok does not have out_features "\
                       "which specifies the size of the output layer") 
 
-        if self.flax_neural_network.in_features != self.control.GetNumberOfVariables() + 3:
-            fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
-                      f"does not match the input size implicit/neural field which is {self.control.GetNumberOfVariables() + 3}")
+        # if self.flax_neural_network.in_features != self.control.GetNumberOfVariables() + 3:
+        #     fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
+        #               f"does not match the input size implicit/neural field which is {self.control.GetNumberOfVariables() + 3}")
 
         if self.flax_neural_network.out_features != len(self.loss_function.dofs):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
