@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import jax.numpy as jnp
 from functools import partial
 from flax import nnx
+import jax
 import orbax.checkpoint as orbax
 from optax import GradientTransformation
 import orbax.checkpoint as ocp
@@ -124,8 +125,8 @@ class DeepNetwork(ABC):
         """
         return self.name
 
-    @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
+    @partial(jax.jit, static_argnums=(0,))
+    def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
         """
         Performs a single training step.
 
@@ -147,10 +148,13 @@ class DeepNetwork(ABC):
             A dictionary containing information about the training step, such as loss values.
         """
 
+        nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
+
         (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
-                                                                    (batch_set,nn_model)
-        optimizer.update(batch_grads)
-        return batch_dict
+                                                                    (batch_set,nnx_model)
+        nnx_optimizer.update(batch_grads)
+        _, new_state = nnx.split((nnx_model, nnx_optimizer))
+        return batch_dict,new_state
 
     @print_with_timestamp_and_execution_time
     def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
@@ -223,13 +227,17 @@ class DeepNetwork(ABC):
         test_history_dict = {}
         pbar = trange(convergence_settings["num_epochs"])
         converged = False
+
+        # here split according to https://github.com/google/flax/discussions/4224
+        nnx_graphdef, nxx_state = nnx.split((self.flax_neural_network, self.nnx_optimizer))
+
         for epoch in pbar:
             train_set_hist_dict = {}
             test_set_hist_dict = {}
             # now loop over batches
             batch_index = 0 
             for batch_set in self.CreateBatches(train_set, batch_size):
-                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set)
+                batch_dict,nxx_state = self.TrainStep(nnx_graphdef, nxx_state,batch_set)
                 train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
 
                 if len(test_set[0])>0:
@@ -258,6 +266,9 @@ class DeepNetwork(ABC):
 
             if epoch<convergence_settings["num_epochs"]-1 and converged:
                 break    
+
+        # now we need to merge the model again
+        self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)        
 
         # Save the flax model
         if save_settings["save_nn_model"]:
