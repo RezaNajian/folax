@@ -97,13 +97,16 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                                     loss_name+"_avg":jnp.mean(batch_avgs),
                                     "total_loss":total_mean_loss})
 
-    @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_orig_input_feature:jnp.ndarray, batch_learned_input_feature:jnp.ndarray):
+    @partial(jax.jit, static_argnums=(0,))
+    def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, batch_orig_input_feature:jnp.ndarray, batch_learned_input_feature:jnp.ndarray):
+
+        nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
 
         (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=2,has_aux=True) \
-                                                                    (batch_orig_input_feature,batch_learned_input_feature,nn_model)
-        optimizer.update(batch_grads)
-        return batch_dict
+                                                                    (batch_orig_input_feature,batch_learned_input_feature,nnx_model)
+        nnx_optimizer.update(batch_grads)
+        _, new_state = nnx.split((nnx_model, nnx_optimizer))
+        return batch_dict,new_state
 
     # @partial(jax.jit, static_argnums=(0,))
     def ComputeSampleCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],compute_code_size:int,num_epochs:int,nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
@@ -191,6 +194,10 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         test_history_dict = {}
         pbar = trange(convergence_settings["num_epochs"])
         converged = False
+
+        # here split according to https://github.com/google/flax/discussions/4224
+        nnx_graphdef, nxx_state = nnx.split((self.flax_neural_network, self.nnx_optimizer))
+
         for epoch in pbar:
             train_set_hist_dict = {}
             test_set_hist_dict = {}
@@ -198,13 +205,15 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             batch_index = 0 
             code_size = self.flax_neural_network.modulator_NN_settings["input_layer_dim"]
             for batch_set in self.CreateBatches(train_set, batch_size):
+                # now we merge before computing the codes
+                current_nnx_model, _ = nnx.merge(nnx_graphdef, nxx_state)
                 learned_codes = jax.vmap(self.ComputeSampleCode,(0,None,None,None,None))(batch_set,
                                                                                          code_size,
                                                                                          convergence_settings["num_latent_itrs"],
-                                                                                         self.flax_neural_network,
+                                                                                         current_nnx_model,
                                                                                          self.inner_optax_optimizer)
 
-                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set,learned_codes)
+                batch_dict,nxx_state = self.TrainStep(nnx_graphdef,nxx_state,batch_set,learned_codes)
                 train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
 
                 if len(test_set[0])>0:
@@ -233,6 +242,9 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
 
             if epoch<convergence_settings["num_epochs"]-1 and converged:
                 break    
+
+        # now we need to merge the model again
+        self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
 
         # Save the flax model
         if save_settings["save_nn_model"]:
