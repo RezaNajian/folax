@@ -1,3 +1,8 @@
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: November, 2024
+ License: FOL/LICENSE
+"""
 from flax import nnx
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
 from jax.numpy import sin
@@ -249,8 +254,23 @@ class MLP(nnx.Module):
         """
         return self.fw_func(x,self.NN_params)
 
-  
-class HyperNetworks(nnx.Module):
+class HyperNetwork(nnx.Module):
+    """
+    A neural network-based hypernetwork module that integrates a modulator network
+    and a synthesizer network with configurable coupling mechanisms for forward propagation.
+
+    Attributes:
+        modulator_nn (MLP): The modulator neural network.
+        synthesizer_nn (MLP): The synthesizer neural network.
+        in_features (int): Number of input features for the modulator network.
+        out_features (int): Number of output features for the synthesizer network.
+        coupling_settings (dict): Configuration dictionary specifying the coupling mode
+            and additional settings. Default settings include:
+            - "shift_coupling" (bool): Whether to include shift coupling.
+            - "scale_coupling" (bool): Whether to include scale coupling.
+            - "modulator_to_synthesizer_coupling_mode" (str): Mode of coupling. Options:
+              "all_to_all", "last_to_all", "last_to_last".
+    """
     def __init__(self,modulator_nn:MLP,synthesizer_nn:MLP,coupling_settings:dict={}):
 
         self.modulator_nn = modulator_nn
@@ -276,11 +296,41 @@ class HyperNetworks(nnx.Module):
         elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "last_to_last":
             if self.modulator_nn.hidden_layers[-1]!=self.synthesizer_nn.hidden_layers[-1]:
                 fol_error(f"for last_to_last modulator to synthesizer coupling, the last layer of synthesizer and modulator NNs should be identical !")
+            if not self.modulator_nn.fully_connected_layers:
+                fol_error(f"for last_to_last modulator to synthesizer coupling, the modulator NN should have fully connected layers !")
+            self.fw_func = self.last_to_last_fw
         else:
             valid_options=["all_to_all","last_to_all","last_to_last"]
             fol_error(f"valid options for modulator_to_synthesizer_coupling_mode are {valid_options} !")
 
     def all_to_all_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
+        """
+        Implements the "all-to-all" forward propagation coupling mechanism.
+
+        In this mode, each layer of the modulator network influences the corresponding 
+        layer of the synthesizer network during forward propagation. This requires 
+        that both networks have identical architectures (same number and sizes of hidden layers).
+
+        Process:
+        1. The input `x` is split into two parts:
+           - `x_modul`: Input to the modulator network.
+           - `x_synth`: Input to the synthesizer network.
+        2. For each layer:
+           - Compute the output of the modulator network (`x_modul`).
+           - Compute the output of the synthesizer network (`x_synth`).
+           - Add the modulator output (`x_modul`) to the synthesizer output (`x_synth`).
+           - Apply the activation functions to both modulator and synthesizer outputs.
+        3. At the final layer, only the synthesizer output is computed.
+
+        Parameters:
+            x (jax.Array): Input data, where the first `in_features` columns correspond 
+                to the modulator network and the remaining columns to the synthesizer network.
+            modulator_nn (MLP): The modulator neural network.
+            synthesizer_nn (MLP): The synthesizer neural network.
+
+        Returns:
+            jax.Array: The output of the synthesizer network after applying the "all-to-all" coupling.
+        """
         x_modul = x[:,0:modulator_nn.in_features]
         x_synth = x[:,modulator_nn.in_features:]
 
@@ -308,7 +358,32 @@ class HyperNetworks(nnx.Module):
         return synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)     
 
     def last_to_all_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
+        """
+        Implements the "last-to-all" forward propagation coupling mechanism.
 
+        In this mode, the output of the last layer of the modulator network 
+        is added to all layers of the synthesizer network during forward propagation.
+
+        Process:
+        1. The input `x` is split into two parts:
+           - `x_modul`: Input to the modulator network.
+           - `x_synth`: Input to the synthesizer network.
+        2. The modulator network is fully propagated, producing its final output (`x_modul`).
+        3. For each layer of the synthesizer network:
+           - Compute the output of the synthesizer network (`x_synth`).
+           - Add the final output of the modulator network (`x_modul`) to the synthesizer output.
+           - Apply the activation function to the synthesizer output.
+        4. At the final layer, only the synthesizer output is computed.
+
+        Parameters:
+            x (jax.Array): Input data, where the first `in_features` columns correspond 
+                to the modulator network and the remaining columns to the synthesizer network.
+            modulator_nn (MLP): The modulator neural network.
+            synthesizer_nn (MLP): The synthesizer neural network.
+
+        Returns:
+            jax.Array: The output of the synthesizer network after applying the "last-to-all" coupling.
+        """
         x_modul = x[:,0:modulator_nn.in_features]
         x_synth = x[:,modulator_nn.in_features:]
 
@@ -326,74 +401,53 @@ class HyperNetworks(nnx.Module):
 
         final_w_synth, final_b_synth = synthesizer_nn.NN_params[-1]
         return synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)    
+    
+    def last_to_last_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
+        """
+        Implements the "last-to-last" forward propagation coupling mechanism.
+
+        In this mode, only the final outputs of the modulator and synthesizer networks are coupled.
+        This configuration is useful when the modulator's output acts as a direct control 
+        or influence on the synthesizer's final output.
+
+        Process:
+        1. The input `x` is split into two parts:
+           - `x_modul`: Input to the modulator network.
+           - `x_synth`: Input to the synthesizer network.
+        2. The modulator network is fully propagated, producing its final output (`x_modul`).
+        3. The synthesizer network is propagated layer by layer without modification until the last layer.
+        4. At the final layer:
+           - Add the final output of the modulator network (`x_modul`) to the synthesizer output.
+           - Compute the final synthesizer output.
+
+        Parameters:
+            x (jax.Array): Input data, where the first `in_features` columns correspond 
+                to the modulator network and the remaining columns to the synthesizer network.
+            modulator_nn (MLP): The modulator neural network.
+            synthesizer_nn (MLP): The synthesizer neural network.
+
+        Returns:
+            jax.Array: The output of the synthesizer network after applying the "last-to-last" coupling.
+        """
+        x_modul = x[:,0:modulator_nn.in_features]
+        x_synth = x[:,modulator_nn.in_features:]
+
+        # first modulator fw
+        x_modul = modulator_nn(x_modul)
+
+        for i in range(len(synthesizer_nn.NN_params)-1):
+            (w_synth, b_synth) = synthesizer_nn.NN_params[i]
+            # now compute x_synth
+            x_synth = synthesizer_nn.compute_x_func(w_synth,x_synth,b_synth)
+            # now apply synth activation
+            x_synth = synthesizer_nn.act_func(synthesizer_nn.act_func_gain*x_synth)
+
+        # add x_modul
+        x_synth += x_modul
+
+        # final layer
+        final_w_synth, final_b_synth = synthesizer_nn.NN_params[-1]
+        return synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth) 
 
     def __call__(self, x: jax.Array):
         return self.fw_func(x,self.modulator_nn,self.synthesizer_nn)
-
-        # x_modul = x[:,0:self.modulator_nn.in_features]
-        # x_synth = x[:,self.modulator_nn.in_features:]
-
-        # for i in range(len(self.modulator_nn.NN_params)):
-        #     (w_modul, b_modul) = self.modulator_nn.NN_params[i]
-        #     (w_synth, b_synth) = self.synthesizer_nn.NN_params[i]
-        #     # compute x_modul
-        #     x_modul = self.modulator_nn.compute_x_func(w_modul,x_modul,b_modul)
-        #     # now compute x_synth
-        #     x_synth = self.synthesizer_nn.compute_x_func(w_synth,x_synth,b_synth)
-        #     # add x_modul
-        #     x_synth += x_modul
-        #     # now apply modul activation
-        #     x_modul = self.modulator_nn.act_func(self.modulator_nn.act_func_gain*x_modul)
-        #     # now apply synth activation
-        #     x_synth = self.synthesizer_nn.act_func(self.synthesizer_nn.act_func_gain*x_synth)
-
-        # final_w_synth, final_b_synth = self.synthesizer_nn.NN_params[-1]
-        # return self.synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)
-
-        # print(x_modul.shape)
-        # print(x_synth.shape)
-        # llll
-
-        # if self.modulator_skip_connections or \
-        #     not self.modulator_NN_settings["fully_connected_layers"]:
-        #     x_modul_init = x_modul.copy()
-
-        # # case 1: when all layers and neurons of modulator and synthesizer networks are coupled
-        # if self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="all_to_all":
-        #     for i in range(len(self.modulator_params)):
-        #         (w_modul, b_modul) = self.modulator_params[i]
-        #         (w_synth, b_synth) = self.synthesizer_params[i]
-        #         # first compute modul NN 
-        #         if self.modulator_NN_settings["fully_connected_layers"]:
-        #             if self.modulator_skip_connections and i>0:
-        #                 x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
-        #                 x_modul_not_act = x_modul_skipped @ w_modul + b_modul
-        #             else:
-        #                 x_modul_not_act = (x_modul @ w_modul + b_modul)
-                    
-        #             x_modul = self.modulator_act_func(x_modul_not_act)
-        #         else:
-        #             x_modul_not_act = x_modul_init @ w_modul + b_modul
-        #             x_modul = x_modul_not_act
-
-        #         # now compute synth NN 
-        #         x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
-
-        # # case 2: when last layer's neurons of modulator are coupled to all synthesizer networks layers and neurons 
-        # elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="last_to_all":
-        #     # first fw propagate the modulator
-        #     for i in range(len(self.modulator_params)):
-        #         (w_modul, b_modul) = self.modulator_params[i]
-        #         if self.modulator_skip_connections and i>0:
-        #             x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
-        #             x_modul = self.modulator_act_func(x_modul_skipped @ w_modul + b_modul)
-        #         else:
-        #             x_modul = self.modulator_act_func(x_modul @ w_modul + b_modul)
-
-        #     # then fw propagate the synthesizer
-        #     for (w_synth, b_synth) in self.synthesizer_params[:-1]:
-        #         x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
-
-        # # final fw propagate of the synthesizer
-        # final_w_synth, final_b_synth = self.synthesizer_params[-1]
-        # return x_synth @ final_w_synth + final_b_synth
