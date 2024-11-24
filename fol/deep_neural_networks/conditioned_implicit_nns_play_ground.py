@@ -1,48 +1,119 @@
+
+from typing import Any,Literal
+from collections.abc import Sequence
 from flax import nnx
+# JAX imports
 from jax.nn import relu,sigmoid,swish,tanh,leaky_relu,elu
 from jax.numpy import sin
 import jax
 import jax.numpy as jnp
 from jax import random
+from jax._src import core
+from jax._src import dtypes
+from jax._src.typing import Array, ArrayLike
+from jax._src.util import set_module
+# FOL imports
 from fol.tools.usefull_functions import *
 from fol.tools.decoration_functions import *
 
-class Siren(nnx.Module):
-  def __init__(self,input_size: int,output_size: int, 
-                hidden_layers:list,omega:float=30,
-                weight_scale:float=3.0):
+
+export = set_module('jax.nn.initializers')
+DTypeLikeFloat = Any
+DTypeLikeComplex = Any
+DTypeLikeInexact = Any  # DTypeLikeFloat | DTypeLikeComplex
+RealNumeric = Any 
+KeyArray = Array
+
+@export
+def siren_initializer(
+  layer_type: Literal["input"] | Literal["hidden"] | Literal["output"],  
+  omega: RealNumeric=30.0,
+  weight_scale: RealNumeric=1.0,
+  dtype: DTypeLikeInexact = jnp.float_
+) -> nnx.Initializer:
+
+  def init(key: KeyArray,
+           shape: core.Shape,
+           dtype: DTypeLikeInexact = dtype) -> Array:
+    dtype = dtypes.canonicalize_dtype(dtype)
+    named_shape = core.as_named_shape(shape)
+    in_dim, out_dim = named_shape[0],named_shape[1]
+
+    if layer_type == "input": variance = weight_scale / in_dim
+    elif layer_type == "hidden": variance = weight_scale * jnp.sqrt(6 / in_dim) / omega
+    elif layer_type == "output": variance = jnp.sqrt(6 / in_dim) / omega
+    else:
+      raise ValueError(
+        f"invalid layer type for siren initializer: {layer_type}")
+    
+    if jnp.issubdtype(dtype, jnp.floating):
+        return random.uniform(key, (in_dim, out_dim), dtype, minval=-variance, maxval=variance)
+    else:
+        return ValueError(f"invalid dtype for siren initializer: {dtype}")
+
+  return init
+
+
+class MLP(nnx.Module):
+  def __init__(self,input_size: int,
+                    output_size: int,
+                    hidden_layers:list,
+                    activation_function_settings:dict,
+                    kernel_init:nnx.Initializer):
 
     self.in_features=input_size
     self.out_features=output_size
-    self.omega=omega
-    self.weight_scale=weight_scale
-    siren_layers = hidden_layers
+    self.hidden_layers = hidden_layers
 
-    layer_sizes = [self.in_features] +  siren_layers + [self.out_features]
-    key = random.PRNGKey(0)
-    keys = random.split(key, len(layer_sizes) - 1)
-    self.NN_params = []
+    self.activation_function_settings={"name":"sin",
+                                       "argument_scale":30,
+                                       "init_scale":1}
+    self.activation_function_settings = UpdateDefaultDict(self.activation_function_settings,
+                                                            activation_function_settings)
+    
+    rngs = nnx.Rngs(42)
+    layers = []
+    last_layer = self.in_features # out_featuers of the last layer
+    act_name = self.activation_function_settings["name"]
+    for i,hidden_layer in enumerate(self.hidden_layers):
 
-    for i, (in_dim, out_dim) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
-        weight_key, bias_key = random.split(keys[i])
-        if i==0:
-            weight_variance = self.weight_scale / in_dim
-        elif i==len(layer_sizes)-2:
-            weight_variance = jnp.sqrt(6 / in_dim) / self.omega
+        if kernel_init==siren_initializer:
+            if i==0:layer_type="input"
+            else: layer_type="hidden"
+            layers.append(nnx.Linear(in_features=last_layer, 
+                                    out_features=hidden_layer, 
+                                    rngs=rngs,kernel_init=kernel_init(layer_type=layer_type)))
         else:
-            weight_variance = self.weight_scale * jnp.sqrt(6 / in_dim) / self.omega
+            layers.append(nnx.Linear(in_features=last_layer, 
+                                    out_features=hidden_layer, 
+                                    rngs=rngs,kernel_init=kernel_init))
         
-        weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
-        bias_variance = jnp.sqrt(1 / in_dim)
-        biases = nnx.Param(random.uniform(bias_key, (int(out_dim),), jnp.float32, minval=-bias_variance, maxval=bias_variance))
-        self.NN_params.append((weights, biases))
+        if act_name=="sin":
+            @jax.jit
+            def arg_scale(x):
+                return self.activation_function_settings["argument_scale"] * x
+
+            layers.append(arg_scale)
+
+        layers.append(globals()[act_name])
+        last_layer = hidden_layer
+
+    # now add the last layer
+    if kernel_init==siren_initializer:    
+        layers.append(nnx.Linear(in_features=last_layer, 
+                                 out_features=hidden_layer, 
+                                 rngs=rngs,kernel_init=kernel_init(layer_type="output")))
+    else:
+        layers.append(nnx.Linear(in_features=last_layer, 
+                                 out_features=self.out_features,
+                                 rngs=rngs,kernel_init=kernel_init))
+
+    self.nn = nnx.Sequential(*layers)
+    del layers
 
   def __call__(self, x: jax.Array):
-        for (w, b) in self.NN_params[:-1]:
-            x = x @ w + b
-            x = jnp.sin(self.omega*x)
-        final_w, final_b = self.NN_params[-1]
-        return x @ final_w + final_b
+        x = self.nn(x)
+        return x
   
 class ModulatedSiren(nnx.Module):
   def __init__(self, synthesis_input_dim:int, synthesis_output_dim:int,
