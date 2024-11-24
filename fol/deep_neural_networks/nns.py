@@ -99,15 +99,18 @@ class MLP(nnx.Module):
         act_func_gain (float): Gain applied to activations.
         fw_func (Callable): Forward pass method (with or without skip connections).
     """
-    def __init__(self,input_size:int,
-                    output_size: int, 
-                    hidden_layers:list,
-                    activation_settings:dict={},
-                    use_bias:bool=True,
-                    skip_connections_settings:dict={}):
+    def __init__(self,input_size:int=0,
+                      output_size: int=0, 
+                      hidden_layers:list=[],
+                      activation_settings:dict={},
+                      use_bias:bool=True,
+                      fully_connected_layers:bool=True,
+                      skip_connections_settings:dict={}):
 
         self.in_features=input_size
         self.out_features=output_size
+        self.hidden_layers = hidden_layers
+        self.fully_connected_layers = fully_connected_layers
         self.skip_connections_settings = skip_connections_settings
 
         default_activation_settings={"type":"sin",
@@ -118,10 +121,16 @@ class MLP(nnx.Module):
         
         default_skip_connections_settings = {"active":False,"frequency":None}
         self.skip_connections_settings = UpdateDefaultDict(default_skip_connections_settings,
-                                                            self.skip_connections_settings)   
-        
+                                                            self.skip_connections_settings) 
+
+        if not self.fully_connected_layers and skip_connections_settings["active"]:
+            fol_error(f"fully_connected_layers:{self.fully_connected_layers} and active skip_connections are not allowed !")
+
         self.NN_params = []
-        layer_sizes = [self.in_features] +  hidden_layers + [self.out_features]
+        layer_sizes = [self.in_features] +  hidden_layers
+        if self.out_features != 0:
+            layer_sizes += [self.out_features]
+
         activation_settings["total_num_layers"] = len(layer_sizes)
         key = random.PRNGKey(0)
         keys = random.split(key, len(layer_sizes) - 1)
@@ -130,6 +139,9 @@ class MLP(nnx.Module):
             if self.skip_connections_settings["active"] and i>0 and \
                 (i%self.skip_connections_settings["frequency"]==0):
                 init_weights,init_biases = layer_init_factopry(keys[i],in_dim+self.in_features,out_dim,activation_settings)
+            elif not self.fully_connected_layers:
+                activation_settings["current_layer_idx"] = 0
+                init_weights,init_biases = layer_init_factopry(keys[i],self.in_features,out_dim,activation_settings)
             else:
                 init_weights,init_biases = layer_init_factopry(keys[i],in_dim,out_dim,activation_settings)
             if use_bias:
@@ -145,8 +157,10 @@ class MLP(nnx.Module):
             self.act_func_gain = 1 
         
         if self.skip_connections_settings["active"]:
+            self.compute_x_func = self.compute_x_skip
             self.fw_func = self.forward_skip
         else:
+            self.compute_x_func = self.compute_x
             self.fw_func = self.forward
 
     def compute_x(self,w:nnx.Param,prev_x:jax.Array,b:nnx.Param):
@@ -237,158 +251,149 @@ class MLP(nnx.Module):
 
   
 class HyperNetworks(nnx.Module):
-    def __init__(self,synthesizer_NN_settings:dict,
-                      modulator_NN_settings:dict,
-                      coupling_settings:dict={}):
-                
-        self.synthesizer_NN_settings = {"input_layer_dim":None,
-                                        "hidden_layers":[50,50],
-                                        "output_layer_dim":None,
-                                        "activation_function":"sin",
-                                        "omega":30,"weight_scale":3.0}  
+    def __init__(self,modulator_nn:MLP,synthesizer_nn:MLP,coupling_settings:dict={}):
 
-        self.modulator_NN_settings = {"input_layer_dim":None,
-                                      "hidden_layers":[50,50],
-                                      "activation_function":"relu",
-                                      "fully_connected_layers":True,
-                                      "skip_connections":True}  
+        self.modulator_nn = modulator_nn
+        self.synthesizer_nn = synthesizer_nn
 
+        self.in_features = self.modulator_nn.in_features
+        self.out_features = self.synthesizer_nn.out_features
+        
         self.coupling_settings = {"shift_coupling":True,
                                   "scale_coupling":False,
                                   "modulator_to_synthesizer_coupling_mode":"all_to_all"} # other coupling options: last_to_all,last_to_last                  
 
-        self.synthesizer_NN_settings = UpdateDefaultDict(self.synthesizer_NN_settings,
-                                                       synthesizer_NN_settings)
-
-        self.modulator_NN_settings = UpdateDefaultDict(self.modulator_NN_settings,
-                                                       modulator_NN_settings)
-        
-        self.coupling_settings = UpdateDefaultDict(self.coupling_settings,
-                                                   coupling_settings)
-        
-        if self.synthesizer_NN_settings["input_layer_dim"]==None:
-            fol_error(f"input_layer_dim of the synthesizer network should be specified in the synthesizer_NN_settings !")
-
-        if self.synthesizer_NN_settings["output_layer_dim"]==None:
-            fol_error(f"output_layer_dim of the synthesizer network should be specified in the synthesizer_NN_settings !")
-
-        if self.modulator_NN_settings["input_layer_dim"]==None:
-            fol_error(f"input_layer_dim of the modulator network should be specified in the modulator_NN_settings !")
-
-        self.in_features = self.modulator_NN_settings["input_layer_dim"]
-
-        self.out_features = self.synthesizer_NN_settings["output_layer_dim"]
+        self.coupling_settings = UpdateDefaultDict(self.coupling_settings,coupling_settings)
 
         if self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "all_to_all":
-            if self.synthesizer_NN_settings["hidden_layers"] != self.modulator_NN_settings["hidden_layers"]:
+            if self.modulator_nn.hidden_layers != self.synthesizer_nn.hidden_layers:
                 fol_error(f"for all_to_all modulator to synthesizer coupling, hidden layers of synthesizer and modulator NNs should be identical !")
-
+            self.fw_func = self.all_to_all_fw
         elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "last_to_all":
-            if not all(x==self.modulator_NN_settings["hidden_layers"][-1] for x in self.synthesizer_NN_settings["hidden_layers"]):
+            if not all(x==self.modulator_nn.hidden_layers[-1] for x in self.synthesizer_nn.hidden_layers):
                 fol_error(f"for last_to_all modulator to synthesizer coupling, the last hidden layer of modulator NN should be equall to all synthesizer NN layers !")
-
+            self.fw_func = self.last_to_all_fw
         elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "last_to_last":
-            if self.modulator_NN_settings["hidden_layers"][-1]!=self.synthesizer_NN_settings["hidden_layers"][-1]:
+            if self.modulator_nn.hidden_layers[-1]!=self.synthesizer_nn.hidden_layers[-1]:
                 fol_error(f"for last_to_last modulator to synthesizer coupling, the last layer of synthesizer and modulator NNs should be identical !")
-
         else:
             valid_options=["all_to_all","last_to_all","last_to_last"]
             fol_error(f"valid options for modulator_to_synthesizer_coupling_mode are {valid_options} !")
 
-        self.initialize_synthesizer()
-        self.initialize_modulator()
-        
-    def initialize_synthesizer(self):
-        layers = [self.synthesizer_NN_settings["input_layer_dim"]]
-        layers += self.synthesizer_NN_settings["hidden_layers"]
-        layers += [self.synthesizer_NN_settings["output_layer_dim"]]
-        weight_scale = self.synthesizer_NN_settings["weight_scale"]
-        omega = self.synthesizer_NN_settings["omega"]
-        key = random.PRNGKey(0)
-        keys = random.split(key, len(layers) - 1)
-        self.synthesizer_params = []
-        for i, (in_dim, out_dim) in enumerate(zip(layers[:-1], layers[1:])):
-            if i==0:layer_type="input"
-            elif i==len(layers)-2:layer_type="output"
-            else:layer_type="hidden"
-            self.synthesizer_params.append(siren_init(keys[i],layer_type,in_dim,out_dim,omega,weight_scale))
+    def all_to_all_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
+        x_modul = x[:,0:modulator_nn.in_features]
+        x_synth = x[:,modulator_nn.in_features:]
 
-        self.synthesizer_act_func = globals()[self.synthesizer_NN_settings["activation_function"]]
-        self.synthesizer_act_func_multiplier = 1.0
-        if self.synthesizer_NN_settings["activation_function"]=="sin":
-            self.synthesizer_act_func_multiplier = omega
-
-    def initialize_modulator(self): 
-        layers = [self.modulator_NN_settings["input_layer_dim"]]
-        layers += self.modulator_NN_settings["hidden_layers"] 
-        self.modulator_skip_connections = self.modulator_NN_settings["skip_connections"]
-        fully_connected_layers = self.modulator_NN_settings["fully_connected_layers"]
-        self.modulator_input_dim = self.modulator_NN_settings["input_layer_dim"]
-        key = random.PRNGKey(0)
-        keys = random.split(key, len(layers) - 1)
-        self.modulator_params = []
-        for i, (in_dim, out_dim) in enumerate(zip(layers[:-1], layers[1:])):
-            weight_key, bias_key = random.split(keys[i])
-            if self.modulator_skip_connections and fully_connected_layers: 
-                if i>0:
-                    weights = nnx.Param(jax.nn.initializers.lecun_normal()(weight_key,(in_dim+self.modulator_input_dim, out_dim)))
-                else:
-                    weights = nnx.Param(jax.nn.initializers.lecun_normal()(weight_key,(in_dim, out_dim)))
-            elif not fully_connected_layers:
-                weights = nnx.Param(jax.nn.initializers.lecun_normal()(weight_key,(self.modulator_input_dim, out_dim)))
-            elif not self.modulator_skip_connections and fully_connected_layers:
-                weights = nnx.Param(jax.nn.initializers.lecun_normal()(weight_key,(in_dim, out_dim)))            
-
-            biases = nnx.Param(jnp.zeros(out_dim))
-            self.modulator_params.append((weights, biases))
-
-        self.modulator_act_func = globals()[self.modulator_NN_settings["activation_function"]]
-
-    def __call__(self, x: jax.Array):
-
-        x_modul = x[:,0:self.modulator_input_dim]
-        x_synth = x[:,self.modulator_input_dim:]
-
-        if self.modulator_skip_connections or \
-            not self.modulator_NN_settings["fully_connected_layers"]:
+        if not modulator_nn.fully_connected_layers:
             x_modul_init = x_modul.copy()
 
-        # case 1: when all layers and neurons of modulator and synthesizer networks are coupled
-        if self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="all_to_all":
-            for i in range(len(self.modulator_params)):
-                (w_modul, b_modul) = self.modulator_params[i]
-                (w_synth, b_synth) = self.synthesizer_params[i]
-                # first compute modul NN 
-                if self.modulator_NN_settings["fully_connected_layers"]:
-                    if self.modulator_skip_connections and i>0:
-                        x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
-                        x_modul_not_act = x_modul_skipped @ w_modul + b_modul
-                    else:
-                        x_modul_not_act = (x_modul @ w_modul + b_modul)
+        for i in range(len(modulator_nn.NN_params)):
+            (w_modul, b_modul) = modulator_nn.NN_params[i]
+            (w_synth, b_synth) = synthesizer_nn.NN_params[i]
+            # compute x_modul
+            if modulator_nn.fully_connected_layers:
+                x_modul = modulator_nn.compute_x_func(w_modul,x_modul,b_modul)
+            else:
+                x_modul = modulator_nn.compute_x_func(w_modul,x_modul_init,b_modul)
+            # now compute x_synth
+            x_synth = synthesizer_nn.compute_x_func(w_synth,x_synth,b_synth)
+            # add x_modul
+            x_synth += x_modul
+            # now apply modul activation
+            x_modul = modulator_nn.act_func(modulator_nn.act_func_gain*x_modul)
+            # now apply synth activation
+            x_synth = synthesizer_nn.act_func(synthesizer_nn.act_func_gain*x_synth)
+
+        final_w_synth, final_b_synth = synthesizer_nn.NN_params[-1]
+        return synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)     
+
+    def last_to_all_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
+
+        x_modul = x[:,0:modulator_nn.in_features]
+        x_synth = x[:,modulator_nn.in_features:]
+
+        # first modulator fw
+        x_modul = modulator_nn(x_modul)
+
+        for i in range(len(synthesizer_nn.NN_params)-1):
+            (w_synth, b_synth) = synthesizer_nn.NN_params[i]
+            # now compute x_synth
+            x_synth = synthesizer_nn.compute_x_func(w_synth,x_synth,b_synth)
+            # add x_modul
+            x_synth += x_modul
+            # now apply synth activation
+            x_synth = synthesizer_nn.act_func(synthesizer_nn.act_func_gain*x_synth)
+
+        final_w_synth, final_b_synth = synthesizer_nn.NN_params[-1]
+        return synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)    
+
+    def __call__(self, x: jax.Array):
+        return self.fw_func(x,self.modulator_nn,self.synthesizer_nn)
+
+        # x_modul = x[:,0:self.modulator_nn.in_features]
+        # x_synth = x[:,self.modulator_nn.in_features:]
+
+        # for i in range(len(self.modulator_nn.NN_params)):
+        #     (w_modul, b_modul) = self.modulator_nn.NN_params[i]
+        #     (w_synth, b_synth) = self.synthesizer_nn.NN_params[i]
+        #     # compute x_modul
+        #     x_modul = self.modulator_nn.compute_x_func(w_modul,x_modul,b_modul)
+        #     # now compute x_synth
+        #     x_synth = self.synthesizer_nn.compute_x_func(w_synth,x_synth,b_synth)
+        #     # add x_modul
+        #     x_synth += x_modul
+        #     # now apply modul activation
+        #     x_modul = self.modulator_nn.act_func(self.modulator_nn.act_func_gain*x_modul)
+        #     # now apply synth activation
+        #     x_synth = self.synthesizer_nn.act_func(self.synthesizer_nn.act_func_gain*x_synth)
+
+        # final_w_synth, final_b_synth = self.synthesizer_nn.NN_params[-1]
+        # return self.synthesizer_nn.compute_x_func(final_w_synth,x_synth,final_b_synth)
+
+        # print(x_modul.shape)
+        # print(x_synth.shape)
+        # llll
+
+        # if self.modulator_skip_connections or \
+        #     not self.modulator_NN_settings["fully_connected_layers"]:
+        #     x_modul_init = x_modul.copy()
+
+        # # case 1: when all layers and neurons of modulator and synthesizer networks are coupled
+        # if self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="all_to_all":
+        #     for i in range(len(self.modulator_params)):
+        #         (w_modul, b_modul) = self.modulator_params[i]
+        #         (w_synth, b_synth) = self.synthesizer_params[i]
+        #         # first compute modul NN 
+        #         if self.modulator_NN_settings["fully_connected_layers"]:
+        #             if self.modulator_skip_connections and i>0:
+        #                 x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
+        #                 x_modul_not_act = x_modul_skipped @ w_modul + b_modul
+        #             else:
+        #                 x_modul_not_act = (x_modul @ w_modul + b_modul)
                     
-                    x_modul = self.modulator_act_func(x_modul_not_act)
-                else:
-                    x_modul_not_act = x_modul_init @ w_modul + b_modul
-                    x_modul = x_modul_not_act
+        #             x_modul = self.modulator_act_func(x_modul_not_act)
+        #         else:
+        #             x_modul_not_act = x_modul_init @ w_modul + b_modul
+        #             x_modul = x_modul_not_act
 
-                # now compute synth NN 
-                x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
+        #         # now compute synth NN 
+        #         x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
 
-        # case 2: when last layer's neurons of modulator are coupled to all synthesizer networks layers and neurons 
-        elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="last_to_all":
-            # first fw propagate the modulator
-            for i in range(len(self.modulator_params)):
-                (w_modul, b_modul) = self.modulator_params[i]
-                if self.modulator_skip_connections and i>0:
-                    x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
-                    x_modul = self.modulator_act_func(x_modul_skipped @ w_modul + b_modul)
-                else:
-                    x_modul = self.modulator_act_func(x_modul @ w_modul + b_modul)
+        # # case 2: when last layer's neurons of modulator are coupled to all synthesizer networks layers and neurons 
+        # elif self.coupling_settings["modulator_to_synthesizer_coupling_mode"]=="last_to_all":
+        #     # first fw propagate the modulator
+        #     for i in range(len(self.modulator_params)):
+        #         (w_modul, b_modul) = self.modulator_params[i]
+        #         if self.modulator_skip_connections and i>0:
+        #             x_modul_skipped = jnp.hstack((x_modul,x_modul_init.copy()))
+        #             x_modul = self.modulator_act_func(x_modul_skipped @ w_modul + b_modul)
+        #         else:
+        #             x_modul = self.modulator_act_func(x_modul @ w_modul + b_modul)
 
-            # then fw propagate the synthesizer
-            for (w_synth, b_synth) in self.synthesizer_params[:-1]:
-                x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
+        #     # then fw propagate the synthesizer
+        #     for (w_synth, b_synth) in self.synthesizer_params[:-1]:
+        #         x_synth = self.synthesizer_act_func(self.synthesizer_act_func_multiplier * (x_synth @ w_synth + b_synth + x_modul))
 
-        # final fw propagate of the synthesizer
-        final_w_synth, final_b_synth = self.synthesizer_params[-1]
-        return x_synth @ final_w_synth + final_b_synth
+        # # final fw propagate of the synthesizer
+        # final_w_synth, final_b_synth = self.synthesizer_params[-1]
+        # return x_synth @ final_w_synth + final_b_synth
