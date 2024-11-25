@@ -334,7 +334,7 @@ class HyperNetwork(nnx.Module):
         x_modul = x[:,0:modulator_nn.in_features]
         x_synth = x[:,modulator_nn.in_features:]
 
-        if not modulator_nn.fully_connected_layers:
+        if (not modulator_nn.fully_connected_layers) or modulator_nn.skip_connections_settings["active"]:
             x_modul_init = x_modul.copy()
 
         for i in range(len(modulator_nn.NN_params)):
@@ -342,7 +342,10 @@ class HyperNetwork(nnx.Module):
             (w_synth, b_synth) = synthesizer_nn.NN_params[i]
             # compute x_modul
             if modulator_nn.fully_connected_layers:
-                x_modul = modulator_nn.compute_x_func(w_modul,x_modul,b_modul)
+                if modulator_nn.skip_connections_settings["active"] and i>0:
+                    x_modul = modulator_nn.compute_x_skip(w_modul,x_modul,x_modul_init,b_modul)
+                else:
+                    x_modul = modulator_nn.compute_x(w_modul,x_modul,b_modul)
             else:
                 x_modul = modulator_nn.compute_x_func(w_modul,x_modul_init,b_modul)
             # now compute x_synth
