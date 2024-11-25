@@ -9,12 +9,11 @@ from fol.deep_neural_networks.implicit_parametric_operator_learning import Impli
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from siren_nns import ModulatedSiren
-from siren_nns import Siren
+from fol.deep_neural_networks.nns import MLP
 import pickle
 
 # directory & save handling
-working_directory_name = 'modulated_siren_implicit_mechanical_2D_pr_lr'
+working_directory_name = 'conca_nn_implicit_mechanical_2D_pr_lr'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -40,7 +39,6 @@ mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"diric
 fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
                             "beta":20,"min":1e-1,"max":1}
 fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
-
 
 fe_mesh.Initialize()
 mechanical_loss_2d.Initialize()
@@ -81,10 +79,12 @@ if export_Ks:
     fe_mesh.Finalize(export_dir=case_dir)
     exit()
 
-# design siren NN for learning
-modulated_siren_NN = ModulatedSiren(synthesis_input_dim=3,synthesis_output_dim=2,
-                                    modulator_input_dim=10,hidden_layers=[50,50],
-                                    modulator_skip_connections=True)
+# design concate siren NN for learning
+concate_network = MLP(input_size=13,
+                        output_size=2,
+                        hidden_layers=[50,50],
+                        activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":1},
+                        skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -93,7 +93,7 @@ chained_transform = optax.chain(optax.normalize_by_update_norm(),
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                         loss_function=mechanical_loss_2d,
-                                        flax_neural_network=modulated_siren_NN,
+                                        flax_neural_network=concate_network,
                                         optax_optimizer=chained_transform,
                                         checkpoint_settings={"restore_state":False,
                                         "state_directory":case_dir+"/flax_state"},

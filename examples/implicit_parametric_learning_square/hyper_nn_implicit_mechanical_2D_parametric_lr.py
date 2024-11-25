@@ -9,12 +9,11 @@ from fol.deep_neural_networks.implicit_parametric_operator_learning import Impli
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from siren_nns import ModulatedSiren
-from siren_nns import Siren
+from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 
 # directory & save handling
-working_directory_name = 'modulated_siren_implicit_mechanical_2D_pr_lr'
+working_directory_name = 'hyper_nn_implicit_mechanical_2D_pr_lr'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -81,45 +80,50 @@ if export_Ks:
     fe_mesh.Finalize(export_dir=case_dir)
     exit()
 
+# design synthesizer & modulator NN for hypernetwork
+hidden_layers = [50,50]
+synthesizer_nn = MLP(input_size=3,
+                    output_size=2,
+                    hidden_layers=hidden_layers,
+                    activation_settings={"type":"sin",
+                                         "prediction_gain":30,
+                                         "initialization_gain":1.0},
+                    skip_connections_settings={"active":False,"frequency":1})
 
-for num_retrain in range(10):
+modulator_nn = MLP(input_size=10,
+                    hidden_layers=hidden_layers,
+                    activation_settings={"type":"relu"},
+                    fully_connected_layers=True,
+                    skip_connections_settings={"active":True,"frequency":1}) 
 
-    # design siren NN for learning
-    modulated_siren_NN = ModulatedSiren(synthesis_input_dim=3,synthesis_output_dim=2,
-                                        modulator_input_dim=10,hidden_layers=[50,50],
-                                        modulator_skip_connections=True)
+hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
+                        coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
 
-    # create fol optax-based optimizer
-    chained_transform = optax.chain(optax.normalize_by_update_norm(),
-                                    optax.adam(1e-4))
+# create fol optax-based optimizer
+chained_transform = optax.chain(optax.normalize_by_update_norm(),
+                                optax.adam(1e-4))
 
-    restore_state = True
-    if num_retrain==0:
-        restore_state = False
+# create fol
+fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+                                        loss_function=mechanical_loss_2d,
+                                        flax_neural_network=hyper_network,
+                                        optax_optimizer=chained_transform,
+                                        checkpoint_settings={"restore_state":False,
+                                        "state_directory":case_dir+"/flax_state"},
+                                        working_directory=case_dir)
 
-    print(f"######### Transfer Learning Step: {num_retrain}, Restore State is {restore_state} #########")
+fol.Initialize()
 
-    # create fol
-    fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
-                                            loss_function=mechanical_loss_2d,
-                                            flax_neural_network=modulated_siren_NN,
-                                            optax_optimizer=chained_transform,
-                                            checkpoint_settings={"restore_state":restore_state,
-                                            "state_directory":case_dir+"/flax_state"},
-                                            working_directory=case_dir)
+train_start_id = 0
+train_end_id = 180
 
-    fol.Initialize()
-
-    train_start_id = 0
-    train_end_id = 180
-
-    # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-            test_set=(coeffs_matrix[train_end_id:,:],),batch_size=10,
-                convergence_settings={"num_epochs":2,"relative_error":1e-100,
-                                    "absolute_error":1e-100},
-                plot_settings={"plot_save_rate":100},
-                save_settings={"save_nn_model":True})
+# here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
+fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
+          test_set=(coeffs_matrix[train_end_id:,:],),batch_size=10,
+            convergence_settings={"num_epochs":500,"relative_error":1e-100,
+                                  "absolute_error":1e-100},
+            plot_settings={"plot_save_rate":100},
+            save_settings={"save_nn_model":True})
 
 
 for test in range(10):
