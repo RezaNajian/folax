@@ -9,8 +9,7 @@ from fol.deep_neural_networks.implicit_parametric_operator_learning import Impli
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from siren_nns import ModulatedSiren
-from siren_nns import Siren
+from fol.deep_neural_networks.nns import MLP
 import pickle
 
 # directory & save handling
@@ -73,10 +72,11 @@ if export_Ks:
 
 
 # design siren NN for learning
-concatenated_siren_NN = Siren(input_size=13,output_size=1,
-                              hidden_layers=[100,100,100],
-                              weight_scale=1.0,
-                              omega=60)
+concate_network = MLP(input_size=13,
+                        output_size=1,
+                        hidden_layers=[50,50,50],
+                        activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
+                        skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -85,7 +85,7 @@ chained_transform = optax.chain(optax.normalize_by_update_norm(),
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                         loss_function=reg_loss,
-                                        flax_neural_network=concatenated_siren_NN,
+                                        flax_neural_network=concate_network,
                                         optax_optimizer=chained_transform,
                                         checkpoint_settings={"restore_state":False,
                                         "state_directory":case_dir+"/flax_state"},
@@ -98,9 +98,9 @@ train_end_id = 2
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":5000,"relative_error":1e-100,
+            convergence_settings={"num_epochs":20000,"relative_error":1e-100,
                                   "absolute_error":1e-100},
-            plot_settings={"plot_save_rate":100},
+            plot_settings={"plot_save_rate":10000},
             save_settings={"save_nn_model":True})
 
 for test in range(1):

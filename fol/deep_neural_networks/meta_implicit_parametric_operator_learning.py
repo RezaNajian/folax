@@ -20,6 +20,7 @@ from fol.tools.decoration_functions import *
 from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
 from fol.tools.usefull_functions import *
+from .nns import HyperNetwork,MLP
 
 class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning):
     """
@@ -44,7 +45,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                  name:str,
                  control:Control,
                  loss_function:Loss,
-                 flax_neural_network:nnx.Module,
+                 flax_neural_network:HyperNetwork,
                  latent_loop_optax_optimizer:GradientTransformation,
                  main_loop_optax_optimizer:GradientTransformation,
                  checkpoint_settings:dict={},
@@ -108,7 +109,6 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         _, new_state = nnx.split((nnx_model, nnx_optimizer))
         return batch_dict,new_state
 
-    # @partial(jax.jit, static_argnums=(0,))
     def ComputeSampleCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],compute_code_size:int,num_epochs:int,nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
         sample_optimizer = copy.deepcopy(nn_optimizer)
         sample_code = 1e-6*jnp.ones(compute_code_size)
@@ -203,7 +203,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             test_set_hist_dict = {}
             # now loop over batches
             batch_index = 0 
-            code_size = self.flax_neural_network.modulator_NN_settings["input_layer_dim"]
+            code_size = self.flax_neural_network.modulator_nn.in_features
             for batch_set in self.CreateBatches(train_set, batch_size):
                 # now we merge before computing the codes
                 current_nnx_model, _ = nnx.merge(nnx_graphdef, nxx_state)
@@ -274,7 +274,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             The predicted outputs, mapped to the full DoF vector.
         """
         def predict_single_sample(sample_x:jnp.ndarray):
-            computed_sample_code = self.ComputeSampleCode((sample_x,),self.flax_neural_network.modulator_NN_settings["input_layer_dim"],
+            computed_sample_code = self.ComputeSampleCode((sample_x,),self.flax_neural_network.modulator_nn.in_features,
                                                           num_epochs=num_latent_iterations,
                                                           nn_model=self.flax_neural_network,
                                                           nn_optimizer=self.inner_optax_optimizer)
