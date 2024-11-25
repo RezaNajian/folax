@@ -9,7 +9,7 @@ from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import 
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from fol.deep_neural_networks.conditioned_implicit_nns import HyperNetworks
+from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 
 # directory & save handling
@@ -72,28 +72,32 @@ if export_Ks:
 
 
 # design siren NN for learning
-latent_size = 20
-hyper_nns = HyperNetworks(synthesizer_NN_settings={"input_layer_dim":3,
-                                                   "hidden_layers":[100,100,100],
-                                                   "output_layer_dim":1,
-                                                   "weight_scale":3.0},
-                          modulator_NN_settings={"input_layer_dim":latent_size,
-                                                 "hidden_layers":[100,100,100],
-                                                 "fully_connected_layers":True,
-                                                 "skip_connections":True},
-                          coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
+hidden_layers = [200,200,200]
+synthesizer_nn = MLP(input_size=3,
+                    output_size=1,
+                    hidden_layers=hidden_layers,
+                    activation_settings={"type":"sin",
+                                         "prediction_gain":30,
+                                         "initialization_gain":3.0},
+                    skip_connections_settings={"active":False,"frequency":1})
+
+modulator_nn = MLP(input_size=20,
+                    hidden_layers=hidden_layers,
+                    activation_settings={"type":"relu"},
+                    fully_connected_layers=True,
+                    skip_connections_settings={"active":True,"frequency":1}) 
+
+hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
+                        coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
 
 # create fol optax-based optimizer
-main_loop_transform = optax.chain(optax.normalize_by_update_norm(),
-                                    optax.adam(1e-4))
-
-latent_loop_transform = optax.chain(optax.normalize_by_update_norm(),
-                                    optax.adam(1e-3))
+main_loop_transform = optax.chain(optax.adam(1e-4))
+latent_loop_transform = optax.chain(optax.adam(1e-3))
 
 # create fol
 fol = MetaImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                                 loss_function=reg_loss,
-                                                flax_neural_network=hyper_nns,
+                                                flax_neural_network=hyper_network,
                                                 latent_loop_optax_optimizer=latent_loop_transform,
                                                 main_loop_optax_optimizer=main_loop_transform,
                                                 checkpoint_settings={"restore_state":False,
@@ -103,17 +107,17 @@ fol = MetaImplicitParametricOperatorLearning(name="dis_fol",control=fourier_cont
 fol.Initialize()
 
 train_start_id = 0
-train_end_id = 2
+train_end_id = 3
 number_latent_code_itrs = 3
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":1000,"num_latent_itrs":number_latent_code_itrs,
+            convergence_settings={"num_epochs":200,"num_latent_itrs":number_latent_code_itrs,
                                   "relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True})
 
-test_ids = [0,1]
+test_ids = [0,1,2]
 for eval_id in test_ids:
     fe_mesh[f'Pred_K_{eval_id}'] = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T,number_latent_code_itrs)).reshape(-1)
     fe_mesh[f'GT_K_{eval_id}'] = np.array(K_matrix[eval_id,:])
