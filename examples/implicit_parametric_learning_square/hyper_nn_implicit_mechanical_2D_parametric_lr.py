@@ -94,14 +94,15 @@ modulator_nn = MLP(input_size=10,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"relu"},
                     fully_connected_layers=True,
-                    skip_connections_settings={"active":True,"frequency":1}) 
+                    skip_connections_settings={"active":False,"frequency":1}) 
 
 hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
                         coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
 
 # create fol optax-based optimizer
-chained_transform = optax.chain(optax.normalize_by_update_norm(),
-                                optax.adam(1e-4))
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=2000)
+from optax import contrib
+chained_transform = optax.chain(contrib.normalize(),optax.scale_by_learning_rate(learning_rate_scheduler))
 
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
@@ -115,20 +116,18 @@ fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
 fol.Initialize()
 
 train_start_id = 0
-train_end_id = 180
+train_end_id = 3
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-          test_set=(coeffs_matrix[train_end_id:,:],),batch_size=10,
-            convergence_settings={"num_epochs":500,"relative_error":1e-100,
+fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
+            convergence_settings={"num_epochs":5000,"relative_error":1e-100,
                                   "absolute_error":1e-100},
-            plot_settings={"plot_save_rate":100},
+            plot_settings={"plot_save_rate":10000},
             save_settings={"save_nn_model":True})
 
 
-for test in range(10):
-    eval_id = np.random.randint(train_end_id, coeffs_matrix.shape[0])
-
+for test in range(3):
+    eval_id = test
     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 

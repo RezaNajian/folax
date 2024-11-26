@@ -6,7 +6,6 @@ from fol.loss_functions.regression_loss import RegressionLoss
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.implicit_parametric_operator_learning import ImplicitParametricOperatorLearning
-from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import MLP
@@ -74,13 +73,14 @@ if export_Ks:
 # design siren NN for learning
 concate_network = MLP(input_size=13,
                         output_size=1,
-                        hidden_layers=[50,50,50],
+                        hidden_layers=[200,200,200],
                         activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
                         skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
-chained_transform = optax.chain(optax.normalize_by_update_norm(),
-                                optax.adam(1e-4))
+
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=500)
+chained_transform = optax.chain(optax.adam(learning_rate_scheduler))
 
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
@@ -98,7 +98,7 @@ train_end_id = 2
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":20000,"relative_error":1e-100,
+            convergence_settings={"num_epochs":500,"relative_error":1e-100,
                                   "absolute_error":1e-100},
             plot_settings={"plot_save_rate":10000},
             save_settings={"save_nn_model":True})
