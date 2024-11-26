@@ -6,7 +6,6 @@ from fol.loss_functions.regression_loss import RegressionLoss
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
-from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
@@ -107,7 +106,7 @@ fol = MetaImplicitParametricOperatorLearning(name="dis_fol",control=fourier_cont
 fol.Initialize()
 
 train_start_id = 0
-train_end_id = 3
+train_end_id = 1
 number_latent_code_itrs = 3
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
@@ -117,8 +116,7 @@ fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True})
 
-test_ids = [0,1,2]
-for eval_id in test_ids:
+for eval_id in list(np.arange(train_start_id,train_end_id)):
     fe_mesh[f'Pred_K_{eval_id}'] = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T,number_latent_code_itrs)).reshape(-1)
     fe_mesh[f'GT_K_{eval_id}'] = np.array(K_matrix[eval_id,:])
     fe_mesh[f'abs_error_{eval_id}'] = abs(fe_mesh[f'Pred_K_{eval_id}']-fe_mesh[f'GT_K_{eval_id}'])
