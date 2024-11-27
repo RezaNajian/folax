@@ -97,6 +97,7 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
                       f" does not match the size of unknowns of the loss function {self.loss_function.GetNumberOfUnknowns()}")
     
+<<<<<<< HEAD
     def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
         """
         Creates batches from the input dataset.
@@ -134,6 +135,8 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
             else:
                 yield batch_x,
     
+=======
+>>>>>>> origin/main
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         """
@@ -158,6 +161,7 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         control_output = self.control.ComputeControlledVariables(x_set[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
+<<<<<<< HEAD
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         """
@@ -188,6 +192,8 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
                                          loss_name+"_avg":jnp.mean(batch_avgs),
                                          "total_loss":total_mean_loss})
 
+=======
+>>>>>>> origin/main
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):

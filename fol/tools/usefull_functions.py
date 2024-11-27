@@ -688,7 +688,11 @@ def Neo_Hooke(F,k,mu):
     return xsie, Se, C_tangent_fourth
 
 def UpdateDefaultDict(default_dict:dict,given_dict:dict):
+<<<<<<< HEAD
     filtered_update = {k: given_dict[k] for k in default_dict 
                     if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
+=======
+    filtered_update = {k: given_dict[k] for k in default_dict if k in given_dict}
+>>>>>>> origin/main
     default_dict.update(filtered_update)
     return default_dict
