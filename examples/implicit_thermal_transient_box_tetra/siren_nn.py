@@ -4,11 +4,10 @@ import jax.numpy as jnp
 from jax import random
 
 class Siren(nnx.Module):
-  def __init__(self, din: int, dout: int, hidden_layers:list, weight_scale:float=1.0):
+  def __init__(self, din: int, dout: int, hidden_layers:list):
 
     self.in_features, self.out_features = din, dout
     self.omega=30
-    self.weight_scale = weight_scale
     siren_layers = [hidden_layers[0]] + hidden_layers
 
     layer_sizes = [self.in_features] +  siren_layers + [self.out_features]
@@ -19,11 +18,9 @@ class Siren(nnx.Module):
     for i, (in_dim, out_dim) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
         weight_key, bias_key = random.split(keys[i])
         if i==0:
-            weight_variance = self.weight_scale / in_dim
-        if i==len(layer_sizes)-2:
-            weight_variance = jnp.sqrt(6 / in_dim) / self.omega
+            weight_variance = 1 / in_dim
         else:
-            weight_variance = jnp.sqrt(6*self.weight_scale / in_dim) / self.omega
+            weight_variance = jnp.sqrt(6 / in_dim) / self.omega
         
         weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
         bias_variance = jnp.sqrt(1 / in_dim)

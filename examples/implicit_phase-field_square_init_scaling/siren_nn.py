@@ -20,10 +20,10 @@ class Siren(nnx.Module):
         weight_key, bias_key = random.split(keys[i])
         if i==0:
             weight_variance = self.weight_scale / in_dim
-        if i==len(layer_sizes)-2:
-            weight_variance = jnp.sqrt(6 / in_dim) / self.omega
+        # if i==len(layer_sizes)-2:
+        #     weight_variance = jnp.sqrt(6 / in_dim) / self.omega
         else:
-            weight_variance = jnp.sqrt(6*self.weight_scale / in_dim) / self.omega
+            weight_variance = self.weight_scale*jnp.sqrt(6 / in_dim) / self.omega
         
         weights = nnx.Param(random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance))
         bias_variance = jnp.sqrt(1 / in_dim)

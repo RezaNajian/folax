@@ -95,3 +95,7 @@ class MechanicalLoss3DTetra(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         element_residuals = jax.lax.stop_gradient(Se @ uvwe - Fe)
         return  ((uvwe.T @ element_residuals)[0,0]), (Se @ uvwe - Fe), Se
+    
+    def ComputeElementHetero(self, *args):
+        pass
+    

@@ -88,6 +88,14 @@ class FiniteElementLoss(Loss):
                 g_points,g_weights = GaussQuadrature().four_point_GQ
             else:
                 raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+            if self.element_type == 'tetra':
+                if self.num_gp == 1:
+                    self.g_points,self.g_weights = GaussQuadratureTetra().one_point_GQ
+                elif self.num_gp == 4:
+                    self.g_points,self.g_weights = GaussQuadratureTetra().four_point_GQ
+                else:
+                    raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+
         else:
             g_points,g_weights = GaussQuadrature().one_point_GQ
             self.loss_settings["num_gp"] = 1
@@ -102,10 +110,14 @@ class FiniteElementLoss(Loss):
             self.g_points = jnp.array([[xi] for xi in g_points]).flatten()
             self.g_weights = jnp.array([[w_i] for w_i in g_weights]).flatten()
         elif self.dim==2:
-            self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
+            # self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
+            g_point_unordered = jnp.array([[xi, eta] for xi in g_points for eta in g_points])
+            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[2],g_point_unordered[3],g_point_unordered[1]]).flatten()
             self.g_weights = jnp.array([[w_i , w_j] for w_i in g_weights for w_j in g_weights]).flatten()
         elif self.dim==3:
-            self.g_points = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points]).flatten()
+            g_point_unordered = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points])
+            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[4],g_point_unordered[6],g_point_unordered[2],
+                                       g_point_unordered[1], g_point_unordered[5],g_point_unordered[7],g_point_unordered[3]]).flatten()
             self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
         @jit

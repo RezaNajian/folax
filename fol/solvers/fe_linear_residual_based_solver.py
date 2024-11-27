@@ -17,7 +17,7 @@ class FiniteElementLinearResidualBasedSolver(FiniteElementSolver):
             BC_applied_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs)
         else:
             BC_applied_dofs = current_dofs
-        BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVectorHetero(
+        BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                             current_control_vars,BC_applied_dofs)
         
         delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,BC_applied_dofs)

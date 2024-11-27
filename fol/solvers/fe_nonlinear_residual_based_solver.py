@@ -48,7 +48,6 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementSolver):
                 if res_norm<self.nonlinear_solver_settings["abs_tol"]:
                     fol_info(f"converged; iterations:{i+1},residuals_norm:{res_norm}")
                     break
-                    
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
                 applied_BC_dofs += delta_dofs

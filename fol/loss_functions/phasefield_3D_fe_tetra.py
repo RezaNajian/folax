@@ -12,25 +12,23 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class AllenCahnLoss2DQuad(FiniteElementLoss):
-    """FE-based 2D Thermal loss
+class AllenCahnLoss3DTetra(FiniteElementLoss):
+    """FE-based 3D Phase-field loss
 
     This is the base class for the loss functions require FE formulation.
 
     """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
-        super().__init__(name,{**loss_settings,"compute_dims":2,
+        super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["T"],  
-                               "element_type":"quad"},fe_mesh)
+                               "element_type":"tetra"},fe_mesh)
         
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:  
         if self.initialized and not reinitialize:
             return
         super().Initialize() 
-        self.shape_function = QuadShapeFunction()
-        # self.rho = self.loss_settings["material_dict"]["rho"]
-        # self.cp =  self.loss_settings["material_dict"]["cp"]
+        self.shape_function = TetrahedralShapeFunction()
         self.dt =  self.loss_settings["material_dict"]["dt"]
         self.epsilon =  self.loss_settings["material_dict"]["epsilon"]  
 
@@ -39,11 +37,11 @@ class AllenCahnLoss2DQuad(FiniteElementLoss):
         Te_c = Te_c.reshape(-1,1)
         Te_n = Te_n.reshape(-1,1)
         @jit
-        def compute_at_gauss_point(xi,eta,total_weight):      
-            Nf = self.shape_function.evaluate(xi,eta)
+        def compute_at_gauss_point(xi,eta,zeta,total_weight):      
+            Nf = self.shape_function.evaluate(xi,eta,zeta)
             # conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
-            dN_dxi = self.shape_function.derivatives(xi,eta)
-            J = jnp.dot(dN_dxi.T, xyze[:,0:2])
+            dN_dxi = self.shape_function.derivatives(xi,eta,zeta)
+            J = jnp.dot(dN_dxi.T, xyze)
             detJ = jnp.linalg.det(J)
             invJ = jnp.linalg.inv(J)
             B = jnp.dot(invJ,dN_dxi.T)
@@ -58,11 +56,15 @@ class AllenCahnLoss2DQuad(FiniteElementLoss):
             gp_t = total_weight * detJ *0.5/(self.dt)*(T_at_gauss_n-T_at_gauss_c)**2
             gp_Df = jnp.outer(Nf, Nf) * (3 * T_at_gauss_n**2 - 1) *  detJ * total_weight
             return gp_stiffness,gp_mass, gp_f,gp_f_res, gp_t, gp_Df
+
         @jit
         def vmap_compatible_compute_at_gauss_point(gp_index):
             return compute_at_gauss_point(self.g_points[self.dim*gp_index],
                                           self.g_points[self.dim*gp_index+1],
-                                          self.g_weights[self.dim*gp_index] * self.g_weights[self.dim*gp_index+1])
+                                          self.g_points[self.dim*gp_index+2],
+                                          self.g_weights[self.dim*gp_index] * 
+                                          self.g_weights[self.dim*gp_index+1]* 
+                                          self.g_weights[self.dim*gp_index+2])
 
         k_gps,m_gps,f_gps,f_res_gps,t_gps, df_gps = jax.vmap(vmap_compatible_compute_at_gauss_point,(0))(jnp.arange(self.num_gp**self.dim))
         Se = jnp.sum(k_gps, axis=0)
@@ -73,7 +75,7 @@ class AllenCahnLoss2DQuad(FiniteElementLoss):
         dFe = jnp.sum(df_gps, axis=0)
 
         element_residual = jax.lax.stop_gradient((Me+self.dt*Se)@Te_n - (Me@Te_c- self.dt/(self.epsilon**2)*Fe_res))
-        element_tangent = (Me+self.dt*Se - self.dt/(self.epsilon**2)*dFe)
+        element_tangent = (Me+self.dt*Se - self.dt/(self.epsilon**2)*dFe) 
         element_energy = 0.5*Te_n.T@Se@Te_n + 1/(self.epsilon**2)*Fe + Te
 
         return  element_energy, ((Me+self.dt*Se)@Te_n - (Me@Te_c- 1/(self.epsilon**2)*self.dt*Fe_res)), element_tangent

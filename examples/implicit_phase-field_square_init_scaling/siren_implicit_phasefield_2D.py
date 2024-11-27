@@ -28,17 +28,17 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 30
+num_steps = 1
 # creation of the model
 mesh_res_rate = 8
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate)
 # create fe-based loss function
-bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
-Dirichlet_BCs = False
+bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
+Dirichlet_BCs = True
 
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.001,"epsilon":0.05}
-dt_res_rate = 5
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.1}
+dt_res_rate = 1
 material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_2d = AllenCahnLoss2DQuad("phasefield_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
@@ -186,7 +186,7 @@ print(f"{current_time} - Info : iFOL part - finished in {execution_time:.4f} sec
 fe_mesh['T_FOL'] = FOL_T
 # solve FE here
 start_time = time.time()
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-7,"atol":1e-7,
+fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-100,"atol":1e-8,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
                                             "maxiter":20,"load_incr":1}}
@@ -210,17 +210,21 @@ absolute_error = np.abs(FOL_T- FE_T[:,(dt_res_rate-1)::dt_res_rate])
 fe_mesh['abs_error'] = absolute_error#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 time_list = [int(num_steps/5) - 1,int(num_steps/2) - 1,num_steps - 1]
 time_list_FE = [int(num_steps_FE/5)- 1,int(num_steps_FE/2)- 1,num_steps_FE-1] 
-plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],#,absolute_error
-                   ["","","",""],
+# plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],#,absolute_error
+#                    ["","","",""],
+#                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
+#                    file_name=os.path.join(case_dir,"FOL-T-dist.png"))
+# plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FE_T[:,time_list_FE[0]],FE_T[:,time_list_FE[1]],FE_T[:,time_list_FE[2]]],
+#                    ["","","",""],
+#                    fig_title="Initial condition and FEM solution",cmap = "jet",
+#                    file_name=os.path.join(case_dir,"FEM-T-dist.png"))
+# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
+#                    ["","","",""],
+#                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
+#                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,-1],FE_T[:,-1],np.abs(FE_T[:,-1]-FOL_T[:,-1])],
+                   ["Initial condition","Super resolution iFOL","FEM","Error"],
                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FOL-T-dist.png"))
-plot_mesh_vec_data_phasefield(1,[coeffs_matrix_fine[eval_id],FE_T[:,time_list_FE[0]],FE_T[:,time_list_FE[1]],FE_T[:,time_list_FE[2]]],
-                   ["","","",""],
-                   fig_title="Initial condition and FEM solution",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FEM-T-dist.png"))
-plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
-                   ["","","",""],
-                   fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
+                   file_name=os.path.join(case_dir,"FOL-FEM-dist.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)

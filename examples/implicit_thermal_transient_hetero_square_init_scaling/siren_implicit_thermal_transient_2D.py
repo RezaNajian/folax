@@ -305,11 +305,6 @@ for i in range(len(time_list)):
 #                    fig_title="Initial condition and linear interpolation iFOL error against FEM",cmap = "jet",
 #                    file_name=os.path.join(case_dir,"FOL-T-Error-dist-linear-int.png"))
 
-# plot_mesh_vec_data(1,[hetero_info_fine[eval_id]],
-#                    [""],
-#                    fig_title="Heterogeneous microstructure",cmap = "viridis",
-#                    file_name=os.path.join(case_dir,"hetero_microstucture_fine.png"))
-
 plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,-1],FOL_T_lin[:,-1],FE_T[:,-1]],
                    ["Initial condition","Super resolution iFOL","iFOL with linear interpolation","FEM"],
                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",

@@ -50,7 +50,27 @@ class GaussQuadrature(metaclass=ConstantsMeta):
         points = jnp.array([-jnp.sqrt((3+2*jnp.sqrt(6/5))/7), -jnp.sqrt((3-2*jnp.sqrt(6/5))/7), jnp.sqrt((3-2*jnp.sqrt(6/5))/7), jnp.sqrt((3+2*jnp.sqrt(6/5))/7)])
         weights = jnp.array([(18-jnp.sqrt(30))/36, (18+jnp.sqrt(30))/36, (18+jnp.sqrt(30))/36, (18-jnp.sqrt(30))/36])
         return points,weights
+    
+class GaussQuadratureTetra(metaclass=ConstantsMeta):
 
+    """
+    Gauss Quadrature class for integration.
+
+    """
+
+    @property
+    def one_point_GQ(self):
+        # 1-point Gauss quadrature
+        points = jnp.array([0.5])
+        weights = jnp.array([1.0])
+        return points,weights
+    
+    @property
+    def four_point_GQ(self):
+        # 4-point Gauss quadrature
+        points = jnp.array([[1/6,1/6,1/6],[4/6,1/6,1/6],[1/6,4/6,1/6],[1/6,1/6,4/6]]).flatten()
+        weights = jnp.array([1/3, 1/3, 1/3, 1/3])
+        return points,weights
 
 class ShapeFunction:
     """
