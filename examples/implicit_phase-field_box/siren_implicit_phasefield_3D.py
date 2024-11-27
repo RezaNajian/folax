@@ -8,7 +8,7 @@ from fol.loss_functions.phasefield_3D_fe_hex import AllenCahnLoss3DHex
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.no_control import NoControl
 from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_super_res import ImplicitParametricOperatorLearning
-from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver_phasefield import FiniteElementNonLinearResidualBasedSolverPhasefield
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from siren_nn import Siren
@@ -30,7 +30,7 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 10
+num_steps = 1
 # creation of the model
 mesh_res_rate = 1
 fe_mesh = create_3D_box_mesh(Nx=model_settings["N"]-1,
@@ -241,7 +241,7 @@ fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-7,"atol
                                             "maxiter":1000,"pre-conditioner":"none","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
                                             "maxiter":20,"load_incr":1}}
-nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlinear_fe_solver",phasefield_loss_3d_pred,fe_setting)
+nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolverPhasefield("nonlinear_fe_solver",phasefield_loss_3d_pred,fe_setting)
 nonlinear_fe_solver.Initialize()
 num_steps_FE = num_steps*dt_res_rate
 FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps_FE))
