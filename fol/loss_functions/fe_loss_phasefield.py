@@ -15,7 +15,7 @@ from jax.experimental import sparse
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.fem_utilities import *
 
-class FiniteElementLoss(Loss):
+class FiniteElementLossPhasefield(Loss):
     """FE-based losse
 
     This is the base class for the loss functions require FE formulation.
@@ -269,8 +269,9 @@ class FiniteElementLoss(Loss):
     def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):   
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
-        mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
-        mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
+        if self.dirichlet_indices.size > 0:
+            BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
+            mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
         
         elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None)) \
                                                             (self.fe_mesh.GetElementsIds(self.element_type),
@@ -294,4 +295,3 @@ class FiniteElementLoss(Loss):
         sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
         
         return sparse_jacobian, residuals_vector
-

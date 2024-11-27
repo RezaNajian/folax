@@ -71,6 +71,3 @@ class ThermalTransientLoss3DHex(FiniteElementLoss):
 
         return 0.5*Te_n.T@Se@Te_n + Te, (Me+self.dt*Se)@Te_n - Me@Te_c, (Me+self.dt*Se)
     
-    def ComputeElementHetero(self, *args):
-        pass
-    

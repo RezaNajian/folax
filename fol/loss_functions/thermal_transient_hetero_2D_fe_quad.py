@@ -3,7 +3,7 @@
  Date: April, 2024
  License: FOL/License.txt
 """
-from  .fe_loss import FiniteElementLoss
+from  .fe_loss_transient_hetero import FiniteElementLossTransientHetero
 import jax
 import jax.numpy as jnp
 from jax import jit
@@ -12,7 +12,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class ThermalTransientLoss2DQuad(FiniteElementLoss):
+class ThermalTransientLoss2DQuad(FiniteElementLossTransientHetero):
     """FE-based 2D Thermal loss
 
     This is the base class for the loss functions require FE formulation.
@@ -33,11 +33,8 @@ class ThermalTransientLoss2DQuad(FiniteElementLoss):
         self.cp =  self.loss_settings["material_dict"]["cp"]
         self.dt =  self.loss_settings["material_dict"]["dt"]
 
-    def ComputeElement(self, *args):
-        pass
-
     @partial(jit, static_argnums=(0,))
-    def ComputeElementHetero(self,xyze,Te_c,Ke,Te_n,body_force=0):
+    def ComputeElement(self,xyze,Te_c,Ke,Te_n,body_force=0):
         Te_c = Te_c.reshape(-1,1)
         Te_n = Te_n.reshape(-1,1)
         @jit

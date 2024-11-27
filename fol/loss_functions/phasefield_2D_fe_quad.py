@@ -3,7 +3,7 @@
  Date: April, 2024
  License: FOL/License.txt
 """
-from  .fe_loss import FiniteElementLoss
+from  .fe_loss_phasefield import FiniteElementLossPhasefield
 import jax
 import jax.numpy as jnp
 from jax import jit
@@ -12,7 +12,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class AllenCahnLoss2DQuad(FiniteElementLoss):
+class AllenCahnLoss2DQuad(FiniteElementLossPhasefield):
     """FE-based 2D Thermal loss
 
     This is the base class for the loss functions require FE formulation.
@@ -77,8 +77,4 @@ class AllenCahnLoss2DQuad(FiniteElementLoss):
         element_energy = 0.5*Te_n.T@Se@Te_n + 1/(self.epsilon**2)*Fe + Te
 
         return  element_energy, ((Me+self.dt*Se)@Te_n - (Me@Te_c- 1/(self.epsilon**2)*self.dt*Fe_res)), element_tangent
-    
-    
-    def ComputeElementHetero(self, *args):
-        pass
-    
+

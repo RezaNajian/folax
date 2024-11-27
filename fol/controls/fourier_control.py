@@ -17,11 +17,8 @@ class FourierControl(Control):
         super().__init__(control_name)
         self.settings = control_settings
         self.fe_mesh = fe_mesh
-<<<<<<< HEAD
-=======
         self.scale_min = 0.0
         self.scale_max = 1.0
->>>>>>> origin/main
 
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
@@ -51,11 +48,8 @@ class FourierControl(Control):
 
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self,variable_vector:jnp.array):
-<<<<<<< HEAD
-=======
         variable_vector *= (self.scale_max-self.scale_min)
         variable_vector += self.scale_min
->>>>>>> origin/main
         @jit
         def evaluate_at_frequencies(freqs,coeff):
             cos_x = jnp.cos(freqs[0] * jnp.pi * self.fe_mesh.GetNodesX())

@@ -5,20 +5,14 @@
 """
 import os
 from abc import ABC,abstractmethod
-<<<<<<< HEAD
 from typing import Tuple
-=======
 from typing import Tuple,Iterator
->>>>>>> origin/main
 from tqdm import trange
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
 from functools import partial
 from flax import nnx
-<<<<<<< HEAD
-=======
 import jax
->>>>>>> origin/main
 import orbax.checkpoint as orbax
 from optax import GradientTransformation
 import orbax.checkpoint as ocp
@@ -121,8 +115,6 @@ class DeepNetwork(ABC):
         # initialize the nnx optimizer
         self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)
 
-<<<<<<< HEAD
-=======
     def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
         """
         Creates batches from the input dataset.
@@ -160,7 +152,6 @@ class DeepNetwork(ABC):
             else:
                 yield batch_x,
 
->>>>>>> origin/main
     def GetName(self) -> str:
         """
         Returns the name of the model.
@@ -171,11 +162,6 @@ class DeepNetwork(ABC):
             The name of the deep learning model.
         """
         return self.name
-<<<<<<< HEAD
-
-    @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(self, nn_model:nnx.Module, optimizer:nnx.Optimizer, batch_set:Tuple[jnp.ndarray, jnp.ndarray]):
-=======
     
     @abstractmethod
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
@@ -232,7 +218,6 @@ class DeepNetwork(ABC):
     @partial(jax.jit, static_argnums=(0,))
     def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, 
                         train_batch:Tuple[jnp.ndarray, jnp.ndarray]):
->>>>>>> origin/main
         """
         Performs a single training step.
 
@@ -254,16 +239,6 @@ class DeepNetwork(ABC):
             A dictionary containing information about the training step, such as loss values.
         """
 
-<<<<<<< HEAD
-        (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
-                                                                    (batch_set,nn_model)
-        optimizer.update(batch_grads)
-        return batch_dict
-
-    @print_with_timestamp_and_execution_time
-    def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
-              batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
-=======
         nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
 
         (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
@@ -307,7 +282,6 @@ class DeepNetwork(ABC):
     @print_with_timestamp_and_execution_time
     def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
               batch_size:int=100, test_settings:dict={},convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
->>>>>>> origin/main
 
         """
         Trains the neural network model over multiple epochs.
@@ -324,14 +298,6 @@ class DeepNetwork(ABC):
             Test dataset for validation, defaults to empty arrays.
         batch_size : int, optional
             Number of samples per batch, default is 100.
-<<<<<<< HEAD
-        convergence_settings : dict, optional
-            Settings to control the convergence criteria, defaults to an empty dict.
-        plot_settings : dict, optional
-            Settings to control the plotting of training history, defaults to an empty dict.
-        save_settings : dict, optional
-            Settings to control saving of the trained model, defaults to an empty dict.
-=======
         test_settings : dict, optional
             Settings to control the frequency of testing during training. Defaults to an empty dictionary.
             Available settings include:
@@ -359,7 +325,6 @@ class DeepNetwork(ABC):
         None
             This method does not return anything. The training process updates the model's state in place and 
             saves the training history and model state if specified.
->>>>>>> origin/main
         """
 
         self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
@@ -372,13 +337,10 @@ class DeepNetwork(ABC):
         self.default_save_settings = {"save_nn_model":True}
         save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
 
-<<<<<<< HEAD
-=======
         self.default_test_settings = {"test_frequency":100}
         test_settings = UpdateDefaultDict(self.default_test_settings,test_settings)
         plot_settings["test_frequency"] = test_settings["test_frequency"]
 
->>>>>>> origin/main
         def update_batch_history_dict(batches_hist_dict,batch_dict,batch_index):
             # fill the batch dict
             if batch_index == 0:
@@ -413,31 +375,16 @@ class DeepNetwork(ABC):
         test_history_dict = {}
         pbar = trange(convergence_settings["num_epochs"])
         converged = False
-<<<<<<< HEAD
-=======
 
         # here split according to https://github.com/google/flax/discussions/4224
         nnx_graphdef, nxx_state = nnx.split((self.flax_neural_network, self.nnx_optimizer))
 
->>>>>>> origin/main
         for epoch in pbar:
             train_set_hist_dict = {}
             test_set_hist_dict = {}
             # now loop over batches
             batch_index = 0 
             for batch_set in self.CreateBatches(train_set, batch_size):
-<<<<<<< HEAD
-                batch_dict = self.TrainStep(self.flax_neural_network,self.nnx_optimizer,batch_set)
-                train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
-
-                if len(test_set[0])>0:
-                    _,test_dict = self.ComputeBatchLossValue(test_set,self.flax_neural_network)
-                    test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_dict,batch_index)
-                else:
-                    test_dict = {}
-                
-                batch_index += 1
-=======
                 batch_dict,nxx_state = self.TrainStep(nnx_graphdef, nxx_state,batch_set)
                 train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)                
                 batch_index += 1
@@ -445,17 +392,12 @@ class DeepNetwork(ABC):
             if len(test_set[0])>0 and ((epoch)%test_settings["test_frequency"]==0 or epoch==convergence_settings["num_epochs"]-1):
                 test_batch_dict,nxx_state = self.TestStep(nnx_graphdef,nxx_state,test_set)
                 test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_batch_dict,0)
->>>>>>> origin/main
 
             train_history_dict = update_history_dict(train_history_dict,train_set_hist_dict)
             print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
             if len(test_set[0])>0:
-<<<<<<< HEAD
-                test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
-=======
                 if ((epoch)%test_settings["test_frequency"]==0 or epoch==convergence_settings["num_epochs"]-1):
                     test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
->>>>>>> origin/main
                 print_dict = {"train_loss":train_history_dict["total_loss"][-1],
                               "test_loss":test_history_dict["total_loss"][-1]}
 
@@ -471,12 +413,9 @@ class DeepNetwork(ABC):
             if epoch<convergence_settings["num_epochs"]-1 and converged:
                 break    
 
-<<<<<<< HEAD
-=======
         # now we need to merge the model again
         self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)        
 
->>>>>>> origin/main
         # Save the flax model
         if save_settings["save_nn_model"]:
             state_directory = self.checkpoint_settings["state_directory"]
@@ -554,31 +493,21 @@ class DeepNetwork(ABC):
         """
         plot_rate = plot_settings["plot_rate"]
         plot_list = plot_settings["plot_list"]
-<<<<<<< HEAD
-        plt.figure(figsize=(10, 5))
-        for key,value in train_history_dict.items():
-            if len(value)>0 and (len(plot_list)==0 or key in plot_list):
-=======
 
         plt.figure(figsize=(10, 5))
         train_max_length = 0
         for key,value in train_history_dict.items():
             if len(value)>0 and (len(plot_list)==0 or key in plot_list):
                 train_max_length = len(value)
->>>>>>> origin/main
                 plt.semilogy(value[::plot_rate], label=f"train_{key}") 
 
         for key,value in test_history_dict.items():
             if len(value)>0 and (len(plot_list)==0 or key in plot_list):
-<<<<<<< HEAD
-                plt.semilogy(value[::plot_rate], label=f"test_{key}") 
-=======
                 test_length = len(value)
                 x_value = [ i * plot_settings["test_frequency"] for i in range(test_length-1)]
                 x_value.append(train_max_length-1)
                 plt.semilogy(x_value,value[::plot_rate], label=f"test_{key}") 
 
->>>>>>> origin/main
         plt.title("Training History")
         plt.xlabel(str(plot_rate) + " Epoch")
         plt.ylabel("Log Value")

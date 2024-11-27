@@ -13,19 +13,11 @@ class FiniteElementLinearResidualBasedSolver(FiniteElementSolver):
     """
     @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars:jnp.array,current_dofs:jnp.array):
-        if self.fe_solver_settings["linear_solver_settings"]["Dirichlet_BCs"]:
-            BC_applied_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs)
-        else:
-            BC_applied_dofs = current_dofs
+        BC_applied_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs)
         BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                             current_control_vars,BC_applied_dofs)
         
         delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,BC_applied_dofs)
         return BC_applied_dofs + delta_dofs
 
-        
-
-
-
-
-
+    

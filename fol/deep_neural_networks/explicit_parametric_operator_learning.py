@@ -97,46 +97,6 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
                       f" does not match the size of unknowns of the loss function {self.loss_function.GetNumberOfUnknowns()}")
     
-<<<<<<< HEAD
-    def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
-        """
-        Creates batches from the input dataset.
-
-        This method splits the input data into batches of a specified size, 
-        yielding input data and optionally target labels if provided.
-
-        Parameters
-        ----------
-        data : Tuple[jnp.ndarray, jnp.ndarray]
-            A tuple of input data and target labels.
-        batch_size : int
-            The number of samples per batch.
-
-        Yields
-        ------
-        Iterator[jnp.ndarray]
-            Batches of input data and optionally target labels.
-        """
-
-        # Unpack data into data_x and data_y
-        if len(data) > 1:
-            data_x, data_y = data  
-            if data_x.shape[0] != data_y.shape[0]:
-                fol_error("data_x and data_y must have the same number of samples.")
-        else:
-            data_x = data[0]
-
-        # Iterate over the dataset and yield batches of data_x and data_y
-        for i in range(0, data_x.shape[0], batch_size):
-            batch_x = data_x[i:i+batch_size, :]
-            if len(data) > 1:
-                batch_y = data_y[i:i+batch_size, :]
-                yield batch_x, batch_y
-            else:
-                yield batch_x,
-    
-=======
->>>>>>> origin/main
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         """
@@ -161,39 +121,6 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         control_output = self.control.ComputeControlledVariables(x_set[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
-<<<<<<< HEAD
-    @partial(nnx.jit, static_argnums=(0,))
-    def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
-        """
-        Computes the loss values for a batch of data.
-
-        This method computes the network's output for a batch of input data, applies the control parameters,
-        and evaluates the loss function for the entire batch. It aggregates the results and returns
-        summary statistics (min, max, avg) for the batch losses.
-
-        Parameters
-        ----------
-        batch_set : Tuple[jnp.ndarray, jnp.ndarray]
-            A tuple containing a batch of input data and corresponding target labels.
-        nn_model : nnx.Module
-            The Flax neural network model.
-
-        Returns
-        -------
-        Tuple[jnp.ndarray, dict]
-            The mean loss for the batch and a dictionary of loss statistics (min, max, avg, total).
-        """
-
-        batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None))(batch_set,nn_model)
-        loss_name = self.loss_function.GetName()
-        total_mean_loss = jnp.mean(batch_losses)
-        return total_mean_loss, ({loss_name+"_min":jnp.min(batch_mins),
-                                         loss_name+"_max":jnp.max(batch_maxs),
-                                         loss_name+"_avg":jnp.mean(batch_avgs),
-                                         "total_loss":total_mean_loss})
-
-=======
->>>>>>> origin/main
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X):
