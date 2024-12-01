@@ -24,7 +24,7 @@ model_settings = {"L":1,"N":51}
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 
 # create regression loss function
-reg_loss = RegressionLoss("first_reg_loss",loss_settings={"nodal_unknows":["K"]},fe_mesh=fe_mesh)
+reg_loss = RegressionLoss("reg_loss",loss_settings={"nodal_unknows":["K"]},fe_mesh=fe_mesh)
 
 fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
                             "beta":20,"min":1e-1,"max":1}
@@ -72,7 +72,8 @@ if export_Ks:
 
 # design siren NN for learning
 hidden_layers = [200,200,200]
-synthesizer_nn = MLP(input_size=3,
+synthesizer_nn = MLP(name="regressor_synthesizer",
+                    input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",
@@ -80,21 +81,24 @@ synthesizer_nn = MLP(input_size=3,
                                          "initialization_gain":3.0},
                     skip_connections_settings={"active":False,"frequency":1})
 
-modulator_nn = MLP(input_size=20,
+modulator_nn = MLP(name="regressor_modulator",
+                    input_size=20,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"relu"},
                     fully_connected_layers=True,
                     skip_connections_settings={"active":True,"frequency":1}) 
 
-hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
-                        coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
+hyper_network = HyperNetwork(name="regressor_hypernetwork", 
+                             modulator_nn=modulator_nn,
+                             synthesizer_nn=synthesizer_nn,
+                             coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
 
 # create fol optax-based optimizer
 main_loop_transform = optax.chain(optax.adam(1e-4))
 latent_loop_transform = optax.chain(optax.adam(1e-3))
 
 # create fol
-fol = MetaImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fourier_control,
                                                 loss_function=reg_loss,
                                                 flax_neural_network=hyper_network,
                                                 latent_loop_optax_optimizer=latent_loop_transform,
