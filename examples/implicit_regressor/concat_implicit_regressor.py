@@ -24,7 +24,7 @@ model_settings = {"L":1,"N":51}
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 
 # create regression loss function
-reg_loss = RegressionLoss("first_reg_loss",loss_settings={"nodal_unknows":["K"]},fe_mesh=fe_mesh)
+reg_loss = RegressionLoss("reg_loss",loss_settings={"nodal_unknows":["K"]},fe_mesh=fe_mesh)
 
 fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
                             "beta":20,"min":1e-1,"max":1}
@@ -71,11 +71,12 @@ if export_Ks:
 
 
 # design siren NN for learning
-concate_network = MLP(input_size=13,
-                        output_size=1,
-                        hidden_layers=[200,200,200],
-                        activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
-                        skip_connections_settings={"active":False,"frequency":1})
+concate_network = MLP(name="concat_network",
+                      input_size=13,
+                      output_size=1,
+                      hidden_layers=[200,200,200],
+                      activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
+                      skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
 
@@ -83,7 +84,7 @@ learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5,
 chained_transform = optax.chain(optax.adam(learning_rate_scheduler))
 
 # create fol
-fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+fol = ImplicitParametricOperatorLearning(name="implicit_ol",control=fourier_control,
                                         loss_function=reg_loss,
                                         flax_neural_network=concate_network,
                                         optax_optimizer=chained_transform,

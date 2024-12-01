@@ -45,9 +45,17 @@ def layer_init_factopry(key:Array,
         return init_weights,init_biases
 
 def siren_init(key:Array,in_dim:int,out_dim:int,activation_settings:dict):
-
     """
     Custom initialization method for SIREN layers.
+
+    This initialization method is designed to support sinusoidal representation networks (SIRENs), 
+    which use periodic activation functions. The approach is inspired by the following papers:
+
+    - Sitzmann, V., Martel, J., Bergman, A., Lindell, D., & Wetzstein, G. (2020). 
+      Implicit neural representations with periodic activation functions. 
+      Advances in Neural Information Processing Systems, 33, 7462-7473.
+    - Yeom, T., Lee, S., & Lee, J. (2024). Fast Training of Sinusoidal Neural Fields 
+      via Scaling Initialization. arXiv preprint arXiv:2410.04779.
 
     Args:
         key (Array): PRNG key for random initialization.
@@ -74,8 +82,7 @@ def siren_init(key:Array,in_dim:int,out_dim:int,activation_settings:dict):
     else: weight_variance = weight_scale * jnp.sqrt(6 / in_dim) / omega
     
     init_weights = random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance)
-    bias_variance = jnp.sqrt(1 / in_dim)
-    init_biases = random.uniform(bias_key, (int(out_dim),), jnp.float32, minval=-bias_variance, maxval=bias_variance)
+    init_biases = jnp.zeros(out_dim)
     return init_weights,init_biases
 
 class MLP(nnx.Module):
@@ -104,7 +111,9 @@ class MLP(nnx.Module):
         act_func_gain (float): Gain applied to activations.
         fw_func (Callable): Forward pass method (with or without skip connections).
     """
-    def __init__(self,input_size:int=0,
+    @print_with_timestamp_and_execution_time
+    def __init__(self,name:str,  
+                      input_size:int=0,
                       output_size: int=0, 
                       hidden_layers:list=[],
                       activation_settings:dict={},
@@ -112,6 +121,7 @@ class MLP(nnx.Module):
                       fully_connected_layers:bool=True,
                       skip_connections_settings:dict={}):
 
+        self.name = name
         self.in_features=input_size
         self.out_features=output_size
         self.hidden_layers = hidden_layers
@@ -139,6 +149,9 @@ class MLP(nnx.Module):
         activation_settings["total_num_layers"] = len(layer_sizes)
         key = random.PRNGKey(0)
         keys = random.split(key, len(layer_sizes) - 1)
+
+        self.total_num_weights = 0
+        self.total_num_biases = 0
         for i, (in_dim, out_dim) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
             activation_settings["current_layer_idx"] = i
             if self.skip_connections_settings["active"] and i>0 and \
@@ -149,10 +162,15 @@ class MLP(nnx.Module):
                 init_weights,init_biases = layer_init_factopry(keys[i],self.in_features,out_dim,activation_settings)
             else:
                 init_weights,init_biases = layer_init_factopry(keys[i],in_dim,out_dim,activation_settings)
+            
+            self.total_num_weights += init_weights.size
             if use_bias:
                 self.NN_params.append((nnx.Param(init_weights),nnx.Param(init_biases)))
+                self.total_num_biases += init_biases.size
             else:
                 self.NN_params.append((nnx.Param(init_weights),jnp.zeros(init_biases.shape)))
+
+        fol_info(f"MLP network is initialized by {self.total_num_weights} weights and {self.total_num_biases} biases !")
 
         act_name = activation_settings["type"]
         self.act_func = globals()[act_name]
@@ -167,6 +185,9 @@ class MLP(nnx.Module):
         else:
             self.compute_x_func = self.compute_x
             self.fw_func = self.forward
+
+    def GetName(self):
+        return self.name
 
     def compute_x(self,w:nnx.Param,prev_x:jax.Array,b:nnx.Param):
         """
@@ -271,8 +292,12 @@ class HyperNetwork(nnx.Module):
             - "modulator_to_synthesizer_coupling_mode" (str): Mode of coupling. Options:
               "all_to_all", "last_to_all", "last_to_last".
     """
-    def __init__(self,modulator_nn:MLP,synthesizer_nn:MLP,coupling_settings:dict={}):
-
+    @print_with_timestamp_and_execution_time
+    def __init__(self,name:str,
+                      modulator_nn:MLP,
+                      synthesizer_nn:MLP,
+                      coupling_settings:dict={}):
+        self.name = name
         self.modulator_nn = modulator_nn
         self.synthesizer_nn = synthesizer_nn
 
@@ -302,6 +327,16 @@ class HyperNetwork(nnx.Module):
         else:
             valid_options=["all_to_all","last_to_all","last_to_last"]
             fol_error(f"valid options for modulator_to_synthesizer_coupling_mode are {valid_options} !")
+
+        self.total_num_weights = self.modulator_nn.total_num_weights + \
+                                 self.synthesizer_nn.total_num_weights
+        self.total_num_biases = self.modulator_nn.total_num_biases +\
+                                self.synthesizer_nn.total_num_biases
+
+        fol_info(f"hyper network has {self.total_num_weights} weights and {self.total_num_biases} biases !")
+
+    def GetName(self):
+        return self.name
 
     def all_to_all_fw(self,x:jax.Array,modulator_nn:MLP,synthesizer_nn:MLP):
         """

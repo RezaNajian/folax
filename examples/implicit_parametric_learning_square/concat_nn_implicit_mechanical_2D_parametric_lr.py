@@ -80,11 +80,12 @@ if export_Ks:
     exit()
 
 # design concate siren NN for learning
-concate_network = MLP(input_size=13,
-                        output_size=2,
-                        hidden_layers=[200,200,200],
-                        activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
-                        skip_connections_settings={"active":False,"frequency":1})
+concate_network = MLP(name="concate_network",
+                      input_size=13,
+                      output_size=2,
+                      hidden_layers=[200,200,200],
+                      activation_settings={"type":"sin","prediction_gain":30,"initialization_gain":3},
+                      skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=1500)
@@ -92,7 +93,7 @@ from optax import contrib
 chained_transform = optax.chain(contrib.normalize(),optax.scale_by_learning_rate(learning_rate_scheduler))
 
 # create fol
-fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+fol = ImplicitParametricOperatorLearning(name="implicit_ol",control=fourier_control,
                                         loss_function=mechanical_loss_2d,
                                         flax_neural_network=concate_network,
                                         optax_optimizer=chained_transform,

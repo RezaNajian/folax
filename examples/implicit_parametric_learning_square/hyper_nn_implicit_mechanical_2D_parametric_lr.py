@@ -82,22 +82,25 @@ if export_Ks:
 
 # design synthesizer & modulator NN for hypernetwork
 hidden_layers = [50,50]
-synthesizer_nn = MLP(input_size=3,
-                    output_size=2,
-                    hidden_layers=hidden_layers,
-                    activation_settings={"type":"sin",
-                                         "prediction_gain":30,
-                                         "initialization_gain":1.0},
-                    skip_connections_settings={"active":False,"frequency":1})
+synthesizer_nn = MLP(name="synthesizer_nn",
+                     input_size=3,
+                     output_size=2,
+                     hidden_layers=hidden_layers,
+                     activation_settings={"type":"sin",
+                                          "prediction_gain":30,
+                                          "initialization_gain":1.0},
+                     skip_connections_settings={"active":False,"frequency":1})
 
-modulator_nn = MLP(input_size=10,
-                    hidden_layers=hidden_layers,
-                    activation_settings={"type":"relu"},
-                    fully_connected_layers=True,
-                    skip_connections_settings={"active":False,"frequency":1}) 
+modulator_nn = MLP(name="modulator_nn",
+                   input_size=10,
+                   hidden_layers=hidden_layers,
+                   activation_settings={"type":"relu"},
+                   fully_connected_layers=True,
+                   skip_connections_settings={"active":False,"frequency":1}) 
 
-hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
-                        coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
+hyper_network = HyperNetwork(name="hyper_nn",
+                             modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
+                             coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
 
 # create fol optax-based optimizer
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=2000)
@@ -105,7 +108,7 @@ from optax import contrib
 chained_transform = optax.chain(contrib.normalize(),optax.scale_by_learning_rate(learning_rate_scheduler))
 
 # create fol
-fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
+fol = ImplicitParametricOperatorLearning(name="implicit_ol",control=fourier_control,
                                         loss_function=mechanical_loss_2d,
                                         flax_neural_network=hyper_network,
                                         optax_optimizer=chained_transform,
