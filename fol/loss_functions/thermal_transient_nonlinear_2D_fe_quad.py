@@ -12,7 +12,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class ThermalTransientLoss2DQuad(FiniteElementLoss):
+class ThermalTransientLossNonlinear2DQuad(FiniteElementLoss):
     """FE-based 2D Thermal loss
 
     This is the base class for the loss functions require FE formulation.

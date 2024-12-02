@@ -37,10 +37,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementSolver):
         load_increament = self.nonlinear_solver_settings["load_incr"]
         for load_fac in range(load_increament):
             fol_info(f"loadStep; increment:{load_fac+1}")
-            if self.fe_solver_settings["linear_solver_settings"]["Dirichlet_BCs"]:
-                applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
-            else:
-                applied_BC_dofs = current_dofs
+            applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
             for i in range(self.nonlinear_solver_settings["maxiter"]):
                 BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)
