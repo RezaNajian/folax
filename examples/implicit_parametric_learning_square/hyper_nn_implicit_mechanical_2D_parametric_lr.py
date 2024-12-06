@@ -94,18 +94,15 @@ synthesizer_nn = MLP(name="synthesizer_nn",
 modulator_nn = MLP(name="modulator_nn",
                    input_size=10,
                    hidden_layers=hidden_layers,
-                   activation_settings={"type":"relu"},
-                   fully_connected_layers=True,
+                   activation_settings={"type":"swish"},
                    skip_connections_settings={"active":False,"frequency":1}) 
 
 hyper_network = HyperNetwork(name="hyper_nn",
                              modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
-                             coupling_settings={"modulator_to_synthesizer_coupling_mode":"all_to_all"})
+                             coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=2000)
-from optax import contrib
-chained_transform = optax.chain(contrib.normalize(),optax.scale_by_learning_rate(learning_rate_scheduler))
+chained_transform = optax.chain(optax.adam(1e-5))
 
 # create fol
 fol = ImplicitParametricOperatorLearning(name="implicit_ol",control=fourier_control,
@@ -123,7 +120,7 @@ train_end_id = 3
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":5000,"relative_error":1e-100,
+            convergence_settings={"num_epochs":2000,"relative_error":1e-100,
                                   "absolute_error":1e-100},
             plot_settings={"plot_save_rate":10000},
             save_settings={"save_nn_model":True})
