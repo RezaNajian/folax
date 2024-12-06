@@ -4,7 +4,7 @@ import optax
 import numpy as np
 from flax import nnx
 import jax
-from fol.loss_functions.phasefield_2D_fe_quad import AllenCahnLoss2DQuad
+from fol.loss_functions.phasefield_2D_fe_quad_CN import AllenCahnLoss2DQuad
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.no_control import NoControl
 from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_super_res import ImplicitParametricOperatorLearning
@@ -28,7 +28,7 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 10
+num_steps = 20
 # creation of the model
 mesh_res_rate = 1
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
@@ -193,7 +193,7 @@ print(f"{current_time} - Info : iFOL part - finished in {execution_time:.4f} sec
 fe_mesh['T_FOL'] = FOL_T
 # solve FE here
 start_time = time.time()
-fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-7,"atol":1e-7,
+fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-7,"atol":1e-7,
                                             "maxiter":1000,"pre-conditioner":"none","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
                                             "maxiter":20,"load_incr":1}}

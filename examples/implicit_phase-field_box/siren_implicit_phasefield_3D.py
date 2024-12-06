@@ -11,7 +11,7 @@ from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_su
 from fol.solvers.fe_nonlinear_residual_based_solver_phasefield import FiniteElementNonLinearResidualBasedSolverPhasefield
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
-from siren_nn import Siren
+from fol.deep_neural_networks.nns import MLP
 import pickle
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
@@ -28,11 +28,11 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":64,
+model_settings = {"L":1,"N":50,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 1
+num_steps = 50
 # creation of the model
-mesh_res_rate = 1
+mesh_res_rate = 2
 fe_mesh = create_3D_box_mesh(Nx=model_settings["N"]-1,
                              Ny=model_settings["N"]-1,
                              Nz=model_settings["N"]-1,
@@ -51,8 +51,8 @@ fe_mesh_pred = create_3D_box_mesh(Nx=model_settings["N"]*mesh_res_rate-1,
 bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
 Dirichlet_BCs = False
 
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.2}
-dt_res_rate = 1
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.1}
+dt_res_rate = 5
 material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_3d = AllenCahnLoss3DHex("phasefield_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
@@ -82,44 +82,94 @@ if create_random_coefficients:
     # export_dict["z_freqs"] = fourier_control.z_freqs
     # with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'wb') as f:
     #     pickle.dump(export_dict,f)
-    def generate_random_smooth_pattern_3d(points, L, epsilon, subsample_size=10000):
+    # def generate_random_smooth_pattern_3d(points, L, epsilon, subsample_size=10000):
+    #     """
+    #     Generate a random smooth pattern using Gaussian process sampling with subsampling.
+
+    #     Parameters:
+    #         points (np.ndarray): A (N, 3) array of coordinates from `meshio`.
+    #         L (float): The length scale of the domain (assumed cubic).
+    #         subsample_size (int): Number of points to use for subsampling.
+
+    #     Returns:
+    #         np.ndarray: A 1D array of smooth random values corresponding to the input points.
+    #     """
+    #     # Normalize the points to the domain [0, L]
+    #     normalized_points = points / L
+
+    #     # Subsample points for Gaussian process
+    #     total_points = len(normalized_points)
+    #     if total_points <= subsample_size:
+    #         sampled_points = normalized_points
+    #     else:
+    #         indices = np.random.choice(total_points, size=subsample_size, replace=False)
+    #         sampled_points = normalized_points[indices]
+
+    #     # Define the kernel for the Gaussian process
+    #     kernel = C(1.0, (1e-3, 1e3)) * RBF(epsilon, (1e-2, 1e2))
+    #     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1, random_state=42)
+
+    #     # Sample Gaussian process values at the subsampled points
+    #     u_subsampled = gp.sample_y(sampled_points, n_samples=1, random_state=0).ravel()
+
+    #     # Normalize the sampled values to the range [-1, 1]
+    #     scaled_u_subsampled = 2.0 * (u_subsampled - np.min(u_subsampled)) / (np.max(u_subsampled) - np.min(u_subsampled)) - 1.0
+
+    #     # Interpolate from subsampled points back to the full set of points
+    #     interpolator = NearestNDInterpolator(sampled_points, scaled_u_subsampled)
+    #     smooth_pattern = interpolator(normalized_points)
+
+    #     return smooth_pattern.reshape(1,-1)
+    def generate_random_smooth_pattern_3d_fft(points, L, epsilon):
         """
-        Generate a random smooth pattern using Gaussian process sampling with subsampling.
+        Generate a random smooth pattern using FFT for efficiency.
 
         Parameters:
             points (np.ndarray): A (N, 3) array of coordinates from `meshio`.
             L (float): The length scale of the domain (assumed cubic).
-            subsample_size (int): Number of points to use for subsampling.
+            epsilon (float): Controls smoothness of the pattern.
 
         Returns:
             np.ndarray: A 1D array of smooth random values corresponding to the input points.
         """
+        import numpy as np
+        from scipy.fft import fftn, ifftn, fftfreq
+
         # Normalize the points to the domain [0, L]
         normalized_points = points / L
 
-        # Subsample points for Gaussian process
-        total_points = len(normalized_points)
-        if total_points <= subsample_size:
-            sampled_points = normalized_points
-        else:
-            indices = np.random.choice(total_points, size=subsample_size, replace=False)
-            sampled_points = normalized_points[indices]
+        # Create a grid for FFT
+        grid_size = 128  # Choose an appropriate grid size
+        x = np.linspace(0, 1, grid_size)
+        y = np.linspace(0, 1, grid_size)
+        z = np.linspace(0, 1, grid_size)
+        X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
 
-        # Define the kernel for the Gaussian process
-        kernel = C(1.0, (1e-3, 1e3)) * RBF(epsilon, (1e-2, 1e2))
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1, random_state=42)
+        # Generate random field in Fourier domain
+        kx = fftfreq(grid_size, d=1/grid_size)
+        ky = fftfreq(grid_size, d=1/grid_size)
+        kz = fftfreq(grid_size, d=1/grid_size)
+        KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
 
-        # Sample Gaussian process values at the subsampled points
-        u_subsampled = gp.sample_y(sampled_points, n_samples=1, random_state=0).ravel()
+        # Compute power spectrum for smoothness
+        power_spectrum = np.exp(-epsilon * (KX**2 + KY**2 + KZ**2))
+        noise = np.random.normal(size=(grid_size, grid_size, grid_size)) + 1j * np.random.normal(size=(grid_size, grid_size, grid_size))
+        random_field_fft = noise * power_spectrum
 
-        # Normalize the sampled values to the range [-1, 1]
-        scaled_u_subsampled = 2.0 * (u_subsampled - np.min(u_subsampled)) / (np.max(u_subsampled) - np.min(u_subsampled)) - 1.0
+        # Inverse FFT to get the spatial domain random field
+        random_field = np.real(ifftn(random_field_fft))
 
-        # Interpolate from subsampled points back to the full set of points
-        interpolator = NearestNDInterpolator(sampled_points, scaled_u_subsampled)
+        # Interpolate the random field to the original points
+        from scipy.interpolate import RegularGridInterpolator
+
+        interpolator = RegularGridInterpolator((x, y, z), random_field, bounds_error=False, fill_value=None)
         smooth_pattern = interpolator(normalized_points)
 
-        return smooth_pattern.reshape(1,-1)
+        # Normalize to [-1, 1]
+        smooth_pattern = 2.0 * (smooth_pattern - np.min(smooth_pattern)) / (np.max(smooth_pattern) - np.min(smooth_pattern)) - 1.0
+
+        return smooth_pattern.reshape(1, -1)
+
 
 
     def generate_double_bubble_3d(coords, L, epsilon):
@@ -140,14 +190,14 @@ if create_random_coefficients:
         
         return double_bubble
     
-    # coeffs_matrix = generate_double_bubble_3d(fe_mesh.GetNodesCoordinates(),
-    #                                           model_settings["L"],material_dict["epsilon"])
-    # coeffs_matrix_fine = generate_double_bubble_3d(fe_mesh_pred.GetNodesCoordinates(),
-    #                                                model_settings["L"],material_dict["epsilon"])
-    coeffs_matrix = generate_random_smooth_pattern_3d(fe_mesh.GetNodesCoordinates(),
-                                                      model_settings["L"],
-                                                      material_dict["epsilon"])
-    coeffs_matrix_fine = coeffs_matrix 
+    coeffs_matrix = generate_double_bubble_3d(fe_mesh.GetNodesCoordinates(),
+                                              model_settings["L"],material_dict["epsilon"])
+    coeffs_matrix_fine = generate_double_bubble_3d(fe_mesh_pred.GetNodesCoordinates(),
+                                                   model_settings["L"],material_dict["epsilon"])
+    # coeffs_matrix = generate_random_smooth_pattern_3d_fft(fe_mesh.GetNodesCoordinates(),
+    #                                                   model_settings["L"],
+    #                                                   material_dict["epsilon"])
+    # coeffs_matrix_fine = coeffs_matrix 
     # generate_random_smooth_pattern_3d(fe_mesh_pred.GetNodesCoordinates(),
     #                                                        model_settings["L"],
     #                                                        material_dict["epsilon"])
@@ -174,7 +224,14 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-siren_NN = Siren(4,1,[500,500])
+hidden_layers = [100,100]
+siren_NN = MLP(input_size=4,
+                    output_size=1,
+                    hidden_layers=hidden_layers,
+                    activation_settings={"type":"sin",
+                                         "prediction_gain":30,
+                                         "initialization_gain":1.0},
+                    skip_connections_settings={"active":False,"frequency":1})
 
 lr = 1e-4
 # create fol optax-based optimizer
@@ -199,10 +256,10 @@ t_current = t_init
 FOL_T_temp = coeffs_matrix.flatten()
 FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 # For the first time step
-fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":500,"relative_error":1e-5},
+fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=1,
+            convergence_settings={"num_epochs":300,"relative_error":1e-5},
             plot_settings={"plot_save_rate":1000},
-            save_settings={"save_nn_model":False})
+            save_settings={"save_nn_model":True})
 FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
 FOL_T_temp = np.array(fol.Predict(jnp.array([t_current]))).reshape(-1)
 FOL_T[:,0] = FOL_T_temp_fine
@@ -216,14 +273,14 @@ for i in range(num_steps-1):
                                             loss_function_pred=phasefield_loss_3d_pred,
                                             flax_neural_network=siren_NN,
                                             optax_optimizer=chained_transform,
-                                            checkpoint_settings={"restore_state":False,
+                                            checkpoint_settings={"restore_state":True,
                                             "state_directory":case_dir+"/flax_state"},
                                             working_directory=case_dir)
     fol.Initialize()
     fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-                convergence_settings={"num_epochs":500,"relative_error":1e-5},
+                convergence_settings={"num_epochs":300,"relative_error":1e-5},
                 plot_settings={"plot_save_rate":1000},
-                save_settings={"save_nn_model":False})
+                save_settings={"save_nn_model":True})
     FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
     FOL_T[:,i+1] = FOL_T_temp_fine
     FOL_T_temp = np.array(fol.Predict(jnp.array([t_current]))).reshape(-1)

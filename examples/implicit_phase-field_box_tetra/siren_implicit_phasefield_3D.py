@@ -30,9 +30,9 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 fe_mesh = Mesh("fol_io","cube_tetra.med",'../meshes/')
 fe_mesh_pred = Mesh("fol_io","cube_tetra.med",'../meshes/')
 # problem setup
-model_settings = {"L":1,"N":32,
+model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 500
+num_steps = 100
 # creation of the model
 # mesh_res_rate = 1
 # fe_mesh = create_3D_box_mesh(Nx=model_settings["N"]-1,
@@ -53,7 +53,7 @@ num_steps = 500
 bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
 Dirichlet_BCs = False
 
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.25}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.2}
 dt_res_rate = 1
 material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_3d = AllenCahnLoss3DTetra("phasefield_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
@@ -142,13 +142,13 @@ if create_random_coefficients:
         
         return double_bubble
     
-    # coeffs_matrix = generate_double_bubble_3d(fe_mesh.GetNodesCoordinates(),
-    #                                           model_settings["L"],material_dict["epsilon"])
+    coeffs_matrix = generate_double_bubble_3d(fe_mesh.GetNodesCoordinates(),
+                                              model_settings["L"],material_dict["epsilon"])
     # coeffs_matrix_fine = generate_double_bubble_3d(fe_mesh_pred.GetNodesCoordinates(),
     #                                                model_settings["L"],material_dict["epsilon"])
-    coeffs_matrix = generate_random_smooth_pattern_3d(fe_mesh.GetNodesCoordinates(),
-                                                      model_settings["L"],
-                                                      material_dict["epsilon"])
+    # coeffs_matrix = generate_random_smooth_pattern_3d(fe_mesh.GetNodesCoordinates(),
+    #                                                   model_settings["L"],
+    #                                                   material_dict["epsilon"])
     coeffs_matrix_fine = coeffs_matrix 
     # generate_random_smooth_pattern_3d(fe_mesh_pred.GetNodesCoordinates(),
     #                                                        model_settings["L"],

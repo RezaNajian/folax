@@ -17,18 +17,18 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 # directory & save handling
-working_directory_name = 'siren_implicit_thermal_2D'
+working_directory_name = 'siren_implicit_thermal_nonlinear_2D'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":50,
+model_settings = {"L":1,"N":32,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
-mesh_res_rate = 5
-num_steps = 5
+mesh_res_rate = 8
+num_steps = 10
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
 
@@ -80,11 +80,11 @@ if create_random_coefficients:
         y = np.linspace(0, L, N)
         X1, X2 = np.meshgrid(x, y)
         X = np.vstack([X1.ravel(), X2.ravel()]).T
-        y_sample = gp.sample_y(X, n_samples=1, random_state=0).ravel()
-        scaled_y_sample = (y_sample - np.min(y_sample)) / (np.max(y_sample) - np.min(y_sample))
-        return scaled_y_sample
-    # coeffs_matrix = generate_random_smooth_pattern(model_settings["L"],model_settings["N"]).reshape(1,-1)
-    coeffs_matrix = np.full((1,model_settings["N"]**2),0.0)
+        u = gp.sample_y(X, n_samples=1, random_state=0).ravel()
+        scaled_u = (u - np.min(u)) / (np.max(u) - np.min(u)) 
+        return scaled_u.reshape(1,-1)
+    # coeffs_matrix = generate_random_smooth_pattern(model_settings["L"],model_settings["N"])
+    coeffs_matrix = np.full((1,model_settings["N"]**2),0.5)
 
 else:
     pass
@@ -114,7 +114,7 @@ siren_NN = MLP(input_size=4,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",
                                          "prediction_gain":30,
-                                         "initialization_gain":3.0},
+                                         "initialization_gain":1.0},
                     skip_connections_settings={"active":False,"frequency":1})
 
 # create fol optax-based optimizer
@@ -139,7 +139,7 @@ FOL_T_temp = T_matrix
 FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 # For the first time step
 fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-            convergence_settings={"num_epochs":2000,"relative_error":1e-8},
+            convergence_settings={"num_epochs":200,"relative_error":1e-8},
             plot_settings={"plot_save_rate":1000},
             save_settings={"save_nn_model":True})
 FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
@@ -158,7 +158,7 @@ for i in range(num_steps-1):
                                             working_directory=case_dir)
     fol.Initialize()
     fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,),batch_size=100,
-                convergence_settings={"num_epochs":2000,"relative_error":1e-8},
+                convergence_settings={"num_epochs":200,"relative_error":1e-8},
                 plot_settings={"plot_save_rate":1000},
                 save_settings={"save_nn_model":True})
     FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
@@ -175,7 +175,7 @@ linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",
 linear_fe_solver.Initialize()
 FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 # FE_T_temp = T_matrix#[eval_id]
-FE_T_temp = np.full((fe_mesh_pred.GetNumberOfNodes()),0.0)
+FE_T_temp = np.full((fe_mesh_pred.GetNumberOfNodes()),0.5)
 for i in range(num_steps):
     FE_T_temp = np.array(linear_fe_solver.Solve(FE_T_temp,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
     FE_T[:,i] = FE_T_temp    

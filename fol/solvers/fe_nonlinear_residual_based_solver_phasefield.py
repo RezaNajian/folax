@@ -11,7 +11,7 @@ from  .fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSo
 from  .fe_solver import FiniteElementSolver
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
-from fol.loss_functions.fe_loss import FiniteElementLoss
+from fol.loss_functions.fe_loss_phasefield import  FiniteElementLossPhasefield
 
 class FiniteElementNonLinearResidualBasedSolverPhasefield(FiniteElementSolver):
     """Nonlinear solver class.
@@ -19,12 +19,12 @@ class FiniteElementNonLinearResidualBasedSolverPhasefield(FiniteElementSolver):
     """
 
     @print_with_timestamp_and_execution_time
-    def __init__(self, fe_solver_name: str, fe_loss_function: FiniteElementLoss, fe_solver_settings:dict={}) -> None:
+    def __init__(self, fe_solver_name: str, fe_loss_function: FiniteElementLossPhasefield, fe_solver_settings:dict={}) -> None:
         super().__init__(fe_solver_name,fe_loss_function,fe_solver_settings)
         self.nonlinear_solver_settings = {"rel_tol":1e-8,
                                            "abs_tol":1e-8,
                                            "maxiter":20,
-                                           "load_incr":5}
+                                           "load_incr":1}
 
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:

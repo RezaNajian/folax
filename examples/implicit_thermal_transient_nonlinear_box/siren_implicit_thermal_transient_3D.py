@@ -23,12 +23,12 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":50,
+model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
 mesh_res_rate = 1
-num_steps = 10
+num_steps = 1
 fe_mesh = create_3D_box_mesh(Nx=model_settings["N"]-1,
                              Ny=model_settings["N"]-1,
                              Nz=model_settings["N"]-1,
@@ -172,7 +172,7 @@ for i in range(num_steps-1):
 
 fe_mesh['T_FOL'] = FOL_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                             "maxiter":10,"load_incr":5}}
@@ -202,4 +202,5 @@ fe_mesh['abs_error'] = absolute_error#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 #                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
 #                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
 
+fe_mesh['T_init'] = coeffs_matrix.reshape((fe_mesh.GetNumberOfNodes(), 1))
 fe_mesh.Finalize(export_dir=case_dir)
