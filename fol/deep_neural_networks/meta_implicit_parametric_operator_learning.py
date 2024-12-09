@@ -49,42 +49,17 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                  latent_loop_optax_optimizer:GradientTransformation,
                  main_loop_optax_optimizer:GradientTransformation,
                  checkpoint_settings:dict={},
-                 working_directory='.',
-                 free_param=False
+                 working_directory='.'
                  ):
         super().__init__(name,control,loss_function,flax_neural_network,
                          main_loop_optax_optimizer,checkpoint_settings,
-                         working_directory,free_param)
+                         working_directory)
         
         self.inner_optax_optimizer = latent_loop_optax_optimizer
         
-    @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:
-        """
-        Initialize the explicit parametric operator learning model, its components, and control parameters.
-
-        This method extends the initialization process defined in the `DeepNetwork` base class by
-        ensuring that the control parameters used for parametric learning are also initialized.
-        It handles both the initialization of core deep learning components (loss function, 
-        checkpoint settings, neural network state restoration) and the initialization of 
-        the control parameters essential for explicit parametric learning tasks.
-
-        Parameters:
-        ----------
-        reinitialize : bool, optional
-            If True, forces reinitialization of the model and its components, including control parameters,
-            even if they have been initialized previously. Default is False.
-
-        """
-
-        if self.initialized and not reinitialize:
-            return
-
-        super().Initialize(reinitialize)
-    
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],coded_features:jnp.ndarray,nn_model:nnx.Module):
-        nn_output = nn_model(self.nn_input_creator(coded_features)).flatten()[self.loss_function.non_dirichlet_indices]
+        nn_output = nn_model(coded_features,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
         control_output = self.control.ComputeControlledVariables(orig_features[0])
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
@@ -203,7 +178,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             test_set_hist_dict = {}
             # now loop over batches
             batch_index = 0 
-            code_size = self.flax_neural_network.modulator_nn.in_features
+            code_size = self.flax_neural_network.in_features
             for batch_set in self.CreateBatches(train_set, batch_size):
                 # now we merge before computing the codes
                 current_nnx_model, _ = nnx.merge(nnx_graphdef, nxx_state)
@@ -255,7 +230,6 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                               force=True)
 
     @print_with_timestamp_and_execution_time
-    # @partial(jit, static_argnums=(0,))
     def Predict(self,batch_X:jnp.ndarray,num_latent_iterations:int):
         """
         Generates predictions for a batch of input data.
@@ -274,11 +248,11 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             The predicted outputs, mapped to the full DoF vector.
         """
         def predict_single_sample(sample_x:jnp.ndarray):
-            computed_sample_code = self.ComputeSampleCode((sample_x,),self.flax_neural_network.modulator_nn.in_features,
+            computed_sample_code = self.ComputeSampleCode((sample_x,),self.flax_neural_network.in_features,
                                                           num_epochs=num_latent_iterations,
                                                           nn_model=self.flax_neural_network,
                                                           nn_optimizer=self.inner_optax_optimizer)
-            nn_output = self.flax_neural_network(self.nn_input_creator(computed_sample_code)).flatten()[self.loss_function.non_dirichlet_indices]
+            nn_output = self.flax_neural_network(computed_sample_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
             return self.loss_function.GetFullDofVector(sample_x,nn_output)
 
         return jnp.array(jax.vmap(predict_single_sample)(batch_X))

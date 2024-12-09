@@ -123,9 +123,9 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
             fol_error(f"the size of the output layer is {self.flax_neural_network.out_features} " \
                       f" does not match the number of the loss function {self.loss_function.dofs}")
 
-        if self.flax_neural_network.in_features != self.control.GetNumberOfVariables():
-            fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
-                      f"does not match the input size implicit/neural field which is {self.control.GetNumberOfVariables() + 3}")
+        # if self.flax_neural_network.in_features != self.control.GetNumberOfVariables():
+        #     fol_error(f"the size of the input layer is {self.flax_neural_network.in_features} "\
+        #               f"does not match the input size implicit/neural field which is {self.control.GetNumberOfVariables() + 3}")
 
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
