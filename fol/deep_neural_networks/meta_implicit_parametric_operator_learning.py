@@ -73,7 +73,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                                     loss_name+"_avg":jnp.mean(batch_avgs),
                                     "total_loss":total_mean_loss})
 
-    def ComputeSampleCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
+    def ComputeSingleLatentCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
         sample_optimizer = copy.deepcopy(nn_optimizer)
         sample_code = 1e-6*jnp.ones(self.flax_neural_network.in_features)
         opt_state = sample_optimizer.init(sample_code)
@@ -100,11 +100,11 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
 
         nnx_model,_ = nnx.merge(nnx_graphdef, nxx_state)
 
-        learned_codes = jax.vmap(self.ComputeSampleCode,(0,None,None))(train_batch,   
-                                                                       nnx_model,
-                                                                       self.inner_optax_optimizer)
+        latent_codes = jax.vmap(self.ComputeSingleLatentCode,(0,None,None))(train_batch,   
+                                                                            nnx_model,
+                                                                            self.inner_optax_optimizer)
 
-        return self.OuterLoopStep(nnx_graphdef,nxx_state,train_batch,learned_codes)
+        return self.OuterLoopStep(nnx_graphdef,nxx_state,train_batch,latent_codes)
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_X:jnp.ndarray,num_latent_iterations:int):
@@ -125,7 +125,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             The predicted outputs, mapped to the full DoF vector.
         """
         def predict_single_sample(sample_x:jnp.ndarray):
-            computed_sample_code = self.ComputeSampleCode((sample_x,),
+            computed_sample_code = self.ComputeSingleLatentCode((sample_x,),
                                                           nn_model=self.flax_neural_network,
                                                           nn_optimizer=self.inner_optax_optimizer)
             nn_output = self.flax_neural_network(computed_sample_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
