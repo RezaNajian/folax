@@ -73,8 +73,20 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                                     loss_name+"_avg":jnp.mean(batch_avgs),
                                     "total_loss":total_mean_loss})
 
+    def ComputeSampleCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
+        sample_optimizer = copy.deepcopy(nn_optimizer)
+        sample_code = 1e-6*jnp.ones(self.flax_neural_network.in_features)
+        opt_state = sample_optimizer.init(sample_code)
+        for i in range(3):
+            (encoding_loss, (loss_min,loss_max,loss_avg)), grads = nnx.value_and_grad(self.ComputeSingleLossValue,argnums=1,has_aux=True) \
+                                                                        (orig_features,sample_code,nn_model)
+            updates, opt_state = sample_optimizer.update(grads, opt_state, sample_code)
+            sample_code = optax.apply_updates(sample_code, updates)
+        
+        return sample_code
+    
     @partial(jax.jit, static_argnums=(0,))
-    def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, batch_orig_input_feature:jnp.ndarray, batch_learned_input_feature:jnp.ndarray):
+    def OuterLoopStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, batch_orig_input_feature:jnp.ndarray, batch_learned_input_feature:jnp.ndarray):
 
         nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
 
@@ -84,150 +96,15 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         _, new_state = nnx.split((nnx_model, nnx_optimizer))
         return batch_dict,new_state
 
-    def ComputeSampleCode(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],compute_code_size:int,num_epochs:int,nn_model:nnx.Module,nn_optimizer:GradientTransformation)->jnp.ndarray:
-        sample_optimizer = copy.deepcopy(nn_optimizer)
-        sample_code = 1e-6*jnp.ones(compute_code_size)
-        opt_state = sample_optimizer.init(sample_code)
-        for i in range(num_epochs):
-            (encoding_loss, (loss_min,loss_max,loss_avg)), grads = nnx.value_and_grad(self.ComputeSingleLossValue,argnums=1,has_aux=True) \
-                                                                        (orig_features,sample_code,nn_model)
-            updates, opt_state = sample_optimizer.update(grads, opt_state, sample_code)
-            sample_code = optax.apply_updates(sample_code, updates)
-        
-        return sample_code
+    def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, train_batch:Tuple[jnp.ndarray, jnp.ndarray]):
 
-    @print_with_timestamp_and_execution_time
-    def Train(self, train_set:Tuple[jnp.ndarray, jnp.ndarray], test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])), 
-              batch_size:int=100, convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
+        nnx_model,_ = nnx.merge(nnx_graphdef, nxx_state)
 
-        """
-        Trains the neural network model over multiple epochs.
+        learned_codes = jax.vmap(self.ComputeSampleCode,(0,None,None))(train_batch,   
+                                                                       nnx_model,
+                                                                       self.inner_optax_optimizer)
 
-        This method trains the model on the provided training dataset, evaluates performance on the test set, 
-        updates model parameters using gradient descent, and tracks training history. It also checks for convergence 
-        and saves the model state during the process.
-
-        Parameters
-        ----------
-        train_set : Tuple[jnp.ndarray, jnp.ndarray]
-            Training dataset consisting of input data and corresponding target labels.
-        test_set : Tuple[jnp.ndarray, jnp.ndarray], optional
-            Test dataset for validation, defaults to empty arrays.
-        batch_size : int, optional
-            Number of samples per batch, default is 100.
-        convergence_settings : dict, optional
-            Settings to control the convergence criteria, defaults to an empty dict.
-        plot_settings : dict, optional
-            Settings to control the plotting of training history, defaults to an empty dict.
-        save_settings : dict, optional
-            Settings to control saving of the trained model, defaults to an empty dict.
-        """
-
-        self.default_convergence_settings = {"num_epochs":100,"num_latent_itrs":3,
-                                             "convergence_criterion":"total_loss",
-                                             "relative_error":1e-8,"absolute_error":1e-8}
-        
-        convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
-        
-        self.default_plot_settings = {"plot_list":["total_loss"],"plot_rate":1,"plot_save_rate":100}
-        plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
-
-        self.default_save_settings = {"save_nn_model":True}
-        save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
-
-        def update_batch_history_dict(batches_hist_dict,batch_dict,batch_index):
-            # fill the batch dict
-            if batch_index == 0:
-                for key, value in batch_dict.items():
-                    batches_hist_dict[key] = [value]
-            else:
-                for key, value in batch_dict.items():
-                    batches_hist_dict[key].append(value)
-
-            return batches_hist_dict
-        
-        def update_history_dict(hist_dict,batch_hist_dict):
-            for key, value in batch_hist_dict.items():
-                if "max" in key:
-                    batch_hist_dict[key] = [max(value)]
-                elif "min" in key:
-                    batch_hist_dict[key] = [min(value)]
-                elif "avg" in key:
-                    batch_hist_dict[key] = [sum(value)/len(value)]
-                elif "total" in key:
-                    batch_hist_dict[key] = [sum(value)]
-
-            if len(hist_dict.keys())==0:
-                hist_dict = batch_hist_dict
-            else:
-                for key, value in batch_hist_dict.items():
-                    hist_dict[key].extend(value)
-
-            return hist_dict
-
-        train_history_dict = {}
-        test_history_dict = {}
-        pbar = trange(convergence_settings["num_epochs"])
-        converged = False
-
-        # here split according to https://github.com/google/flax/discussions/4224
-        nnx_graphdef, nxx_state = nnx.split((self.flax_neural_network, self.nnx_optimizer))
-
-        for epoch in pbar:
-            train_set_hist_dict = {}
-            test_set_hist_dict = {}
-            # now loop over batches
-            batch_index = 0 
-            code_size = self.flax_neural_network.in_features
-            for batch_set in self.CreateBatches(train_set, batch_size):
-                # now we merge before computing the codes
-                current_nnx_model, _ = nnx.merge(nnx_graphdef, nxx_state)
-                learned_codes = jax.vmap(self.ComputeSampleCode,(0,None,None,None,None))(batch_set,
-                                                                                         code_size,
-                                                                                         convergence_settings["num_latent_itrs"],
-                                                                                         current_nnx_model,
-                                                                                         self.inner_optax_optimizer)
-
-                batch_dict,nxx_state = self.TrainStep(nnx_graphdef,nxx_state,batch_set,learned_codes)
-                train_set_hist_dict = update_batch_history_dict(train_set_hist_dict,batch_dict,batch_index)
-
-                if len(test_set[0])>0:
-                    _,test_dict = self.ComputeBatchLossValue(test_set,self.flax_neural_network)
-                    test_set_hist_dict = update_batch_history_dict(test_set_hist_dict,test_dict,batch_index)
-                else:
-                    test_dict = {}
-                
-                batch_index += 1
-
-            train_history_dict = update_history_dict(train_history_dict,train_set_hist_dict)
-            print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
-            if len(test_set[0])>0:
-                test_history_dict = update_history_dict(test_history_dict,test_set_hist_dict)
-                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
-                              "test_loss":test_history_dict["total_loss"][-1]}
-
-            pbar.set_postfix(print_dict)
-
-            # check converged
-            converged = self.CheckConvergence(train_history_dict,convergence_settings)
-
-            # plot the histories
-            if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
-                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
-
-            if epoch<convergence_settings["num_epochs"]-1 and converged:
-                break    
-
-        # now we need to merge the model again
-        self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
-
-        # Save the flax model
-        if save_settings["save_nn_model"]:
-            state_directory = self.checkpoint_settings["state_directory"]
-            absolute_path = os.path.abspath(state_directory)
-            checkpointer = orbax.PyTreeCheckpointer()
-            checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),
-                              force=True)
+        return self.OuterLoopStep(nnx_graphdef,nxx_state,train_batch,learned_codes)
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_X:jnp.ndarray,num_latent_iterations:int):
@@ -248,8 +125,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             The predicted outputs, mapped to the full DoF vector.
         """
         def predict_single_sample(sample_x:jnp.ndarray):
-            computed_sample_code = self.ComputeSampleCode((sample_x,),self.flax_neural_network.in_features,
-                                                          num_epochs=num_latent_iterations,
+            computed_sample_code = self.ComputeSampleCode((sample_x,),
                                                           nn_model=self.flax_neural_network,
                                                           nn_optimizer=self.inner_optax_optimizer)
             nn_output = self.flax_neural_network(computed_sample_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
