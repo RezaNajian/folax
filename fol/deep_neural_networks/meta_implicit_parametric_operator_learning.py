@@ -106,6 +106,17 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
 
         return self.OuterLoopStep(nnx_graphdef,nxx_state,train_batch,latent_codes)
 
+    def TestStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState,test_batch:Tuple[jnp.ndarray, jnp.ndarray]):
+        
+        nnx_model,nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
+
+        latent_codes = jax.vmap(self.ComputeSingleLatentCode,(0,None,None))(test_batch,   
+                                                                            nnx_model,
+                                                                            self.inner_optax_optimizer)
+        (test_loss, test_batch_dict) = self.ComputeBatchLossValue(test_batch,latent_codes,nnx_model)
+        _, state = nnx.split((nnx_model, nnx_optimizer))
+        return test_batch_dict,state
+
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_X:jnp.ndarray,num_latent_iterations:int):
         """
