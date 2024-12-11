@@ -118,18 +118,15 @@ fol.Initialize()
 
 train_start_id = 0
 train_end_id = 3
-number_latent_code_itrs = 3
-
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":10000,"relative_error":1e-100,
-                                  "absolute_error":1e-100,"num_latent_itrs":number_latent_code_itrs},
+            convergence_settings={"num_epochs":10000,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True})
 
 for test in range(train_start_id,train_end_id):
     eval_id = test
-    FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T,num_latent_iterations=number_latent_code_itrs)).reshape(-1)
+    FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
     # solve FE here
