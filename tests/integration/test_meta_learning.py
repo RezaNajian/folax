@@ -100,7 +100,7 @@ class TestMetaLearning(unittest.TestCase):
                                         "absolute_error":1e-100,"num_latent_itrs":3})
 
         for eval_id in range(train_start_id,train_end_id):
-            FOL_UV = np.array(fol.Predict(self.coeffs_matrix[eval_id,:].reshape(-1,1).T,num_latent_iterations=3)).reshape(-1)
+            FOL_UV = np.array(fol.Predict(self.coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
             if eval_id == 0:
                 # print(np.array2string(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0], separator=', '))
                 np.testing.assert_allclose(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0],
