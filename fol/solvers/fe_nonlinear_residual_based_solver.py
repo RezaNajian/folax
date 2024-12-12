@@ -8,12 +8,11 @@ import jax.numpy as jnp
 from jax import jit
 from functools import partial
 from  .fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
-from  .fe_solver import FiniteElementSolver
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 from fol.loss_functions.fe_loss import FiniteElementLoss
 
-class FiniteElementNonLinearResidualBasedSolver(FiniteElementSolver):
+class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBasedSolver):
     """Nonlinear solver class.
 
     """
@@ -45,6 +44,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementSolver):
                 if res_norm<self.nonlinear_solver_settings["abs_tol"]:
                     fol_info(f"converged; iterations:{i+1},residuals_norm:{res_norm}")
                     break
+                    
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
                 applied_BC_dofs += delta_dofs

@@ -68,12 +68,16 @@ class FiniteElementLoss(Loss):
         # create full solution vector
         self.solution_vector = jnp.zeros(self.total_number_of_dofs)
         # apply dirichlet bcs
+<<<<<<< HEAD
         if self.dirichlet_indices.size == 0:
             pass
         else:
             self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         
+=======
+        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
 
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():
@@ -88,6 +92,7 @@ class FiniteElementLoss(Loss):
                 g_points,g_weights = GaussQuadrature().four_point_GQ
             else:
                 raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+<<<<<<< HEAD
             if self.element_type == 'tetra':
                 if self.num_gp == 1:
                     self.g_points,self.g_weights = GaussQuadratureTetra().one_point_GQ
@@ -96,6 +101,8 @@ class FiniteElementLoss(Loss):
                 else:
                     raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
 
+=======
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         else:
             g_points,g_weights = GaussQuadrature().one_point_GQ
             self.loss_settings["num_gp"] = 1
@@ -110,6 +117,7 @@ class FiniteElementLoss(Loss):
             self.g_points = jnp.array([[xi] for xi in g_points]).flatten()
             self.g_weights = jnp.array([[w_i] for w_i in g_weights]).flatten()
         elif self.dim==2:
+<<<<<<< HEAD
             # self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
             g_point_unordered = jnp.array([[xi, eta] for xi in g_points for eta in g_points])
             self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[2],g_point_unordered[3],g_point_unordered[1]]).flatten()
@@ -118,6 +126,12 @@ class FiniteElementLoss(Loss):
             g_point_unordered = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points])
             self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[4],g_point_unordered[6],g_point_unordered[2],
                                        g_point_unordered[1], g_point_unordered[5],g_point_unordered[7],g_point_unordered[3]]).flatten()
+=======
+            self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
+            self.g_weights = jnp.array([[w_i , w_j] for w_i in g_weights for w_j in g_weights]).flatten()
+        elif self.dim==3:
+            self.g_points = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points]).flatten()
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
             self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
         @jit
@@ -266,7 +280,12 @@ class FiniteElementLoss(Loss):
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
+<<<<<<< HEAD
     def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):   
+=======
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
+        
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
@@ -293,5 +312,9 @@ class FiniteElementLoss(Loss):
         
         sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
         
+<<<<<<< HEAD
         return sparse_jacobian, residuals_vector
 
+=======
+        return sparse_jacobian, residuals_vector
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17

@@ -15,12 +15,17 @@ from jax.experimental.sparse.linalg import spsolve
 try:
     from petsc4py import PETSc
     petsc_available = True
+<<<<<<< HEAD
     from slepc4py import SLEPc
     slepc_available = True
 
 except ImportError:
     petsc_available = False
     slepc_available = False
+=======
+except ImportError:
+    petsc_available = False
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
 
 
 class FiniteElementSolver(Solver):
@@ -81,6 +86,7 @@ class FiniteElementSolver(Solver):
         
         return delta_dofs
     
+<<<<<<< HEAD
     # @print_with_timestamp_and_execution_time
     # def PETScLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
     #     A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
@@ -107,6 +113,8 @@ class FiniteElementSolver(Solver):
 
     #     return delta_dofs.getArray()
 
+=======
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
     @print_with_timestamp_and_execution_time
     def PETScLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
         A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
@@ -119,6 +127,7 @@ class FiniteElementSolver(Solver):
         rhs = PETSc.Vec().createSeq(len(residual_vector))
         rhs.setValues(range(len(residual_vector)), np.array(-residual_vector))
         ksp = PETSc.KSP().create()
+<<<<<<< HEAD
         delta_dofs = PETSc.Vec().createSeq(len(dofs_vector))
         delta_dofs.setValues(range(len(dofs_vector)), np.array(dofs_vector))
         ksp.setOperators(A)
@@ -161,6 +170,21 @@ class FiniteElementSolver(Solver):
 
         return delta_dofs.getArray()
     
+=======
+        ksp.setOperators(A)
+        ksp.setFromOptions()
+        ksp.setType(self.PETSc_ksp_type)
+        ksp.pc.setType(self.linear_solver_settings["pre-conditioner"])
+
+        if self.PETSc_ksp_type == 'tfqmr':
+            ksp.pc.setFactorSolverType('mumps')
+
+        delta_dofs = PETSc.Vec().createSeq(len(residual_vector))
+        ksp.solve(rhs, delta_dofs)
+
+        return delta_dofs.getArray()
+
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
     def Finalize(self) -> None:
         pass
 

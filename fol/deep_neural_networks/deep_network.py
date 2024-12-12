@@ -5,7 +5,10 @@
 """
 import os
 from abc import ABC,abstractmethod
+<<<<<<< HEAD
 from typing import Tuple
+=======
+>>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
 from typing import Tuple,Iterator
 from tqdm import trange
 import matplotlib.pyplot as plt

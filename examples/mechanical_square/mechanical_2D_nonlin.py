@@ -139,7 +139,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
-    solve_FE = True
+    solve_FE = False
     clean_dir = False
 
     # Parse the command-line arguments
