@@ -697,3 +697,49 @@ def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     filtered_update = {k: given_dict[k] for k in default_dict if k in given_dict}
     default_dict.update(filtered_update)
     return default_dict
+
+def plot_relative_l2_error(time_array,error_array, subplot_titles=None, fig_title=None,
+                       block_bool=False, colour_bar=True, colour_bar_name=None,
+                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
+    plt.clf()
+    plt.plot(time_array,error_array,"r.-")
+    if X_axis_name is not None:
+        plt.xlabel(X_axis_name)
+
+    if Y_axis_name is not None:
+        plt.ylabel(Y_axis_name)
+    
+    x_ticks = time_array  # 6 ticks from 0 to 10
+    plt.xticks(x_ticks)
+
+    # Adjust layout
+    plt.tight_layout()
+
+    if show:
+        plt.show(block=block_bool)
+
+    if file_name is not None:
+        plt.savefig(file_name)
+
+def plot_relative_l2_error_multiple(time_array,error_array, label_name, subplot_titles=None, fig_title=None,
+                       block_bool=False, colour_bar=True, colour_bar_name=None,
+                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
+    plt.clf()
+    for i in range(error_array.shape[0]):
+        plt.plot(time_array,error_array[i],".-",label=label_name[i])
+
+    if X_axis_name is not None:
+        plt.xlabel(X_axis_name)
+
+    if Y_axis_name is not None:
+        plt.ylabel(Y_axis_name)
+    
+    plt.legend()
+    # Adjust layout
+    plt.tight_layout()
+
+    if show:
+        plt.show(block=block_bool)
+
+    if file_name is not None:
+        plt.savefig(file_name)

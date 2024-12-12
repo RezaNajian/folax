@@ -32,8 +32,8 @@ class ThermalTransientLossNonlinear2DQuad(FiniteElementLoss):
         self.rho = self.loss_settings["material_dict"]["rho"]
         self.cp =  self.loss_settings["material_dict"]["cp"]
         self.dt =  self.loss_settings["material_dict"]["dt"]
-        self.k0 = 1.0 
-        self.alpha = 0.5
+        self.k0 = self.loss_settings["material_dict"]["k0"]
+        self.alpha = self.loss_settings["material_dict"]["alpha_k"]
 
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,Te_c,Te_n,body_force=0):

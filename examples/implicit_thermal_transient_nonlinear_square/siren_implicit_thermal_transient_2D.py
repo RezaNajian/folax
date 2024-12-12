@@ -23,11 +23,11 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":32,
+model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
-mesh_res_rate = 8
+mesh_res_rate = 1
 num_steps = 10
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
@@ -35,7 +35,7 @@ fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]
 # create fe-based loss function
 bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
 
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.05}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.001,"k0":1.0,"alpha_k":3.0}
 thermal_loss_2d = ThermalTransientLossNonlinear2DQuad("thermal_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
@@ -109,7 +109,7 @@ eval_id = 0
 
 # design siren NN for learning
 hidden_layers = [100,100]
-siren_NN = MLP(input_size=4,
+siren_NN = MLP(input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",

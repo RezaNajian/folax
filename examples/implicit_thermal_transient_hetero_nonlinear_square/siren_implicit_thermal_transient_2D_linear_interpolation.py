@@ -4,11 +4,11 @@ import optax
 import numpy as np
 from flax import nnx
 import jax
-from fol.loss_functions.thermal_transient_hetero_2D_fe_quad import ThermalTransientLoss2DQuad
+from fol.loss_functions.thermal_transient_hetero_nonlinear_2D_fe_quad import ThermalTransientLoss2DQuad
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.no_control import NoControl
 from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_super_res_hetero import ImplicitParametricOperatorLearning
-from fol.solvers.fe_linear_residual_based_solver_hetero import FiniteElementLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver_hetero import FiniteElementNonLinearResidualBasedSolverHetero
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import MLP
@@ -25,16 +25,17 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":32,
                 "T_left":1.0,"T_right":0.0}
-num_steps = 1
+
 # creation of the model
-mesh_res_rate = 8
+num_steps = 5
+mesh_res_rate = 4
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
 
 # create fe-based loss function
 bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
 Dirichlet_BCs = True
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.05}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.001,"k0":1.0,"alpha_k":3.0}
 thermal_loss_2d = ThermalTransientLoss2DQuad("thermal_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
@@ -43,6 +44,7 @@ thermal_loss_2d_pred = ThermalTransientLoss2DQuad("thermal_loss_2d_pred",loss_se
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
                                                                             fe_mesh=fe_mesh_pred)
+
 
 no_control = NoControl("No_Control",fe_mesh)
 
@@ -111,8 +113,8 @@ if create_random_coefficients:
 
         return hetero_morph
 
-    coeffs_matrix = np.full((1,model_settings["N"]**2),0.0)
-    coeffs_matrix_fine = np.full((1,(model_settings["N"]*mesh_res_rate)**2),0.0)
+    coeffs_matrix = np.full((1,model_settings["N"]**2),0.1)
+    coeffs_matrix_fine = np.full((1,(model_settings["N"]*mesh_res_rate)**2),0.1)
     hetero_info = generate_morph_pattern(model_settings["N"]).reshape(1,-1) 
     hetero_info_fine = generate_morph_pattern(model_settings["N"]*mesh_res_rate).reshape(1,-1) 
 
@@ -141,7 +143,7 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-hidden_layers = [100,100,100,100]
+hidden_layers = [100,100]
 siren_NN = MLP(input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
@@ -167,14 +169,13 @@ fol = ImplicitParametricOperatorLearning(name="dis_fol",control=no_control,
 fol.Initialize()
 
 t_init = 0.0
-t_current = t_init
-
+t_current = t_init + material_dict["dt"]
 FOL_T_temp = T_matrix
 FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 FOL_T_coarse = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
 # For the first time step
-fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,jnp.concatenate((jnp.array([t_current]),K_matrix)).reshape(-1,1).T),batch_size=1,
-            convergence_settings={"num_epochs":2000,"relative_error":1e-8},
+fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,jnp.concatenate((jnp.array([t_current]),K_matrix)).reshape(-1,1).T),batch_size=100,
+            convergence_settings={"num_epochs":200,"relative_error":1e-8},
             plot_settings={"plot_save_rate":1000},
             save_settings={"save_nn_model":True})
 FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
@@ -194,7 +195,7 @@ for i in range(num_steps-1):
                                             working_directory=case_dir)
     fol.Initialize()
     fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,jnp.concatenate((jnp.array([t_current]),K_matrix)).reshape(-1,1).T),batch_size=100,
-                convergence_settings={"num_epochs":2000,"relative_error":1e-8},
+                convergence_settings={"num_epochs":200,"relative_error":1e-8},
                 plot_settings={"plot_save_rate":1000},
                 save_settings={"save_nn_model":True})
     FOL_T_temp_fine = np.array(fol.Predict_fine(jnp.array([t_current]))).reshape(-1)
@@ -204,16 +205,16 @@ for i in range(num_steps-1):
 
 fe_mesh['T_FOL'] = FOL_T
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
-                                            "maxiter":10,"load_incr":5}}
-linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",thermal_loss_2d_pred,fe_setting)
-linear_fe_solver.Initialize()
+                                            "maxiter":10,"load_incr":1}}
+nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolverHetero("nonlinear_fe_solver",thermal_loss_2d_pred,fe_setting)
+nonlinear_fe_solver.Initialize()
 FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 FE_T_temp = T_matrix_fine
 for i in range(num_steps):
-    FE_T_temp = np.array(linear_fe_solver.Solve(FE_T_temp,K_matrix_fine,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
+    FE_T_temp = np.array(nonlinear_fe_solver.Solve(FE_T_temp,K_matrix_fine,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
     FE_T[:,i] = FE_T_temp    
 fe_mesh['T_FE'] = FE_T
 
@@ -289,47 +290,53 @@ for i in range(len(time_list)):
 #                    ["Heterogeneity"],
 #                    fig_title="Heterogeneous microstructure",cmap = "viridis",
 #                    file_name=os.path.join(case_dir,"hetero_microstucture_original.png"))
-# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],
-#                    ["","","",""],
-#                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
-#                    file_name=os.path.join(case_dir,"FOL-T-dist.png"))
-# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T_lin[:,0],FOL_T_lin[:,1],FOL_T_lin[:,2]],
-#                    ["","","",""],
-#                    fig_title="Initial condition and implicit FOL solution with linear interpolation",cmap = "jet",
-#                    file_name=os.path.join(case_dir,"FOL-T-dist-linear-int.png"))
-
-# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FE_T[:,time_list[0]],FE_T[:,time_list[1]],FE_T[:,time_list[2]]],
-#                    ["","","",""],
-#                    fig_title="Initial condition and FEM solution",cmap = "jet",
-#                    file_name=os.path.join(case_dir,"FEM-T-dist.png"))
-# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
-#                    ["","","",""],
-#                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
-#                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
-
-# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],np.abs(FE_T[:,time_list[0]]-FOL_T_lin[:,0]),np.abs(FE_T[:,time_list[1]]-FOL_T_lin[:,1]),np.abs(FE_T[:,time_list[2]]-FOL_T_lin[:,2])],
-#                    ["","","",""],
-#                    fig_title="Initial condition and linear interpolation iFOL error against FEM",cmap = "jet",
-#                    file_name=os.path.join(case_dir,"FOL-T-Error-dist-linear-int.png"))
-
-# plot_mesh_vec_data(1,[hetero_info_fine[eval_id]],
-#                    [""],
-#                    fig_title="Heterogeneous microstructure",cmap = "viridis",
-#                    file_name=os.path.join(case_dir,"hetero_microstucture_fine.png"))
-
-plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,-1],FOL_T_lin[:,-1],FE_T[:,-1]],
-                   ["Initial condition","Super resolution iFOL","iFOL with linear interpolation","FEM"],
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],
+                   ["","","",""],
                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FOL-FEM-dist.png"))
+                   file_name=os.path.join(case_dir,"FOL-T-dist.png"))
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T_lin[:,0],FOL_T_lin[:,1],FOL_T_lin[:,2]],
+                   ["","","",""],
+                   fig_title="Initial condition and implicit FOL solution with linear interpolation",cmap = "jet",
+                   file_name=os.path.join(case_dir,"FOL-T-dist-linear-int.png"))
 
-plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],hetero_info_fine[eval_id],np.abs(FE_T[:,-1]-FOL_T[:,-1]),np.abs(FE_T[:,-1]-FOL_T_lin[:,-1])],
-                   ["Initial condition","Heterogeneity","Super resolution iFOL","iFOL with linear interpolation"],
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FE_T[:,time_list[0]],FE_T[:,time_list[1]],FE_T[:,time_list[2]]],
+                   ["","","",""],
+                   fig_title="Initial condition and FEM solution",cmap = "jet",
+                   file_name=os.path.join(case_dir,"FEM-T-dist.png"))
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
+                   ["","","",""],
                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
 
-plot_mesh_vec_data(1,[hetero_info[eval_id]],
+plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],np.abs(FE_T[:,time_list[0]]-FOL_T_lin[:,0]),np.abs(FE_T[:,time_list[1]]-FOL_T_lin[:,1]),np.abs(FE_T[:,time_list[2]]-FOL_T_lin[:,2])],
+                   ["","","",""],
+                   fig_title="Initial condition and linear interpolation iFOL error against FEM",cmap = "jet",
+                   file_name=os.path.join(case_dir,"FOL-T-Error-dist-linear-int.png"))
+
+plot_mesh_vec_data(1,[hetero_info_fine[eval_id]],
                    [""],
                    fig_title="Heterogeneous microstructure",cmap = "viridis",
-                   file_name=os.path.join(case_dir,"hetero_microstucture_original.png"))
+                   file_name=os.path.join(case_dir,"hetero_microstucture_fine.png"))
+
+# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],FOL_T[:,-1],FOL_T_lin[:,-1],FE_T[:,-1]],
+#                    ["Initial condition","Super resolution iFOL","iFOL with linear interpolation","FEM"],
+#                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
+#                    file_name=os.path.join(case_dir,"FOL-FEM-dist.png"))
+
+# plot_mesh_vec_data(1,[coeffs_matrix_fine[eval_id],hetero_info_fine[eval_id],np.abs(FE_T[:,-1]-FOL_T[:,-1]),np.abs(FE_T[:,-1]-FOL_T_lin[:,-1])],
+#                    ["Initial condition","Heterogeneity","Super resolution iFOL","iFOL with linear interpolation"],
+#                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
+#                    file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
+
+# plot_mesh_vec_data(1,[hetero_info[eval_id]],
+#                    [""],
+#                    fig_title="Heterogeneous microstructure",cmap = "viridis",
+#                    file_name=os.path.join(case_dir,"hetero_microstucture_original.png"))
+
+# Calculate relative L2 error norm
+relative_l2_error = np.linalg.norm(FOL_T- FE_T,axis=0)/np.linalg.norm(FE_T,axis=0)
+relative_l2_error = np.insert(relative_l2_error,0,0)
+time_plot = np.linspace(0,t_current,num_steps+1)
+plot_relative_l2_error(time_plot,relative_l2_error,file_name=os.path.join(case_dir,"iFOL_FEM_relative_L2_error.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)

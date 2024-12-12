@@ -102,7 +102,7 @@ hyper_network = HyperNetwork(modulator_nn=modulator_nn,synthesizer_nn=synthesize
 # create fol optax-based optimizer
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-5, transition_steps=2000)
 from optax import contrib
-chained_transform = optax.chain(contrib.normalize(),optax.scale_by_learning_rate(learning_rate_scheduler))
+chained_transform = optax.chain(optax.scale_by_adam(),optax.scale_by_learning_rate(learning_rate_scheduler))
 
 # create fol
 fol = ImplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,

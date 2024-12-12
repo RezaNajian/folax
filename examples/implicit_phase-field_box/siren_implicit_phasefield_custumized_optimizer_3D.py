@@ -22,7 +22,7 @@ import time
 from datetime import datetime
 
 # directory & save handling
-working_directory_name = 'siren_implicit_AllenCahn_3D'
+working_directory_name = 'siren_implicit_AllenCahn_customized_otimizer_3D'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -32,27 +32,15 @@ model_settings = {"L":1,"N":50,
                 "T_left":1.0,"T_right":-1.0}
 num_steps = 2
 # creation of the model
-mesh_res_rate = 2
-fe_mesh = create_3D_box_mesh(Nx=model_settings["N"]-1,
-                             Ny=model_settings["N"]-1,
-                             Nz=model_settings["N"]-1,
-                             Lx=model_settings["L"],
-                             Ly=model_settings["L"],
-                             Lz=model_settings["L"],
-                             case_dir=case_dir)
-fe_mesh_pred = create_3D_box_mesh(Nx=model_settings["N"]*mesh_res_rate-1,
-                                  Ny=model_settings["N"]*mesh_res_rate-1,
-                                  Nz=model_settings["N"]*mesh_res_rate-1,
-                                  Lx=model_settings["L"],
-                                  Ly=model_settings["L"],
-                                  Lz=model_settings["L"],
-                                  case_dir=case_dir)
+mesh_res_rate = 1
+fe_mesh = Mesh("fol_io","cube_hex_n50.med",'../meshes/')
+fe_mesh_pred = Mesh("fol_io","cube_hex_n50.med",'../meshes/')
 # create fe-based loss function
 bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
 Dirichlet_BCs = False
 
 material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.1}
-dt_res_rate = 5
+dt_res_rate = 1
 material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_3d = AllenCahnLoss3DHex("phasefield_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
@@ -73,53 +61,6 @@ no_control.Initialize()
 # create some random coefficients & K for training
 create_random_coefficients = True
 if create_random_coefficients:
-    # number_of_random_samples = 200
-    # coeffs_matrix,K_matrix = create_random_fourier_samples(_control,number_of_random_samples)
-    # export_dict = model_settings.copy()
-    # export_dict["coeffs_matrix"] = coeffs_matrix
-    # export_dict["x_freqs"] = fourier_control.x_freqs
-    # export_dict["y_freqs"] = fourier_control.y_freqs
-    # export_dict["z_freqs"] = fourier_control.z_freqs
-    # with open(f'fourier_control_dict_N_{model_settings["N"]}.pkl', 'wb') as f:
-    #     pickle.dump(export_dict,f)
-    # def generate_random_smooth_pattern_3d(points, L, epsilon, subsample_size=10000):
-    #     """
-    #     Generate a random smooth pattern using Gaussian process sampling with subsampling.
-
-    #     Parameters:
-    #         points (np.ndarray): A (N, 3) array of coordinates from `meshio`.
-    #         L (float): The length scale of the domain (assumed cubic).
-    #         subsample_size (int): Number of points to use for subsampling.
-
-    #     Returns:
-    #         np.ndarray: A 1D array of smooth random values corresponding to the input points.
-    #     """
-    #     # Normalize the points to the domain [0, L]
-    #     normalized_points = points / L
-
-    #     # Subsample points for Gaussian process
-    #     total_points = len(normalized_points)
-    #     if total_points <= subsample_size:
-    #         sampled_points = normalized_points
-    #     else:
-    #         indices = np.random.choice(total_points, size=subsample_size, replace=False)
-    #         sampled_points = normalized_points[indices]
-
-    #     # Define the kernel for the Gaussian process
-    #     kernel = C(1.0, (1e-3, 1e3)) * RBF(epsilon, (1e-2, 1e2))
-    #     gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1, random_state=42)
-
-    #     # Sample Gaussian process values at the subsampled points
-    #     u_subsampled = gp.sample_y(sampled_points, n_samples=1, random_state=0).ravel()
-
-    #     # Normalize the sampled values to the range [-1, 1]
-    #     scaled_u_subsampled = 2.0 * (u_subsampled - np.min(u_subsampled)) / (np.max(u_subsampled) - np.min(u_subsampled)) - 1.0
-
-    #     # Interpolate from subsampled points back to the full set of points
-    #     interpolator = NearestNDInterpolator(sampled_points, scaled_u_subsampled)
-    #     smooth_pattern = interpolator(normalized_points)
-
-    #     return smooth_pattern.reshape(1,-1)
     def generate_random_smooth_pattern_3d_fft(points, L, epsilon):
         """
         Generate a random smooth pattern using FFT for efficiency.
@@ -231,12 +172,15 @@ siren_NN = MLP(input_size=3,
                     activation_settings={"type":"sin",
                                          "prediction_gain":30,
                                          "initialization_gain":1.0},
-                    skip_connections_settings={"active":False,"frequency":1})
+                    skip_connections_settings={"active":True,"frequency":1})
 
 lr = 1e-4
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
                                 optax.adam(lr))
+# learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-5, transition_steps=200)
+# from optax import contrib
+# chained_transform = optax.chain(optax.scale_by_adam(),optax.scale_by_learning_rate(learning_rate_scheduler))#contrib.normalize(),
 
 # create fol
 start_time = time.time()
@@ -294,7 +238,7 @@ fe_mesh_pred['T_FOL'] = FOL_T
 fe_mesh_pred['T_init'] = coeffs_matrix_fine.reshape((fe_mesh_pred.GetNumberOfNodes(), 1))
 # solve FE here
 start_time = time.time()
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-7,"atol":1e-7,
+fe_setting = {"linear_solver_settings":{"solver":"PETSc-gmres","tol":1e-7,"atol":1e-7,
                                             "maxiter":1000,"pre-conditioner":"none","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
                                             "maxiter":20,"load_incr":1}}

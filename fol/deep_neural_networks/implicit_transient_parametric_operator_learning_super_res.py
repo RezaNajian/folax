@@ -158,7 +158,8 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
             The loss value for the single data point.
         """     
 
-        tiled_input = jnp.hstack((jnp.tile(x_set[0][0], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+        # tiled_input = jnp.hstack((jnp.tile(x_set[0][0], (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+        tiled_input = self.loss_function.fe_mesh.GetNodesCoordinates()
         # nn_output = nn_model(self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
         nn_output = nn_model(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
         control_output = self.control.ComputeControlledVariables(x_set[0][1:])
@@ -215,7 +216,8 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         """
         prediction = []
         for i in range(batch_X.shape[0]):
-            tiled_input = jnp.hstack((jnp.tile(batch_X, (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+            # tiled_input = jnp.hstack((jnp.tile(batch_X, (self.loss_function.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function.fe_mesh.GetNodesCoordinates()))
+            tiled_input = self.loss_function.fe_mesh.GetNodesCoordinates()
             # nn_output = self.flax_neural_network(self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
             nn_output = self.flax_neural_network(tiled_input).flatten()[self.loss_function.non_dirichlet_indices]
             full_dof = self.loss_function.GetFullDofVector(batch_X[i],nn_output)
@@ -242,7 +244,8 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         """
         prediction = []
         for i in range(batch_X.shape[0]):
-            tiled_input = jnp.hstack((jnp.tile(batch_X, (self.loss_function_pred.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function_pred.fe_mesh.GetNodesCoordinates()))
+            # tiled_input = jnp.hstack((jnp.tile(batch_X, (self.loss_function_pred.fe_mesh.GetNodesCoordinates().shape[0], 1)),self.loss_function_pred.fe_mesh.GetNodesCoordinates()))
+            tiled_input = self.loss_function_pred.fe_mesh.GetNodesCoordinates()
             # nn_output = self.flax_neural_network(self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
             nn_output = self.flax_neural_network(tiled_input).flatten()[self.loss_function_pred.non_dirichlet_indices]
             full_dof = self.loss_function_pred.GetFullDofVector(batch_X[i],nn_output)

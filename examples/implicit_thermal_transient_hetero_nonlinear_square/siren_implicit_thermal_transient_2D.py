@@ -4,11 +4,11 @@ import optax
 import numpy as np
 from flax import nnx
 import jax
-from fol.loss_functions.thermal_transient_hetero_2D_fe_quad import ThermalTransientLoss2DQuad
+from fol.loss_functions.thermal_transient_hetero_nonlinear_2D_fe_quad import ThermalTransientLoss2DQuad
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.no_control import NoControl
 from fol.deep_neural_networks.implicit_transient_parametric_operator_learning_super_res_hetero import ImplicitParametricOperatorLearning
-from fol.solvers.fe_linear_residual_based_solver_hetero import FiniteElementLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver_hetero import FiniteElementNonLinearResidualBasedSolverHetero
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import MLP
@@ -23,18 +23,19 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":32,
+model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":0.0}
-num_steps = 1
+
 # creation of the model
-mesh_res_rate = 8
+num_steps = 1
+mesh_res_rate = 4
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
 
 # create fe-based loss function
 bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
 Dirichlet_BCs = True
-material_dict = {"rho":1.0,"cp":1.0,"dt":0.05}
+material_dict = {"rho":1.0,"cp":1.0,"dt":0.001,"k0":1.0,"alpha_k":3.0}
 thermal_loss_2d = ThermalTransientLoss2DQuad("thermal_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
@@ -43,6 +44,7 @@ thermal_loss_2d_pred = ThermalTransientLoss2DQuad("thermal_loss_2d_pred",loss_se
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
                                                                             fe_mesh=fe_mesh_pred)
+
 
 no_control = NoControl("No_Control",fe_mesh)
 
@@ -141,7 +143,7 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-hidden_layers = [100,100,100,100]
+hidden_layers = [100,100]
 siren_NN = MLP(input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
@@ -168,12 +170,11 @@ fol.Initialize()
 
 t_init = 0.0
 t_current = t_init
-
 FOL_T_temp = T_matrix
 FOL_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 FOL_T_coarse = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
 # For the first time step
-fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,jnp.concatenate((jnp.array([t_current]),K_matrix)).reshape(-1,1).T),batch_size=1,
+fol.Train(train_set=(jnp.concatenate((jnp.array([t_current]),FOL_T_temp)).reshape(-1,1).T,jnp.concatenate((jnp.array([t_current]),K_matrix)).reshape(-1,1).T),batch_size=100,
             convergence_settings={"num_epochs":2000,"relative_error":1e-8},
             plot_settings={"plot_save_rate":1000},
             save_settings={"save_nn_model":True})
@@ -207,13 +208,13 @@ fe_mesh['T_FOL'] = FOL_T
 fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
-                                            "maxiter":10,"load_incr":5}}
-linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",thermal_loss_2d_pred,fe_setting)
-linear_fe_solver.Initialize()
+                                            "maxiter":10,"load_incr":1}}
+nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolverHetero("nonlinear_fe_solver",thermal_loss_2d_pred,fe_setting)
+nonlinear_fe_solver.Initialize()
 FE_T = np.zeros((fe_mesh_pred.GetNumberOfNodes(),num_steps))
 FE_T_temp = T_matrix_fine
 for i in range(num_steps):
-    FE_T_temp = np.array(linear_fe_solver.Solve(FE_T_temp,K_matrix_fine,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
+    FE_T_temp = np.array(nonlinear_fe_solver.Solve(FE_T_temp,K_matrix_fine,FE_T_temp))  #np.zeros(fe_mesh.GetNumberOfNodes())
     FE_T[:,i] = FE_T_temp    
 fe_mesh['T_FE'] = FE_T
 

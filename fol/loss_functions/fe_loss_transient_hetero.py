@@ -152,6 +152,9 @@ class FiniteElementLossTransientHetero(Loss):
     
     def GetTotalNumberOfDOFs(self):
         return self.total_number_of_dofs
+    
+    def ComputeSingleLoss(self) -> None:
+        pass
 
     @partial(jit, static_argnums=(0,))
     def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
@@ -187,7 +190,7 @@ class FiniteElementLossTransientHetero(Loss):
         return   BC_matrix @ elem_res, BC_matrix @ elem_jac + mask_BC_matrix
 
     @abstractmethod
-    def ComputeElement(self,
+    def ComputeElementHetero(self,
                        elem_xyz:jnp.array,
                        elem_controls:jnp.array,
                        elem_hetero:jnp.array,

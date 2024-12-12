@@ -106,6 +106,7 @@ class FiniteElementLossPhasefield(Loss):
 
         self.dim = self.loss_settings["compute_dims"]
 
+        # Assume the number of GPs is two in each dimension
         if self.dim==1:
             self.g_points = jnp.array([[xi] for xi in g_points]).flatten()
             self.g_weights = jnp.array([[w_i] for w_i in g_weights]).flatten()
