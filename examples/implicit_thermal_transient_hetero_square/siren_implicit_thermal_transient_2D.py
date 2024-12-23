@@ -141,7 +141,7 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-hidden_layers = [100,100,100,100]
+hidden_layers = [100,100]
 siren_NN = MLP(input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,

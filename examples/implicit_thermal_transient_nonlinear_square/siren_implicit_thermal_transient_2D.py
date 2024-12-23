@@ -28,7 +28,7 @@ model_settings = {"L":1,"N":64,
 
 # creation of the model
 mesh_res_rate = 1
-num_steps = 10
+num_steps = 2
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate) 
 
@@ -109,7 +109,7 @@ eval_id = 0
 
 # design siren NN for learning
 hidden_layers = [100,100]
-siren_NN = MLP(input_size=3,
+siren_NN = MLP(name="siren_NN",input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",
@@ -167,7 +167,7 @@ for i in range(num_steps-1):
 
 fe_mesh['T_FOL'] = FOL_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                             "maxiter":10,"load_incr":1}}

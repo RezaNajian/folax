@@ -14,18 +14,11 @@ def print_with_timestamp_and_execution_time(func):
         
         now = datetime.now()
         current_time = now.strftime("%Y-%m-%d %H:%M:%S")
-<<<<<<< HEAD
-        class_name = self.__class__.__name__
-        object_name = self.GetName()
-        
-        print(f"{current_time} - Info : {class_name}.{func.__name__} - finished in {execution_time:.4f} seconds")
-=======
         if callable(getattr(self, "GetName", None)):
             print(f"{current_time} - Info : {self.GetName()}.{func.__name__} - finished in {execution_time:.4f} seconds")
         else:
             class_name = self.__class__.__name__
             print(f"{current_time} - Info : {class_name}.{func.__name__} - finished in {execution_time:.4f} seconds")
->>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         return result
     return wrapper
 
@@ -40,14 +33,6 @@ def fol_info(message):
     
     # Get the caller's class and function name
     caller_class = None
-<<<<<<< HEAD
-    if 'self' in frame.f_locals:
-        caller_class = frame.f_locals['self'].__class__.__name__
-    caller_function = caller_frame.function
-    
-    # Print the message with the required information
-    if caller_class:
-=======
     caller_object = None
     if 'self' in frame.f_locals:
         caller_class = frame.f_locals['self'].__class__.__name__
@@ -59,7 +44,6 @@ def fol_info(message):
     if caller_object:
         print(f"{current_time} - Info : {caller_object}.{caller_function} - {message}")
     elif caller_class:
->>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         print(f"{current_time} - Info : {caller_class}.{caller_function} - {message}")
     else:
         print(f"{current_time} - Info : {caller_function} - {message}")
@@ -75,14 +59,6 @@ def fol_error(message):
     
     # Get the caller's class and function name
     caller_class = None
-<<<<<<< HEAD
-    if 'self' in frame.f_locals:
-        caller_class = frame.f_locals['self'].__class__.__name__
-    caller_function = caller_frame.function
-    
-    # Print the error message with the required information and stop execution
-    if caller_class:
-=======
     caller_object = None
     if 'self' in frame.f_locals:
         caller_class = frame.f_locals['self'].__class__.__name__
@@ -94,7 +70,6 @@ def fol_error(message):
     if caller_object:
         print(f"{current_time} - Error : {caller_object}.{caller_function} - {message}")
     elif caller_class:
->>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         print(f"{current_time} - Error : {caller_class}.{caller_function} - {message}")
     else:
         print(f"{current_time} - Error : {caller_function} - {message}")
@@ -113,14 +88,6 @@ def fol_warning(message):
     
     # Get the caller's class and function name
     caller_class = None
-<<<<<<< HEAD
-    if 'self' in frame.f_locals:
-        caller_class = frame.f_locals['self'].__class__.__name__
-    caller_function = caller_frame.function
-    
-    # Print the error message with the required information and stop execution
-    if caller_class:
-=======
     caller_object = None
     if 'self' in frame.f_locals:
         caller_class = frame.f_locals['self'].__class__.__name__
@@ -132,7 +99,6 @@ def fol_warning(message):
     if caller_object:
         warning_message = f"{current_time} - Warning : {caller_object}.{caller_function} - {message}"
     elif caller_class:
->>>>>>> 9a1e74d84af0f2452aaa8a26e548c0012ccbfd17
         warning_message = f"{current_time} - Warning : {caller_class}.{caller_function} - {message}"
     else:
         warning_message = f"{current_time} - Warning : {caller_function} - {message}"

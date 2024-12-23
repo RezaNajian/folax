@@ -28,14 +28,14 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 10
+num_steps = 2
 # creation of the model
 mesh_res_rate = 1
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate)
 # create fe-based loss function
-bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_right"]
-Dirichlet_BCs = False
+bc_dict = {"T":{"left":model_settings["T_left"],"right":model_settings["T_right"]}}#
+Dirichlet_BCs = True
 
 material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.1}
 dt_res_rate = 1
@@ -125,7 +125,7 @@ eval_id = 0
 
 # design siren NN for learning
 hidden_layers = [100,100]
-siren_NN = MLP(input_size=4,
+siren_NN = MLP(name="siren_NN",input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",
@@ -193,7 +193,7 @@ print(f"{current_time} - Info : iFOL part - finished in {execution_time:.4f} sec
 fe_mesh['T_FOL'] = FOL_T
 # solve FE here
 start_time = time.time()
-fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-7,"atol":1e-7,
+fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-7,"atol":1e-7,
                                             "maxiter":1000,"pre-conditioner":"none","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-7,"abs_tol":1e-7,
                                             "maxiter":20,"load_incr":1}}

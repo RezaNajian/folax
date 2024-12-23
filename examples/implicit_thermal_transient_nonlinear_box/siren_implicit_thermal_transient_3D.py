@@ -120,7 +120,7 @@ export_Ks = False
 eval_id = 0
 
 # design siren NN for learning
-siren_NN = Siren(4,1,[100,100])
+siren_NN = Siren(3,1,[100,100])
 
 # create fol optax-based optimizer
 chained_transform = optax.chain(optax.normalize_by_update_norm(),
@@ -172,7 +172,7 @@ for i in range(num_steps-1):
 
 fe_mesh['T_FOL'] = FOL_T#.reshape((fe_mesh.GetNumberOfNodes(), 1))
 # solve FE here
-fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
+fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                             "maxiter":10,"load_incr":5}}

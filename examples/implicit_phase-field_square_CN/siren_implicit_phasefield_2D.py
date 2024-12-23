@@ -28,9 +28,9 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 # problem setup
 model_settings = {"L":1,"N":64,
                 "T_left":1.0,"T_right":-1.0}
-num_steps = 20
+num_steps = 100
 # creation of the model
-mesh_res_rate = 1
+mesh_res_rate = 4
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh_pred = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"]*mesh_res_rate)
 # create fe-based loss function
@@ -38,7 +38,7 @@ bc_dict = {"T":{}}#"left":model_settings["T_left"],"right":model_settings["T_rig
 Dirichlet_BCs = False
 
 material_dict = {"rho":1.0,"cp":1.0,"dt":0.0002,"epsilon":0.1}
-dt_res_rate = 1
+dt_res_rate = 5
 material_dict_pred = {"rho":material_dict["rho"],"cp":material_dict["cp"],"dt":material_dict["dt"]/dt_res_rate,"epsilon":material_dict["epsilon"]}
 phasefield_loss_2d = AllenCahnLoss2DQuad("phasefield_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
@@ -100,7 +100,8 @@ if create_random_coefficients:
                     u[i,j] = func2
         return u.reshape(1,-1)
     coeffs_matrix = generate_double_bubble(model_settings["L"],model_settings["N"],material_dict["epsilon"])
-    coeffs_matrix_fine = coeffs_matrix#generate_random_smooth_pattern(model_settings["L"],model_settings["N"]*mesh_res_rate,material_dict["epsilon"])
+    coeffs_matrix_fine = generate_double_bubble(model_settings["L"],model_settings["N"]*mesh_res_rate,material_dict["epsilon"])
+    # coeffs_matrix_fine = coeffs_matrix#generate_random_smooth_pattern(model_settings["L"],model_settings["N"]*mesh_res_rate,material_dict["epsilon"])
 
 else:
     pass
@@ -125,7 +126,7 @@ eval_id = 0
 
 # design siren NN for learning
 hidden_layers = [100,100]
-siren_NN = MLP(input_size=4,
+siren_NN = MLP("siren_NN",input_size=3,
                     output_size=1,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"sin",
