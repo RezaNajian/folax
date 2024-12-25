@@ -60,7 +60,6 @@ class DeepNetwork(ABC):
         self.working_directory = working_directory
         self.initialized = False
         self.default_checkpoint_settings = {"restore_state":False,
-                                            "save_state":True,
                                             "state_directory":'./flax_state'}
 
     def Initialize(self,reinitialize=False) -> None:
@@ -98,18 +97,7 @@ class DeepNetwork(ABC):
         
         # restore flax nn.Module from the file
         if self.checkpoint_settings["restore_state"]:
-
-            state_directory = self.checkpoint_settings["state_directory"]
-            absolute_path = os.path.abspath(state_directory)
-
-            # get the state
-            nn_state = nnx.state(self.flax_neural_network)
-
-            # restore
-            restored_state = self.checkpointer.restore(absolute_path, nn_state)
-
-            # now update the model with the loaded state
-            nnx.update(self.flax_neural_network, restored_state)
+            self.RestoreCheckPoint(self.checkpoint_settings)
 
         # initialize the nnx optimizer
         self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)
@@ -333,8 +321,11 @@ class DeepNetwork(ABC):
         self.default_plot_settings = {"plot_list":["total_loss"],"plot_rate":1,"plot_save_rate":100}
         plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
 
-        self.default_save_settings = {"save_nn_model":True}
+        self.default_save_settings = {"save_nn_model":True,
+                                      "best_model_checkpointing_frequency":100,
+                                      "best_model_checkpointing":False}
         save_settings = UpdateDefaultDict(self.default_save_settings,save_settings)
+        save_settings["best_loss"] = np.inf
 
         self.default_test_settings = {"test_frequency":100}
         test_settings = UpdateDefaultDict(self.default_test_settings,test_settings)
@@ -409,19 +400,30 @@ class DeepNetwork(ABC):
             if (epoch>0 and epoch %plot_settings["plot_save_rate"] == 0) or converged:
                 self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
 
+            # save checkpoint
+            if save_settings["best_model_checkpointing"] and epoch>0 and \
+                (epoch)%save_settings["best_model_checkpointing_frequency"] == 0 and \
+                train_history_dict["total_loss"][-1] < save_settings["best_loss"]:
+                fol_info(f"total_loss improved from {save_settings['best_loss']} to {train_history_dict['total_loss'][-1]}")
+                save_settings["best_loss"] = train_history_dict["total_loss"][-1]
+                # merge before saving
+                self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
+                self.SaveCheckPoint()
+                # split again
+                nnx_graphdef, nxx_state = nnx.split((self.flax_neural_network, self.nnx_optimizer))
+
             if epoch<convergence_settings["num_epochs"]-1 and converged:
                 break    
 
         # now we need to merge the model again
         self.flax_neural_network, self.nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)        
 
-        # Save the flax model
-        if save_settings["save_nn_model"]:
-            state_directory = self.checkpoint_settings["state_directory"]
-            absolute_path = os.path.abspath(state_directory)
-            checkpointer = orbax.PyTreeCheckpointer()
-            checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),
-                              force=True)
+        if save_settings["best_model_checkpointing"] and \
+            train_history_dict["total_loss"][-1] < save_settings['best_loss']:
+            fol_info(f"total_loss improved from {save_settings['best_loss']} to {train_history_dict['total_loss'][-1]}")
+            self.SaveCheckPoint()
+        elif not save_settings["best_model_checkpointing"] and save_settings["save_nn_model"]:
+            self.SaveCheckPoint()
 
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
         """
@@ -461,7 +463,25 @@ class DeepNetwork(ABC):
             else:
                 return False
         else:
-            return False        
+            return False   
+
+    def RestoreCheckPoint(self,checkpoint_settings:dict):
+        if "state_directory" in checkpoint_settings.keys():
+            state_directory = checkpoint_settings["state_directory"]
+            absolute_path = os.path.abspath(state_directory)
+            # get the state
+            nn_state = nnx.state(self.flax_neural_network)
+            # restore
+            restored_state = self.checkpointer.restore(absolute_path, nn_state)
+            # now update the model with the loaded state
+            nnx.update(self.flax_neural_network, restored_state)
+            fol_info(f"flax nnx state is restored from {state_directory}")
+
+    def SaveCheckPoint(self):
+        state_directory = self.checkpoint_settings["state_directory"]
+        absolute_path = os.path.abspath(state_directory)
+        self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
+        fol_info(f"flax nnx state is saved to {state_directory}")
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
         """
