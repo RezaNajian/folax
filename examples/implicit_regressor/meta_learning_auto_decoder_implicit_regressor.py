@@ -14,11 +14,11 @@ import pickle
 # directory & save handling
 working_directory_name = 'meta_learning_implicit_regressor'
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":51}
+model_settings = {"L":1,"N":11}
 
 # creation of the model
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
@@ -68,12 +68,12 @@ characteristic_length = 64
 synthesizer_nn = MLP(name="regressor_synthesizer",
                     input_size=3,
                     output_size=1,
-                    hidden_layers=[characteristic_length] * 5,
+                    hidden_layers=[characteristic_length] * 6,
                     activation_settings={"type":"sin",
                                          "prediction_gain":30,
                                          "initialization_gain":1.0})
 
-latent_size = characteristic_length
+latent_size = 10
 modulator_nn = MLP(name="modulator_nn",
                    input_size=latent_size) 
 
@@ -82,7 +82,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=2000)
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=10000)
 main_loop_transform = optax.chain(optax.adam(1e-5))
 latent_step_optimizer = optax.chain(optax.adam(1e-6))
 
@@ -93,7 +93,7 @@ fol = MetaImplicitAutodecoderOperatorLearning(name="meta_implicit_ol",control=fo
                                                 main_loop_optax_optimizer=main_loop_transform,
                                                 latent_step_optax_optimizer=latent_step_optimizer,
                                                 latent_step_size=1e-2,
-                                                checkpoint_settings={"restore_state":True,
+                                                checkpoint_settings={"restore_state":False,
                                                 "state_directory":case_dir+"/flax_state",
                                                 "meta_state_directory":case_dir+"/meta_state"},
                                                 working_directory=case_dir)

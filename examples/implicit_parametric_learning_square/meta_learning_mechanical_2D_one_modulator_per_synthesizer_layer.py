@@ -5,7 +5,7 @@ import numpy as np
 from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
+from fol.deep_neural_networks.meta_implicit_auto_decoder_operator_learning import MetaImplicitAutodecoderOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -20,8 +20,8 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
 model_settings = {"L":1,"N":51,
-                "Ux_left":0.0,"Ux_right":0.05,
-                "Uy_left":0.0,"Uy_right":0.05}
+                    "Ux_left":0.0,"Ux_right":0.05,
+                    "Uy_left":0.0,"Uy_right":0.05}
 
 # creation of the model
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
@@ -64,11 +64,11 @@ else:
     coeffs_matrix = loaded_dict["coeffs_matrix"]
 
 # ATTENTION: we need to normalize the features
-coeffs_matrix_min = np.min(coeffs_matrix)
-coeffs_matrix_max = np.max(coeffs_matrix)
-fourier_control.scale_min = coeffs_matrix_min
-fourier_control.scale_max = coeffs_matrix_max
-coeffs_matrix = (coeffs_matrix-coeffs_matrix_min)/(coeffs_matrix_max-coeffs_matrix_min)
+# coeffs_matrix_min = np.min(coeffs_matrix)
+# coeffs_matrix_max = np.max(coeffs_matrix)
+# fourier_control.scale_min = coeffs_matrix_min
+# fourier_control.scale_max = coeffs_matrix_max
+# coeffs_matrix = (coeffs_matrix-coeffs_matrix_min)/(coeffs_matrix_max-coeffs_matrix_min)
 
 
 K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
@@ -82,6 +82,7 @@ if export_Ks:
 
 # design synthesizer & modulator NN for hypernetwork
 characteristic_length = model_settings["N"]
+characteristic_length = 64
 synthesizer_nn = MLP(name="synthesizer_nn",
                      input_size=3,
                      output_size=2,
@@ -91,38 +92,45 @@ synthesizer_nn = MLP(name="synthesizer_nn",
                                           "initialization_gain":1.0},
                      skip_connections_settings={"active":False,"frequency":1})
 
-latent_size = characteristic_length
+latent_size = 2 * characteristic_length
 modulator_nn = MLP(name="modulator_nn",
-                   input_size=latent_size,
-                   use_bias=False) 
+                   input_size=latent_size) 
 
 hyper_network = HyperNetwork(name="hyper_nn",
                              modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=10000)
 main_loop_transform = optax.chain(optax.adam(1e-5))
-latent_loop_transform = optax.chain(optax.adam(1e-4))
+latent_step_optimizer = optax.chain(optax.adam(1e-6))
 
 # create fol
-fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fourier_control,
+fol = MetaImplicitAutodecoderOperatorLearning(name="meta_implicit_ol",control=fourier_control,
                                                 loss_function=mechanical_loss_2d,
                                                 flax_neural_network=hyper_network,
-                                                latent_loop_optax_optimizer=latent_loop_transform,
                                                 main_loop_optax_optimizer=main_loop_transform,
+                                                latent_step_optax_optimizer=latent_step_optimizer,
+                                                latent_step_size=1e-2,
                                                 checkpoint_settings={"restore_state":False,
-                                                "state_directory":case_dir+"/flax_state"},
+                                                "state_directory":case_dir+"/flax_state",
+                                                "meta_state_directory":case_dir+"/meta_state"},
                                                 working_directory=case_dir)
 fol.Initialize()
 
 
 train_start_id = 0
-train_end_id = 3
+train_end_id = 10
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
             convergence_settings={"num_epochs":10000,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
-            save_settings={"save_nn_model":True})
+            save_settings={"save_nn_model":True,
+                         "best_model_checkpointing":True,
+                         "best_model_checkpointing_frequency":10})
+
+# load the best model
+fol.RestoreCheckPoint(fol.checkpoint_settings)
 
 for test in range(train_start_id,train_end_id):
     eval_id = test

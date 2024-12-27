@@ -85,7 +85,6 @@ modulator_nn = MLP(name="regressor_modulator",
                     input_size=20,
                     hidden_layers=hidden_layers,
                     activation_settings={"type":"relu"},
-                    fully_connected_layers=True,
                     skip_connections_settings={"active":True,"frequency":1}) 
 
 hyper_network = HyperNetwork(name="regressor_hypernetwork", 
