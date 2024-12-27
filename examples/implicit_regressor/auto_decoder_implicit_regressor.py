@@ -12,7 +12,7 @@ from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 
 # directory & save handling
-working_directory_name = 'meta_learning_implicit_regressor'
+working_directory_name = 'auto_decoder_implicit_regressor'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -64,15 +64,16 @@ if export_Ks:
 
 # design siren NN for learning
 characteristic_length = model_settings["N"]
+characteristic_length = 64
 synthesizer_nn = MLP(name="regressor_synthesizer",
                     input_size=3,
                     output_size=1,
-                    hidden_layers=[64] * 5,
+                    hidden_layers=[characteristic_length] * 6,
                     activation_settings={"type":"sin",
                                          "prediction_gain":30,
                                          "initialization_gain":1.0})
 
-latent_size = 64
+latent_size = 10
 modulator_nn = MLP(name="modulator_nn",
                    input_size=latent_size,
                    use_bias=False) 
@@ -82,8 +83,9 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=2000)
-main_loop_transform = optax.chain(optax.adam(1e-5))
+num_epochs = 2000
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-8, transition_steps=num_epochs)
+main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
 # create fol
 fol = ImplicitAutodecoderOperatorLearning(name="meta_implicit_ol",control=fourier_control,
@@ -98,14 +100,17 @@ fol = ImplicitAutodecoderOperatorLearning(name="meta_implicit_ol",control=fourie
 fol.Initialize()
 
 train_start_id = 0
-train_end_id = 2
+train_end_id = 10
 
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
-            convergence_settings={"num_epochs":2000,"relative_error":1e-100,"absolute_error":1e-100},
+            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
-            save_settings={"save_nn_model":True})
-
+            save_settings={"save_nn_model":True,
+                         "best_model_checkpointing":True,
+                         "best_model_checkpointing_frequency":10})
+# load teh best model
+fol.RestoreCheckPoint(fol.checkpoint_settings)
 for eval_id in list(np.arange(train_start_id,train_end_id)):
     fe_mesh[f'Pred_K_{eval_id}'] = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
     fe_mesh[f'GT_K_{eval_id}'] = np.array(K_matrix[eval_id,:])

@@ -96,7 +96,8 @@ class ImplicitAutodecoderOperatorLearning(ImplicitParametricOperatorLearning):
 
         loss_latent_grad_fn = jax.grad(loss)
         for _ in range(3):
-            latent_code -= self.latent_step * loss_latent_grad_fn(latent_code)
+            grads = loss_latent_grad_fn(latent_code)
+            latent_code -= self.latent_step * grads / jnp.linalg.norm(grads)
         
         nn_output = nn_model(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
@@ -133,7 +134,8 @@ class ImplicitAutodecoderOperatorLearning(ImplicitParametricOperatorLearning):
 
             loss_latent_grad_fn = jax.grad(loss)
             for _ in range(3):
-                latent_code -= self.latent_step * loss_latent_grad_fn(latent_code)
+                grads = loss_latent_grad_fn(latent_code)
+                latent_code -= self.latent_step * grads / jnp.linalg.norm(grads)
 
             nn_output = self.flax_neural_network(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
 
