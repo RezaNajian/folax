@@ -204,7 +204,7 @@ class MLP(nnx.Module):
                 self.nn_params.append((nnx.Param(init_weights),nnx.Param(init_biases)))
                 self.total_num_biases += init_biases.size
             else:
-                self.nn_params.append((nnx.Param(init_weights),jnp.zeros(init_biases.shape)))
+                self.nn_params.append((nnx.Param(init_weights),nnx.Variable(jnp.zeros_like(init_biases))))
 
     def GetName(self):
         """
