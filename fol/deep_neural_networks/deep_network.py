@@ -271,47 +271,50 @@ class DeepNetwork(ABC):
               batch_size:int=100, test_settings:dict={},convergence_settings:dict={}, plot_settings:dict={}, save_settings:dict={}):
 
         """
-        Trains the neural network model over multiple epochs.
+        Trains the neural network model over multiple epochs with batch processing, testing, and optional model checkpointing.
 
-        This method trains the model on the provided training dataset, evaluates performance on the test set, 
-        updates model parameters using gradient descent, and tracks training history. It also checks for convergence 
-        and saves the model state during the process.
+        This method optimizes the model's parameters using gradient descent on the provided training dataset, evaluates 
+        performance on a test set (if provided), tracks training and testing metrics, and saves intermediate states 
+        and results as specified in the input settings. It also supports convergence checking and history plotting 
+        during training.
 
         Parameters
         ----------
         train_set : Tuple[jnp.ndarray, jnp.ndarray]
             Training dataset consisting of input data and corresponding target labels.
         test_set : Tuple[jnp.ndarray, jnp.ndarray], optional
-            Test dataset for validation, defaults to empty arrays.
+            Test dataset for validation. Defaults to empty arrays if no test set is provided.
         batch_size : int, optional
-            Number of samples per batch, default is 100.
+            Number of samples per batch for training. Default is 100.
         test_settings : dict, optional
-            Settings to control the frequency of testing during training. Defaults to an empty dictionary.
-            Available settings include:
-            - `test_frequency` (int): The number of epochs between test evaluations. Default is 100.
+            Configuration for test evaluation during training. Default is an empty dictionary. 
+            Supported keys include:
+            - `test_frequency` (int): Frequency (in epochs) for test evaluation. Default is 100.
         convergence_settings : dict, optional
-            Settings to control the convergence criteria. Defaults to an empty dictionary.
-            Default settings include:
-            - `num_epochs` (int): The maximum number of epochs. Default is 100.
-            - `convergence_criterion` (str): The criterion to check for convergence, e.g., "total_loss".
-            - `relative_error` (float): The relative error threshold. Default is 1e-8.
-            - `absolute_error` (float): The absolute error threshold. Default is 1e-8.
+            Settings to control the convergence criteria. Default is an empty dictionary.
+            Default values include:
+            - `num_epochs` (int): Maximum number of training epochs. Default is 100.
+            - `convergence_criterion` (str): Metric to check for convergence, e.g., "total_loss". Default is "total_loss".
+            - `relative_error` (float): Relative error threshold for convergence. Default is 1e-8.
+            - `absolute_error` (float): Absolute error threshold for convergence. Default is 1e-8.
         plot_settings : dict, optional
-            Settings to control the plotting of training history. Defaults to an empty dictionary.
-            Default settings include:
-            - `plot_list` (list): The metrics to plot, e.g., ["total_loss"]. Default is ["total_loss"].
-            - `plot_rate` (int): Frequency of plotting updates. Default is 1.
-            - `plot_save_rate` (int): Frequency of saving plots. Default is 100.
+            Configuration for plotting training and testing histories. Default is an empty dictionary.
+            Default values include:
+            - `plot_list` (list): Metrics to plot, e.g., ["total_loss"]. Default is ["total_loss"].
+            - `plot_rate` (int): Frequency (in epochs) for plotting updates. Default is 1.
+            - `plot_save_rate` (int): Frequency (in epochs) for saving plots. Default is 100.
         save_settings : dict, optional
-            Settings to control saving of the trained model. Defaults to an empty dictionary.
-            Default settings include:
+            Configuration for saving the trained model and checkpoints. Default is an empty dictionary.
+            Default values include:
             - `save_nn_model` (bool): Whether to save the model after training. Default is True.
+            - `best_model_checkpointing` (bool): Whether to save the model when performance improves. Default is False.
+            - `best_model_checkpointing_frequency` (int): Frequency (in epochs) for checkpointing the best model. Default is 100.
 
         Returns
         -------
         None
-            This method does not return anything. The training process updates the model's state in place and 
-            saves the training history and model state if specified.
+            The training process updates the model's state in place, saves the training history, and optionally 
+            saves the model and its checkpoints to disk.
         """
 
         self.default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
@@ -466,6 +469,30 @@ class DeepNetwork(ABC):
             return False   
 
     def RestoreCheckPoint(self,checkpoint_settings:dict):
+        """
+        Restores the state of the neural network from a saved checkpoint.
+
+        This method retrieves the saved state of the neural network from a specified directory and updates the model 
+        to reflect the restored state.
+
+        Parameters
+        ----------
+        checkpoint_settings : dict
+            A dictionary containing the settings for checkpoint restoration.
+            Expected keys:
+            - `state_directory` (str): The directory path where the checkpoint is saved.
+
+        Returns
+        -------
+        None
+            The neural network's state is restored and updated in place. A message is logged to confirm the restoration process.
+
+        Notes
+        -----
+        - Ensure the `state_directory` key is included in the `checkpoint_settings` dictionary, and the specified directory exists.
+        - This method uses `nnx.state` to retrieve the current state of the model and updates it with the restored state.
+        - Logs the restoration process using `fol_info`.
+        """
         if "state_directory" in checkpoint_settings.keys():
             state_directory = checkpoint_settings["state_directory"]
             absolute_path = os.path.abspath(state_directory)
@@ -478,6 +505,30 @@ class DeepNetwork(ABC):
             fol_info(f"flax nnx state is restored from {state_directory}")
 
     def SaveCheckPoint(self):
+        """
+        Saves the current state of the neural network to a specified directory.
+
+        This method stores the state of the neural network model in a designated directory, ensuring the model's 
+        state can be restored later.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+            The current state of the neural network is saved to the specified directory. A confirmation message is 
+            logged to indicate the successful save operation.
+
+        Notes
+        -----
+        - The directory for saving the checkpoint is specified in the `checkpoint_settings` attribute under the 
+        `state_directory` key.
+        - The directory path is converted to an absolute path before saving.
+        - Uses the `self.checkpointer.save` method to store the state and forces the save operation.
+        - Logs the save operation using `fol_info`.
+        """
         state_directory = self.checkpoint_settings["state_directory"]
         absolute_path = os.path.abspath(state_directory)
         self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
