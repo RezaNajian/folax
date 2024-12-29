@@ -7,23 +7,19 @@ from  .control import Control
 import jax.numpy as jnp
 from jax import jit
 from functools import partial
-from fol.mesh_input_output.mesh import Mesh
 from fol.tools.decoration_functions import *
 
 class IdentityControl(Control):
     
-    def __init__(self,control_name: str,control_settings: dict, fe_mesh: Mesh):
+    def __init__(self,control_name: str,num_vars: int):
         super().__init__(control_name)
-        self.settings = control_settings
-        self.fe_mesh = fe_mesh
+        self.num_control_vars = num_vars
+        self.num_controlled_vars = num_vars
 
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
         if self.initialized and not reinitialize:
-            return
-        self.num_control_vars = 1
-        self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
-        self.initialized = True
+            self.initialized = True
 
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self,variable_vector:jnp.array):

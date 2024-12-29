@@ -87,6 +87,7 @@ class RegressionLoss(Loss):
                 - error summary (tuple): A tuple with minimum error, maximum error, and mean error.
 
         """
+
         err = (gt_values-pred_values)**2
         return jnp.mean(err),(jnp.min(err),jnp.max(err),jnp.mean(err))
 
