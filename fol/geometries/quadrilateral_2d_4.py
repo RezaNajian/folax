@@ -59,7 +59,7 @@ class Quadrilateral2D4(Geometry):
                           0.25 * (1.0 - local_coordinates[0]) * (1.0 + local_coordinates[1])])
 
     @partial(jit, static_argnums=(0,))
-    def ShapeFunctionsGradients(self,local_coordinates:jnp.ndarray) -> jnp.ndarray:
+    def ShapeFunctionsLocalGradients(self,local_coordinates:jnp.ndarray) -> jnp.ndarray:
         return jnp.array([[-0.25 * ( 1.0 - local_coordinates[1] ),-0.25 * ( 1.0 - local_coordinates[0] )],
                           [ 0.25 * ( 1.0 - local_coordinates[1] ),-0.25 * ( 1.0 + local_coordinates[0] )],
                           [ 0.25 * ( 1.0 + local_coordinates[1] ), 0.25 * ( 1.0 + local_coordinates[0] )],
@@ -67,6 +67,6 @@ class Quadrilateral2D4(Geometry):
     
     @partial(jit, static_argnums=(0,))
     def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
-        dN_dxi = self.ShapeFunctionsGradients(local_coordinates)
+        dN_dxi = self.ShapeFunctionsLocalGradients(local_coordinates)
         return jnp.dot(dN_dxi.T, points_coordinates[:,0:2])
     
