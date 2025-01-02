@@ -6,6 +6,8 @@
 from abc import ABC, abstractmethod
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
+from functools import partial
+from jax import jit
 
 class Geometry(ABC):
 
@@ -79,8 +81,15 @@ class Geometry(ABC):
         pass
     
     @abstractmethod
-    def ShapeFunctionsGradients(self,local_coordinates:jnp.ndarray) -> jnp.ndarray:
+    def ShapeFunctionsLocalGradients(self,local_coordinates:jnp.ndarray) -> jnp.ndarray:
         pass
+
+    @partial(jit, static_argnums=(0,))
+    def ShapeFunctionsGlobalGradients(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
+        jac = self.Jacobian(points_coordinates,local_coordinates)
+        inv_jac = jnp.linalg.inv(jac)
+        local_gradients = self.ShapeFunctionsLocalGradients(local_coordinates)
+        return jnp.dot(local_gradients,inv_jac)
 
     @abstractmethod
     def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
