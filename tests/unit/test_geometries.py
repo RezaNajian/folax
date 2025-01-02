@@ -4,6 +4,7 @@ import os
 import numpy as np
 from fol.geometries.quadrilateral_2d_4 import Quadrilateral2D4
 from fol.geometries.tetrahedra_3d_4 import Tetrahedra3D4
+from fol.geometries.hexahedra_3d_8 import Hexahedra3D8
 from fol.tools.usefull_functions import *
 import jax
 
@@ -25,7 +26,16 @@ class TestGeometries(unittest.TestCase):
                                                  [0.28739360416666665, 0.27808503701741405, 0.05672979583333333],
                                                  [0.0, 1.0, 0.0],
                                                  [0.0, 1.0, 0.1]])
-
+        
+        self.test_hexa = Hexahedra3D8("test_hexahedra3D8")
+        self.hex_points_coordinates = jnp.array([[0.24900,  0.34200,  0.19200],
+                                                 [0.32000,  0.18600,  0.64300],
+                                                 [0.16500,  0.74500,  0.70200],
+                                                 [0.27300,  0.75000,  0.23000],
+                                                 [0.00000,  0.00000,  0.00000],
+                                                 [0.00000,  0.00000,  1.00000],
+                                                 [0.00000,  1.00000,  1.00000],
+                                                 [0.00000,  1.00000,  0.00000]])
     def test_quad2D4(self):
         points,weights = self.test_quad.GetIntegrationData()
         np.testing.assert_allclose(points,jnp.array([[0., 0., 0.]]), rtol=1e-5, atol=1e-10)
@@ -118,7 +128,7 @@ class TestGeometries(unittest.TestCase):
             points,weights = self.test_quad.GetIntegrationData()
         # print(np.array2string(weights, separator=', '))
 
-    def test_tet2D4(self):
+    def test_tet3D4(self):
         points,weights = self.test_tetra.GetIntegrationData()
         np.testing.assert_allclose(points,jnp.array([[0.25,0.25,0.25]]), rtol=1e-5, atol=1e-10)
         np.testing.assert_allclose(weights,jnp.array([0.166667]), rtol=1e-5, atol=1e-10)
@@ -183,6 +193,82 @@ class TestGeometries(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             self.test_quad.SetGaussIntegrationMethod("GI_GAUSS_5")
             points,weights = self.test_quad.GetIntegrationData()
+
+    def test_hex3D8(self):
+        points,weights = self.test_hexa.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[0.0,0.0,0.0]]), rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([8.0]), rtol=1e-5, atol=1e-10)
+        shape_function_values = jax.vmap(self.test_hexa.ShapeFunctionsValues)(points)
+        np.testing.assert_allclose(shape_function_values,jnp.array([[0.125,0.125,0.125,0.125,0.125,0.125,0.125,0.125]]), rtol=1e-5, atol=1e-10)
+        shape_function_grads = jax.vmap(self.test_hexa.ShapeFunctionsLocalGradients)(points)
+        np.testing.assert_allclose(shape_function_grads,jnp.array([[[-0.125,-0.125,-0.125],
+                                                                    [0.125,-0.125,-0.125],
+                                                                    [0.125,0.125,-0.125],
+                                                                    [-0.125,0.125,-0.125],
+                                                                    [-0.125,-0.125,0.125],
+                                                                    [0.125,-0.125,0.125],
+                                                                    [0.125,0.125,0.125],
+                                                                    [-0.125,0.125,0.125]]]), rtol=1e-5, atol=1e-10)
+        jacobians = jax.vmap(self.test_hexa.Jacobian, in_axes=(None, 0))(self.hex_points_coordinates,points)
+        np.testing.assert_allclose(jacobians,jnp.array([[[-0.004625,-0.016375,-0.125875],
+                                                         [-0.020125,0.370875,-0.002875],
+                                                         [0.365375,0.012125,0.029125]]]), rtol=1e-5, atol=1e-10)
+        shape_function_g_grads = jax.vmap(self.test_hexa.ShapeFunctionsGlobalGradients, in_axes=(None, 0))(self.hex_points_coordinates,points)
+        np.testing.assert_allclose(shape_function_g_grads,jnp.array([[[0.919462,-0.285127,-0.34618],
+                                                                      [1.0784,-0.300517,0.339212],
+                                                                      [1.07159,0.372056,0.376172],
+                                                                      [0.912652,0.387446,-0.309221],
+                                                                      [-1.07159,-0.372056,-0.376172],
+                                                                      [-0.912652,-0.387446,0.309221],
+                                                                      [-0.919462,0.285127,0.34618],
+                                                                      [-1.0784,0.300517,-0.339212]]]), rtol=1e-5, atol=1e-10)    
+
+        self.test_hexa.SetGaussIntegrationMethod("GI_GAUSS_2")
+        points,weights = self.test_hexa.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[-0.57735 , -0.57735 , -0.57735],
+                                                     [0.57735 , -0.57735 , -0.57735],
+                                                     [0.57735 , 0.57735 , -0.57735],
+                                                     [-0.57735 , 0.57735 , -0.57735],
+                                                     [-0.57735 , -0.57735 , 0.57735],
+                                                     [0.57735 , -0.57735 , 0.57735],
+                                                     [0.57735 , 0.57735 , 0.57735],
+                                                     [-0.57735 , 0.57735 , 0.57735]]), rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]), rtol=1e-5, atol=1e-10)
+
+        self.test_hexa.SetGaussIntegrationMethod("GI_GAUSS_3")
+        points,weights = self.test_hexa.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[-0.774597 , -0.774597 , -0.774597],
+                                                     [0 , -0.774597 , -0.774597],
+                                                     [0.774597 , -0.774597 , -0.774597],
+                                                     [-0.774597 , 0 , -0.774597],
+                                                     [0 , 0 , -0.774597],
+                                                     [0.774597 , 0 , -0.774597],
+                                                     [-0.774597 , 0.774597 , -0.774597],
+                                                     [0 , 0.774597 , -0.774597],
+                                                     [0.774597 , 0.774597 , -0.774597],
+                                                     [-0.774597 , -0.774597 , 0],
+                                                     [0 , -0.774597 , 0],
+                                                     [0.774597 , -0.774597 , 0],
+                                                     [-0.774597 , 0 , 0],
+                                                     [0 , 0 , 0],
+                                                     [0.774597 , 0 , 0],
+                                                     [-0.774597 , 0.774597 , 0],
+                                                     [0 , 0.774597 , 0],
+                                                     [0.774597 , 0.774597 , 0],
+                                                     [-0.774597 , -0.774597 , 0.774597],
+                                                     [0 , -0.774597 , 0.774597],
+                                                     [0.774597 , -0.774597 , 0.774597],
+                                                     [-0.774597 , 0 , 0.774597],
+                                                     [0 , 0 , 0.774597],
+                                                     [0.774597 , 0 , 0.774597],
+                                                     [-0.774597 , 0.774597 , 0.774597],
+                                                     [0 , 0.774597 , 0.774597],
+                                                     [0.774597 , 0.774597 , 0.774597]]), rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([0.171468,0.274348,0.171468,0.274348,0.438957,0.274348,0.171468, 
+                                                        0.274348,0.171468,0.274348,0.438957,0.274348, 
+                                                        0.438957,0.702332,0.438957,0.274348,0.438957, 
+                                                        0.274348,0.171468,0.274348,0.171468,0.274348, 
+                                                        0.438957,0.274348,0.171468,0.274348,0.171468]), rtol=1e-5, atol=1e-10)
 
 if __name__ == '__main__':
     unittest.main()
