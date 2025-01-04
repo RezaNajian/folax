@@ -59,8 +59,3 @@ class Tetrahedra3D4(Geometry):
     def ShapeFunctionsLocalGradients(self,local_coordinates:jnp.ndarray) -> jnp.ndarray:
         return jnp.array([[-1.0, -1.0, -1.0],[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0]])
     
-    @partial(jit, static_argnums=(0,))
-    def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
-        dN_dxi = self.ShapeFunctionsLocalGradients(local_coordinates)
-        return jnp.dot(dN_dxi.T, points_coordinates).T
-    
