@@ -91,6 +91,7 @@ class Geometry(ABC):
         local_gradients = self.ShapeFunctionsLocalGradients(local_coordinates)
         return jnp.dot(local_gradients,inv_jac)
 
-    @abstractmethod
+    @partial(jit, static_argnums=(0,))
     def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
-        pass
+        dN_dxi = self.ShapeFunctionsLocalGradients(local_coordinates)
+        return jnp.dot(dN_dxi.T, points_coordinates).T

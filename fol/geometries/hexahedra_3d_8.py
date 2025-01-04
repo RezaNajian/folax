@@ -113,8 +113,3 @@ class Hexahedra3D8(Geometry):
                                 0.125 * ( 1.0 - local_coordinates[0] ) * ( 1.0 + local_coordinates[2] ),
                                 0.125 * ( 1.0 - local_coordinates[0] ) * ( 1.0 + local_coordinates[1] )]])
     
-    @partial(jit, static_argnums=(0,))
-    def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
-        dN_dxi = self.ShapeFunctionsLocalGradients(local_coordinates)
-        return jnp.dot(dN_dxi.T, points_coordinates).T
-    

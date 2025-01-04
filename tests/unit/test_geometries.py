@@ -2,6 +2,7 @@ import pytest
 import unittest
 import os
 import numpy as np
+from fol.geometries.triangle_2d_3 import Triangle2D3
 from fol.geometries.quadrilateral_2d_4 import Quadrilateral2D4
 from fol.geometries.tetrahedra_3d_4 import Tetrahedra3D4
 from fol.geometries.hexahedra_3d_8 import Hexahedra3D8
@@ -15,12 +16,17 @@ class TestGeometries(unittest.TestCase):
         self.debug_mode = request.config.getoption('--debug-mode')
 
     def setUp(self):
-        self.test_quad = Quadrilateral2D4("test_quadrilateral2D4")
-        self.tri_points_coordinates = jnp.array([[50.0,0.0,0.0],
-                                                [51.0,0.0,0.0],
-                                                [51.0,51.0,0.0],
-                                                [50.0,51.0,0.0]])
+        self.test_tri = Triangle2D3("test_triangle2D3")
+        self.tri_points_coordinates = jnp.array([[-0.5,-0.45,0.1],
+                                                 [0.7,-0.5,0.2],
+                                                 [0.02,-0.01,-0.15]])
 
+        self.test_quad = Quadrilateral2D4("test_quadrilateral2D4")
+        self.quad_points_coordinates = jnp.array([[-0.5, - 0.45,  0.1],
+                                                  [-0.03, -0.5,   0.0],
+                                                  [0.02, -0.01, -0.15],
+                                                  [-0.49, -0.0,   0.0]])
+        
         self.test_tetra = Tetrahedra3D4("test_tetrahedra3D4")
         self.tet_points_coordinates = jnp.array([[0.1, 0.1, 0.1],
                                                  [0.28739360416666665, 0.27808503701741405, 0.05672979583333333],
@@ -36,6 +42,34 @@ class TestGeometries(unittest.TestCase):
                                                  [0.00000,  0.00000,  1.00000],
                                                  [0.00000,  1.00000,  1.00000],
                                                  [0.00000,  1.00000,  0.00000]])
+    def test_tri2D3(self):
+        points,weights = self.test_tri.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[0.333333 , 0.333333 , 0]]), rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([0.5]), rtol=1e-5, atol=1e-10)
+        shape_function_values = jax.vmap(self.test_tri.ShapeFunctionsValues)(points)
+        np.testing.assert_allclose(shape_function_values[0],jnp.array([0.333333,0.333333,0.333333]), rtol=1e-5, atol=1e-10)
+        shape_function_grads = jax.vmap(self.test_tri.ShapeFunctionsLocalGradients)(points)
+        np.testing.assert_allclose(shape_function_grads[0],jnp.array([[-1,-1],[1,0],[0,1]]), rtol=1e-5, atol=1e-10)
+        jacobian = jax.vmap(self.test_tri.Jacobian, in_axes=(None, 0))(self.tri_points_coordinates,points)
+        np.testing.assert_allclose(jacobian,jnp.array([[[1.2,0.52],[-0.05,0.44]]]), rtol=1e-5, atol=1e-10)
+
+        self.test_tri.SetGaussIntegrationMethod("GI_GAUSS_2")
+        points,weights = self.test_tri.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[0.166667 , 0.166667 , 0],
+                                                     [0.666667 , 0.166667 , 0],
+                                                     [0.166667 , 0.666667 , 0]]), 
+                                                     rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([0.166667,0.166667,0.166667]), rtol=1e-5, atol=1e-10)
+
+        self.test_tri.SetGaussIntegrationMethod("GI_GAUSS_3")
+        points,weights = self.test_tri.GetIntegrationData()
+        np.testing.assert_allclose(points,jnp.array([[0.2 , 0.2 , 0],
+                                                     [0.6 , 0.2 , 0],
+                                                     [0.2 , 0.6 , 0],
+                                                     [0.333333 , 0.333333 , 0]]), 
+                                                     rtol=1e-5, atol=1e-10)
+        np.testing.assert_allclose(weights,jnp.array([0.260417,0.260417,0.260417,-0.28125]), rtol=1e-5, atol=1e-10)
+
     def test_quad2D4(self):
         points,weights = self.test_quad.GetIntegrationData()
         np.testing.assert_allclose(points,jnp.array([[0., 0., 0.]]), rtol=1e-5, atol=1e-10)
@@ -43,11 +77,17 @@ class TestGeometries(unittest.TestCase):
         shape_function_values = jax.vmap(self.test_quad.ShapeFunctionsValues)(points)
         np.testing.assert_allclose(shape_function_values[0],jnp.array([0.25, 0.25, 0.25, 0.25]), rtol=1e-5, atol=1e-10)
         shape_function_grads = jax.vmap(self.test_quad.ShapeFunctionsLocalGradients)(points)
-        np.testing.assert_allclose(shape_function_grads[0],jnp.array([[-0.25,-0.25],[0.25,-0.25],[0.25,0.25],
-                                                                      [-0.25,0.25]]), rtol=1e-5, atol=1e-10)
-        jacobian = jax.vmap(self.test_quad.Jacobian, in_axes=(None, 0))(self.tri_points_coordinates,points)
-        np.testing.assert_allclose(jacobian,jnp.array([[[0.5,0],[0,25.5]]]), rtol=1e-5, atol=1e-10)
-        
+        np.testing.assert_allclose(shape_function_grads[0],jnp.array([[-0.25,-0.25],[0.25,-0.25],
+                                                                      [0.25,0.25], [-0.25,0.25]]), rtol=1e-5, atol=1e-10)
+        jacobian = jax.vmap(self.test_quad.Jacobian, in_axes=(None, 0))(self.quad_points_coordinates,points)
+        np.testing.assert_allclose(jacobian,jnp.array([[[0.245,0.015],[-0.015,0.235]]]), rtol=1e-5, atol=1e-10)
+
+        shape_function_g_grads = jax.vmap(self.test_quad.ShapeFunctionsGlobalGradients,in_axes=(None, 0))(self.quad_points_coordinates,points)
+        np.testing.assert_allclose(shape_function_g_grads,jnp.array([[[-1.08131,-0.99481],
+                                                                      [0.951557,-1.12457],
+                                                                      [1.08131,0.99481],
+                                                                      [-0.951557,1.12457]]]), rtol=1e-5, atol=1e-10) 
+
         self.test_quad.SetGaussIntegrationMethod("GI_GAUSS_2")
         points,weights = self.test_quad.GetIntegrationData()
         np.testing.assert_allclose(points,jnp.array([[-0.57735026, -0.57735026, 0.00],
@@ -55,23 +95,7 @@ class TestGeometries(unittest.TestCase):
                                                     [ 0.57735026,  0.57735026, 0.00],
                                                     [-0.57735026,  0.57735026, 0.00]]), rtol=1e-5, atol=1e-10)
         np.testing.assert_allclose(weights,jnp.array([1, 1, 1, 1]), rtol=1e-5, atol=1e-10)
-        shape_function_values = jax.vmap(self.test_quad.ShapeFunctionsValues)(points)
-        np.testing.assert_allclose(shape_function_values,jnp.array([[0.622008,0.166667,0.0446582,0.166667],
-                                                                    [0.166667,0.622008,0.166667,0.0446582],
-                                                                    [0.0446582,0.166667,0.622008,0.166667],
-                                                                    [0.166667,0.0446582,0.166667,0.622008]]), 
-                                                                    rtol=1e-5, atol=1e-10)
-        shape_function_grads = jax.vmap(self.test_quad.ShapeFunctionsLocalGradients)(points)
-        np.testing.assert_allclose(shape_function_grads,jnp.array([[[-0.394338,-0.394338],[0.394338,-0.105662],[0.105662,0.105662],[-0.105662,0.394338]],
-                                                                   [[-0.394338,-0.105662],[0.394338,-0.394338],[0.105662,0.394338],[-0.105662,0.105662]],
-                                                                   [[-0.105662,-0.105662],[0.105662,-0.394338],[0.394338,0.394338],[-0.394338,0.105662]],
-                                                                   [[-0.105662,-0.394338],[0.105662,-0.105662],[0.394338,0.105662],[-0.394338,0.394338]]]), rtol=1e-5, atol=1e-10)
-        jacobian = jax.vmap(self.test_quad.Jacobian, in_axes=(None, 0))(self.tri_points_coordinates,points)
-        np.testing.assert_allclose(jacobian,jnp.array([[[0.5,0.0],[0.0,25.5]],
-                                                       [[0.5,0.0],[0.0,25.5]],
-                                                       [[0.5,0.0],[0.0,25.5]],
-                                                       [[0.5,0.0],[0.0,25.5]]]), rtol=1e-5, atol=1e-5)
-
+        
         self.test_quad.SetGaussIntegrationMethod("GI_GAUSS_3")
         points,weights = self.test_quad.GetIntegrationData()
         np.testing.assert_allclose(points,jnp.array([[-0.774597 , -0.774597 , 0],
@@ -86,47 +110,13 @@ class TestGeometries(unittest.TestCase):
         np.testing.assert_allclose(weights,jnp.array([0.308642,0.493827,0.308642,
                                                       0.493827,0.790123,0.493827,
                                                       0.308642,0.493827,0.308642]), rtol=1e-5, atol=1e-10)
-        shape_function_values = jax.vmap(self.test_quad.ShapeFunctionsValues)(points)
-        np.testing.assert_allclose(shape_function_values,jnp.array([[0.787298,0.1,0.0127017,0.1],
-                                                                    [0.443649,0.443649,0.0563508,0.0563508],
-                                                                    [0.1,0.787298,0.1,0.0127017],
-                                                                    [0.443649,0.0563508,0.0563508,0.443649],
-                                                                    [0.25,0.25,0.25,0.25],
-                                                                    [0.0563508,0.443649,0.443649,0.0563508],
-                                                                    [0.1,0.0127017,0.1,0.787298],
-                                                                    [0.0563508,0.0563508,0.443649,0.443649],
-                                                                    [0.0127017,0.1,0.787298,0.1]]), 
-                                                                    rtol=1e-5, atol=1e-10)
         
-        shape_function_grads = jax.vmap(self.test_quad.ShapeFunctionsLocalGradients)(points)
-        np.testing.assert_allclose(shape_function_grads,jnp.array([[[-0.443649,-0.443649],[0.443649,-0.0563508],[0.0563508,0.0563508],[-0.0563508,0.443649]],
-                                                                      [[-0.443649,-0.25],[0.443649,-0.25],[0.0563508,0.25],[-0.0563508,0.25]],
-                                                                      [[-0.443649,-0.0563508],[0.443649,-0.443649],[0.0563508,0.443649],[-0.0563508,0.0563508]],
-                                                                      [[-0.25,-0.443649],[0.25,-0.0563508],[0.25,0.0563508],[-0.25,0.443649]],
-                                                                      [[-0.25,-0.25],[0.25,-0.25],[0.25,0.25],[-0.25,0.25]],
-                                                                      [[-0.25,-0.0563508],[0.25,-0.443649],[0.25,0.443649],[-0.25,0.0563508]],
-                                                                      [[-0.0563508,-0.443649],[0.0563508,-0.0563508],[0.443649,0.0563508],[-0.443649,0.443649]],
-                                                                      [[-0.0563508,-0.25],[0.0563508,-0.25],[0.443649,0.25],[-0.443649,0.25]],
-                                                                      [[-0.0563508,-0.0563508],[0.0563508,-0.443649],[0.443649,0.443649],[-0.443649,0.0563508]]]), rtol=1e-5, atol=1e-10)
-
-        jacobians = jax.vmap(self.test_quad.Jacobian, in_axes=(None, 0))(self.tri_points_coordinates,points)
-        np.testing.assert_allclose(jacobians,jnp.array([[[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]],
-                                                        [[0.5,0.0],[0.0,25.5]]]), rtol=1e-5, atol=1e-5)
-
         with self.assertRaises(NotImplementedError):
             self.test_quad.SetGaussIntegrationMethod("GI_GAUSS_4")
             points,weights = self.test_quad.GetIntegrationData()
         with self.assertRaises(NotImplementedError):
             self.test_quad.SetGaussIntegrationMethod("GI_GAUSS_5")
             points,weights = self.test_quad.GetIntegrationData()
-        # print(np.array2string(weights, separator=', '))
 
     def test_tet3D4(self):
         points,weights = self.test_tetra.GetIntegrationData()

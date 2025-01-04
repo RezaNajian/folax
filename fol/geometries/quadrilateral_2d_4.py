@@ -30,7 +30,6 @@ class Quadrilateral2D4(Geometry):
 
     @partial(jit, static_argnums=(0,))
     def GaussIntegration3(self) -> Tuple[jnp.ndarray, jnp.ndarray]:
-
         points = jnp.array([[-jnp.sqrt(3.00/5.00),-jnp.sqrt(3.00/5.00),0.00],
                            [0.00 , -jnp.sqrt(3.00/5.00),0.00],
                            [jnp.sqrt(3.00/5.00),-jnp.sqrt(3.00/5.00),0.00],
@@ -68,5 +67,5 @@ class Quadrilateral2D4(Geometry):
     @partial(jit, static_argnums=(0,))
     def Jacobian(self,points_coordinates:jnp.ndarray,local_coordinates:jnp.ndarray) -> jnp.ndarray:
         dN_dxi = self.ShapeFunctionsLocalGradients(local_coordinates)
-        return jnp.dot(dN_dxi.T, points_coordinates[:,0:2])
+        return jnp.dot(dN_dxi.T, points_coordinates[:,0:2]).T
     
