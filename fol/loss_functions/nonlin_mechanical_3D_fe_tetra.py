@@ -3,7 +3,7 @@
  Date: May, 2024
  License: FOL/LICENSE
 """
-from  .mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from  .mechanical import MechanicalLoss3DTetra
 import jax
 import jax.numpy as jnp
 from jax import jit

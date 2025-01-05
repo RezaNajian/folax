@@ -10,7 +10,7 @@ import numpy as np
 import os
 import meshio
 from fol.tools.decoration_functions import *
-from fol.geometries import fol_element_dict
+from fol.geometries import fe_element_dict
 
 _mdpa_to_meshio_type = {
     "Line2D2": "line",
@@ -123,8 +123,8 @@ class Mesh(ABC):
     def CheckAndOrientElements(self):
         jax_nodes_coords = jnp.array(self.nodes_coordinates)
         for element_type,elements_nodes in self.elements_nodes.items():
-            if element_type in fol_element_dict.keys():
-                fol_element = fol_element_dict[element_type]
+            if element_type in fe_element_dict.keys():
+                fol_element = fe_element_dict[element_type]
                 gp_point,_= fol_element.GetIntegrationData()
                 @jax.jit
                 def negative_det(elem_nodes):
@@ -139,7 +139,7 @@ class Mesh(ABC):
                     new_elem_state,_ = jax.vmap(negative_det)(self.elements_nodes[element_type])
                     num_neg_jac_elems = jnp.sum(new_elem_state)
                     if num_neg_jac_elems>0:
-                        fol_error(f"although nodes are swapped, {num_neg_jac_elems} {element_type} elements still have negative jacobians or inverted !")
+                        fol_warning(f"although nodes are swapped, {num_neg_jac_elems} {element_type} elements still have negative jacobians or inverted !")
 
     def GetNodesIds(self) -> jnp.array:
         return self.node_ids

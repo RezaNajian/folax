@@ -6,7 +6,7 @@ import jax
 import os
 import numpy as np
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
-from fol.loss_functions.thermal_2D_fe_quad import ThermalLoss2D
+from fol.loss_functions.thermal import ThermalLoss2DQuad
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
@@ -25,7 +25,7 @@ class TestThermal2D(unittest.TestCase):
         self.fe_mesh = create_2D_square_mesh(L=1,N=11)
 
         bc_dict = {"T":{"left":1.0,"right":0.1}}   
-        self.thermal_loss = ThermalLoss2D("thermal_loss",loss_settings={"dirichlet_bc_dict":bc_dict,
+        self.thermal_loss = ThermalLoss2DQuad("thermal_loss",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                         "num_gp":2},
                                                                         fe_mesh=self.fe_mesh)
         self.fe_solver = FiniteElementLinearResidualBasedSolver("nonlin_fe_solver",self.thermal_loss)

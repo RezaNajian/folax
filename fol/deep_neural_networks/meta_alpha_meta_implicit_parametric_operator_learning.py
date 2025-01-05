@@ -342,12 +342,12 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
             - Ensures that both model parameters and the latent step size are checkpointed.
             - Forces the save operation to overwrite existing checkpoint data for the latent step size.
         """
-        super().SaveCheckPoint()
         # save meta learning latent_step
         state_directory = self.checkpoint_settings["meta_state_directory"]
         absolute_path = os.path.abspath(state_directory)
         self.checkpointer.save(absolute_path, {"latent_step":self.latent_step},force=True)
         fol_info(f"latent_step {self.latent_step} is saved to {state_directory}")
+        super().SaveCheckPoint()
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_X:jnp.ndarray):

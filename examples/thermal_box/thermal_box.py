@@ -4,7 +4,7 @@ import optax
 from flax import nnx
 import jax
 from fol.mesh_input_output.mesh import Mesh
-from fol.loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
+from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning

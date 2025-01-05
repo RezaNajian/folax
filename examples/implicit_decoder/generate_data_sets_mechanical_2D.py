@@ -2,7 +2,7 @@ import sys
 import os
 import optax
 import numpy as np
-from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
+from fol.loss_functions.mechanical import MechanicalLoss2DQuad
 from fol.controls.fourier_control import FourierControl
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
@@ -24,7 +24,7 @@ bc_dict = {"Ux":{"left":model_settings["Ux_left"],"right":model_settings["Ux_rig
            "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
 
 material_dict = {"young_modulus":1,"poisson_ratio":0.3}
-mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+mechanical_loss_2d = MechanicalLoss2DQuad("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                             "num_gp":2,
                                                                             "material_dict":material_dict},
                                                                             fe_mesh=fe_mesh)

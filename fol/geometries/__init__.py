@@ -15,7 +15,7 @@ for loader, module_name, is_pkg in pkgutil.walk_packages(__path__):
 # Optionally, define what should be accessible when * is used
 __all__ = [name for _, name, _ in pkgutil.iter_modules(__path__)]
 
-fol_element_dict: Dict[str, Geometry] = {"hexahedron":Hexahedra3D8("hex"),
+fe_element_dict: Dict[str, Geometry] = {"hexahedron":Hexahedra3D8("hex"),
                                         "tetra":Tetrahedra3D4("tet"),
                                         "triangle":Triangle2D3("tri"),
                                         "quad":Quadrilateral2D4("quad")}

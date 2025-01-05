@@ -2,7 +2,7 @@ import sys
 import os
 
 import numpy as np
-from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
