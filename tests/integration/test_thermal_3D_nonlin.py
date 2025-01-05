@@ -5,13 +5,13 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.thermal_3D_fe_tetra import ThermalLoss3DTetra
+from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 
-class TestMechanical3D(unittest.TestCase):
+class TestThermalNonLinear(unittest.TestCase):
 
     @pytest.fixture(autouse=True)
     def _request_debug_mode(self,request):
@@ -25,7 +25,7 @@ class TestMechanical3D(unittest.TestCase):
         self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
         dirichlet_bc_dict = {"T":{"left":1,"right":0.1}}
         self.thermal_loss = ThermalLoss3DTetra("thermal",loss_settings={"dirichlet_bc_dict":dirichlet_bc_dict,
-                                                                        "beta":0,"c":4},
+                                                                        "beta":1,"c":4},
                                                                         fe_mesh=self.fe_mesh)  
         self.nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",self.thermal_loss,
                                                                           {"nonlinear_solver_settings":{"maxiter":3}})
@@ -74,7 +74,7 @@ class TestMechanical3D(unittest.TestCase):
 
     def test_compute(self):
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":1000})
+                       convergence_settings={"num_epochs":1500})
         T_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.nonlin_fe_solver.Solve(self.K_matrix[-1,:],np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)

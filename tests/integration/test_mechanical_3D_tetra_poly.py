@@ -5,7 +5,7 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control3D import VoronoiControl3D
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
@@ -78,11 +78,12 @@ class TestMechanical3D(unittest.TestCase):
 
     def test_compute(self):
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":1000})
+                       convergence_settings={"num_epochs":1000,"relative_error":1e-12,"absolute_error":1e-12})
         T_FOL = np.array(self.fol.Predict(self.coeffs_matrix.reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.linear_fe_solver.Solve(self.K_matrix,np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)
         self.assertLessEqual(l2_error, 10)
+        print(l2_error)
 
         if self.debug_mode=="false":
             shutil.rmtree(self.test_directory)

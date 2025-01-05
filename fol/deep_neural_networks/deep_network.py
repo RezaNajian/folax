@@ -532,6 +532,8 @@ class DeepNetwork(ABC):
         state_directory = self.checkpoint_settings["state_directory"]
         absolute_path = os.path.abspath(state_directory)
         self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
+        self.checkpointer.close()  # Close resources properly
+
         fol_info(f"flax nnx state is saved to {state_directory}")
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
