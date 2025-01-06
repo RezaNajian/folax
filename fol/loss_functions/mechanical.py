@@ -14,6 +14,27 @@ from fol.mesh_input_output.mesh import Mesh
 
 class MechanicalLoss(FiniteElementLoss):
 
+    def Initialize(self) -> None:  
+        super().Initialize() 
+        if "material_dict" not in self.loss_settings.keys():
+            fol_error("material_dict should provided in the loss settings !")
+        if self.dim == 2:
+            self.CalculateNMatrix = self.CalculateNMatrix2D
+            self.CalculateBMatrix = self.CalculateBMatrix2D
+            self.D = self.CalculateDMatrix2D(self.loss_settings["material_dict"]["young_modulus"],
+                                            self.loss_settings["material_dict"]["poisson_ratio"])
+            self.body_force = jnp.zeros((2,1))
+            if "body_foce" in self.loss_settings:
+                self.body_force = jnp.array(self.loss_settings["body_foce"])
+        else:
+            self.CalculateNMatrix = self.CalculateNMatrix3D
+            self.CalculateBMatrix = self.CalculateBMatrix3D
+            self.D = self.CalculateDMatrix3D(self.loss_settings["material_dict"]["young_modulus"],
+                                            self.loss_settings["material_dict"]["poisson_ratio"])
+            self.body_force = jnp.zeros((3,1))
+            if "body_foce" in self.loss_settings:
+                self.body_force = jnp.array(self.loss_settings["body_foce"])
+
     @partial(jit, static_argnums=(0,))
     def CalculateBMatrix2D(self,DN_DX:jnp.array) -> jnp.array:
         B = jnp.zeros((3, 2 * DN_DX.shape[0]))
@@ -106,65 +127,25 @@ class MechanicalLoss3DTetra(MechanicalLoss):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
-        if "material_dict" not in self.loss_settings.keys():
-            fol_error("material_dict should provided in the loss settings !")
-
-    @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
-        if self.initialized and not reinitialize:
-            return 
-        super().Initialize() 
-        self.CalculateNMatrix = self.CalculateNMatrix3D
-        self.CalculateBMatrix = self.CalculateBMatrix3D
-        self.D = self.CalculateDMatrix3D(self.loss_settings["material_dict"]["young_modulus"],
-                                         self.loss_settings["material_dict"]["poisson_ratio"])
-
-        self.body_force = jnp.zeros((3,1))
-        if "body_foce" in self.loss_settings:
-            self.body_force = jnp.array(self.loss_settings["body_foce"])
 
 class MechanicalLoss3DHexa(MechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"hexahedron"},fe_mesh)
-        if "material_dict" not in self.loss_settings.keys():
-            fol_error("material_dict should provided in the loss settings !")
 
-    @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
-        if self.initialized and not reinitialize:
-            return 
-        if not "num_gp" in self.loss_settings.keys():
-            self.loss_settings["num_gp"] = 2
-        super().Initialize() 
-        self.CalculateNMatrix = self.CalculateNMatrix3D
-        self.CalculateBMatrix = self.CalculateBMatrix3D
-        self.D = self.CalculateDMatrix3D(self.loss_settings["material_dict"]["young_modulus"],
-                                         self.loss_settings["material_dict"]["poisson_ratio"])
-        self.body_force = jnp.zeros((3,1))
-        if "body_foce" in self.loss_settings:
-            self.body_force = jnp.array(self.loss_settings["body_foce"])
-        
-class MechanicalLoss2DQuad(MechanicalLoss):
+class MechanicalLoss2DTri(MechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["Ux","Uy"],  
-                               "element_type":"quad"},fe_mesh)
-        if "material_dict" not in self.loss_settings.keys():
-            fol_error("material_dict should provided in the loss settings !")
+                               "element_type":"triangle"},fe_mesh)
 
-    @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
-        if self.initialized and not reinitialize:
-            return 
-        if not "num_gp" in self.loss_settings.keys():
-            self.loss_settings["num_gp"] = 2
-        super().Initialize() 
-        self.CalculateNMatrix = self.CalculateNMatrix2D
-        self.CalculateBMatrix = self.CalculateBMatrix2D
-        self.D = self.CalculateDMatrix2D(self.loss_settings["material_dict"]["young_modulus"],
-                                         self.loss_settings["material_dict"]["poisson_ratio"])
-        self.body_force = jnp.zeros((2,1))
-        if "body_foce" in self.loss_settings:
-            self.body_force = jnp.array(self.loss_settings["body_foce"])
+class MechanicalLoss2DQuad(MechanicalLoss):
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
+        super().__init__(name,{**loss_settings,"compute_dims":2,
+                               "ordered_dofs": ["Ux","Uy"],  
+                               "element_type":"quad"},fe_mesh)
