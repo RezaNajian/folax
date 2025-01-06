@@ -428,6 +428,8 @@ class DeepNetwork(ABC):
         elif not save_settings["best_model_checkpointing"] and save_settings["save_nn_model"]:
             self.SaveCheckPoint()
 
+        self.checkpointer.close()  # Close resources properly
+
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
         """
         Checks whether the training process has converged.
@@ -532,8 +534,6 @@ class DeepNetwork(ABC):
         state_directory = self.checkpoint_settings["state_directory"]
         absolute_path = os.path.abspath(state_directory)
         self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
-        self.checkpointer.close()  # Close resources properly
-
         fol_info(f"flax nnx state is saved to {state_directory}")
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
