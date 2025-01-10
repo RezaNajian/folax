@@ -4,17 +4,19 @@ import optax
 from flax import nnx
 import jax
 from fol.mesh_input_output.mesh import Mesh
-from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
+from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
 import pickle
+from fol.deep_neural_networks.nns import HyperNetwork,MLP
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = "results"
+    working_directory_name = "implicit_hook_3D"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -23,9 +25,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh = Mesh("fol_io","hook.mdpa")
 
     # create fe-based loss function
-    bc_dict = {"Ux":{"support_horizontal_1":0.0,"tip_1":-1.0},
+    bc_dict = {"Ux":{"support_horizontal_1":0.0,"tip_1":-0.1},
                "Uy":{"support_horizontal_1":0.0},
-               "Uz":{"support_horizontal_1":0.0,"tip_1":-1.0}}
+               "Uz":{"support_horizontal_1":0.0,"tip_1":-0.1}}
 
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
@@ -39,70 +41,77 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
 
     fe_mesh.Initialize()
+    min_coords = np.min(fe_mesh.GetNodesCoordinates())
+    max_coords = np.max(fe_mesh.GetNodesCoordinates())
+    fe_mesh.nodes_coordinates = jnp.array((fe_mesh.nodes_coordinates-min_coords)/(max_coords-min_coords))
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
     mechanical_loss_3d.Initialize()
     fourier_control.Initialize()
 
-    # create some random coefficients & K for training
-    create_random_coefficients = False
-    if create_random_coefficients:
-        number_of_random_samples = 200
-        coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control,number_of_random_samples)
-        export_dict = {}
-        export_dict["coeffs_matrix"] = coeffs_matrix
-        export_dict["x_freqs"] = fourier_control.x_freqs
-        export_dict["y_freqs"] = fourier_control.y_freqs
-        export_dict["z_freqs"] = fourier_control.z_freqs
-        with open(f'fourier_control_dict.pkl', 'wb') as f:
-            pickle.dump(export_dict,f)
-    else:
-        with open(f'fourier_control_dict.pkl', 'rb') as f:
-            loaded_dict = pickle.load(f)
-        
-        coeffs_matrix = loaded_dict["coeffs_matrix"]
+    with open(f'fourier_control_dict.pkl', 'rb') as f:
+        loaded_dict = pickle.load(f)
+    
+    coeffs_matrix = loaded_dict["coeffs_matrix"]
 
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
     eval_id = -1
     fe_mesh['K'] = np.array(K_matrix[eval_id,:])
 
-    # design NN for learning
-    class MLP(nnx.Module):
-        def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.in_features = in_features
-            self.out_features = out_features
 
-        def __call__(self, x: jax.Array) -> jax.Array:
-            x = self.dense1(x)
-            x = jax.nn.swish(x)
-            x = self.dense2(x)
-            return x
+    # design synthesizer & modulator NN for hypernetwork
+    characteristic_length = 64
+    synthesizer_nn = MLP(name="synthesizer_nn",
+                        input_size=3,
+                        output_size=3,
+                        hidden_layers=[characteristic_length] * 6,
+                        activation_settings={"type":"sin",
+                                            "prediction_gain":60,
+                                            "initialization_gain":1.0},
+                        skip_connections_settings={"active":False,"frequency":1})
 
-    fol_net = MLP(fourier_control.GetNumberOfVariables(),1, 
-                  mechanical_loss_3d.GetNumberOfUnknowns(), 
-                  rngs=nnx.Rngs(0))
+    latent_size = 2 * characteristic_length
+    modulator_nn = MLP(name="modulator_nn",
+                    input_size=latent_size,
+                    use_bias=False) 
+
+    hyper_network = HyperNetwork(name="hyper_nn",
+                                modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
+                                coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
     # create fol optax-based optimizer
-    chained_transform = optax.chain(optax.normalize_by_update_norm(), 
-                                    optax.adam(1e-3))
-    
-    fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
-                                             loss_function=mechanical_loss_3d,
-                                             flax_neural_network=fol_net,
-                                             optax_optimizer=chained_transform,
-                                             checkpoint_settings={"restore_state":False,
-                                             "state_directory":case_dir+"/flax_state"},
-                                             working_directory=case_dir)
+    num_epochs = 2000
+    learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
+    main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
+
+    # create fol
+    fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fourier_control,
+                                                loss_function=mechanical_loss_3d,
+                                                flax_neural_network=hyper_network,
+                                                main_loop_optax_optimizer=main_loop_transform,
+                                                latent_step_size=1e-2,
+                                                num_latent_iterations=3,
+                                                checkpoint_settings={"restore_state":False,
+                                                "state_directory":case_dir+"/flax_state"},
+                                                working_directory=case_dir)
     fol.Initialize()
 
-    fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),
-                convergence_settings={"num_epochs":fol_num_epochs})
+    fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),batch_size=1,
+                convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                plot_settings={"plot_save_rate":100},
+                save_settings={"save_nn_model":True,
+                               "best_model_checkpointing":True,
+                               "best_model_checkpointing_frequency":100})
+
+
+    # load teh best model
+    fol.RestoreCheckPoint(fol.checkpoint_settings)
 
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     # solve FE here
+    solve_FE = True
     if solve_FE:
         fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"}}
         first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d,fe_setting)

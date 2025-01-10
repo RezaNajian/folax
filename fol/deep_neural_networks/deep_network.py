@@ -428,6 +428,8 @@ class DeepNetwork(ABC):
         elif not save_settings["best_model_checkpointing"] and save_settings["save_nn_model"]:
             self.SaveCheckPoint()
 
+        self.checkpointer.close()  # Close resources properly
+
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
         """
         Checks whether the training process has converged.

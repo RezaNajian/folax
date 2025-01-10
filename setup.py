@@ -18,7 +18,9 @@ setup(
         'petsc',
         'petsc4py',
         'h5py',
-        'pytest'
+        'pytest',
+        'zarr',
+        'dask'
     ],
     author='FOL team',
     author_email='r.najian@hotmail.com',

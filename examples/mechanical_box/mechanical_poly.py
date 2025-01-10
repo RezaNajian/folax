@@ -2,14 +2,17 @@ import sys
 import os
 
 import numpy as np
-from fol.loss_functions.mechanical_3D_fe_tetra import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.voronoi_control3D import VoronoiControl3D
-from fol.deep_neural_networks.fe_operator_learning import FiniteElementOperatorLearning
+from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
 import pickle, time
+import optax
+from flax import nnx
+import jax
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
@@ -82,17 +85,49 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         pc_train_mat = coeffs_matrix[on_the_fly_id].reshape(-1,1).T
         pc_train_nodal_value_matrix = K_matrix[on_the_fly_id]
     
+    # design NN for learning
+    class MLP(nnx.Module):
+        def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.in_features = in_features
+            self.out_features = out_features
 
-    # now we need to create, initialize and train fol
-    fol = FiniteElementOperatorLearning("first_fol",voronoi_control,[mechanical_loss_3d],hidden_layer,
-                                        "leaky_relu",load_NN_params=False,working_directory=working_directory_name)
+        def __call__(self, x: jax.Array) -> jax.Array:
+            x = self.dense1(x)
+            x = jax.nn.leaky_relu(x)
+            x = self.dense2(x)
+            return x
+
+    fol_net = MLP(voronoi_control.GetNumberOfVariables(),1, 
+                  mechanical_loss_3d.GetNumberOfUnknowns(), 
+                  rngs=nnx.Rngs(0))
+
+    # create fol optax-based optimizer
+    scheduler = optax.exponential_decay(
+        init_value=1e-3,
+        transition_steps=10,
+        decay_rate=0.99)
+    chained_transform = optax.chain(optax.normalize_by_update_norm(), 
+                                    optax.scale_by_adam(),
+                                    optax.scale_by_schedule(scheduler),
+                                    optax.scale(-1.0))
+
+    # create fol
+    fol = ExplicitParametricOperatorLearning(name="dis_fol",control=voronoi_control,
+                                             loss_function=mechanical_loss_3d,
+                                             flax_neural_network=fol_net,
+                                             optax_optimizer=chained_transform,
+                                             checkpoint_settings={"restore_state":False,
+                                            "state_directory":f"./{working_directory_name}/flax_state"},
+                                             working_directory=case_dir)
+
     fol.Initialize()
 
-    fol.Train(loss_functions_weights=[1],X_train=pc_train_mat,batch_size=fol_batch_size,num_epochs=fol_num_epochs,
-                learning_rate=fol_learning_rate,optimizer="adam",convergence_criterion="total_loss",
-                relative_error=1e-10,NN_params_save_file_name="NN_params_"+working_directory_name)
-    
-    
+    # single sample training for eval_id
+    fol.Train(train_set=(pc_train_mat,),
+              convergence_settings={"num_epochs":fol_num_epochs})
+
     # fe settings and solvers initialize
     fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                        "maxiter":1000,"pre-conditioner":"ilu"}}

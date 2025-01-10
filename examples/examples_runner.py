@@ -5,11 +5,12 @@ import os
 scripts_and_args = [
     ("thermal_box","thermal_box.py", "clean_dir=true","fol_num_epochs=10"),
     ("thermal_fol","thermal_fol.py", "clean_dir=true","fol_num_epochs=10"),
-    ("mechanical_box","mechanical_3D_tetra.py", "clean_dir=true","fol_num_epochs=10"),
-    ("mechanical_hook_3D","hook_3D.py", "clean_dir=true","fol_num_epochs=10"),
-    ("mechanical_box","mechanical_3D_tetra_nonlin.py", "clean_dir=true","fol_num_epochs=10"),
-    ("mechanical_square", "mechanical_2D_poly_lin.py", "clean_dir=true", "fol_num_epochs=10"),
-    ("mechanical_square", "mechanical_2D_nonlin.py", "clean_dir=true", "fol_num_epochs=10")
+    ("mechanical_box","mechanical.py", "clean_dir=true","fol_num_epochs=10"),
+    ("mechanical_box","mechanical_poly.py", "clean_dir=true","fol_num_epochs=10"),
+    ("mechanical_box","neo_hooke_mechanical.py", "clean_dir=true","fol_num_epochs=10"),
+    ("mechanical_hook","hook.py", "clean_dir=true","fol_num_epochs=10"),
+    ("mechanical_square", "mechanical_2D_poly.py", "clean_dir=true", "fol_num_epochs=10"),
+    ("mechanical_square", "neo_hooke_mechanical_2D.py", "clean_dir=true", "fol_num_epochs=10")
 ]
 
 # Run each script with its arguments

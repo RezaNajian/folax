@@ -5,10 +5,12 @@
 """
 from abc import ABC
 import jax.numpy as jnp
+import jax
 import numpy as np
 import os
 import meshio
 from fol.tools.decoration_functions import *
+from fol.geometries import fe_element_dict
 
 _mdpa_to_meshio_type = {
     "Line2D2": "line",
@@ -114,7 +116,30 @@ class Mesh(ABC):
         for node_set_name,node_ids in self.node_sets.items():
             fol_info(f"({node_set_name},{len(node_ids)} nodes) read ")
         
+        self.CheckAndOrientElements()
+
         self.is_initialized = True
+    
+    def CheckAndOrientElements(self):
+        jax_nodes_coords = jnp.array(self.nodes_coordinates)
+        for element_type,elements_nodes in self.elements_nodes.items():
+            if element_type in fe_element_dict.keys():
+                fol_element = fe_element_dict[element_type]
+                gp_point,_= fol_element.GetIntegrationData()
+                @jax.jit
+                def negative_det(elem_nodes):
+                    elem_nodes_coordinates = jax_nodes_coords[elem_nodes]
+                    det = jnp.linalg.det(fol_element.Jacobian(elem_nodes_coordinates,gp_point))
+                    return jnp.where(det >= 0, 0, 1),jnp.where(det >= 0, elem_nodes, elem_nodes.at[0].set(elem_nodes[1]).at[1].set(elem_nodes[0]))
+                elem_state,swap_elems_nodes = jax.vmap(negative_det)(elements_nodes)
+                num_neg_jac_elems = jnp.sum(elem_state)
+                if num_neg_jac_elems>0:
+                    fol_warning(f"nodes of {num_neg_jac_elems} {element_type} elements with negative jacobian are swapped !")
+                    self.elements_nodes[element_type] = swap_elems_nodes
+                    new_elem_state,_ = jax.vmap(negative_det)(self.elements_nodes[element_type])
+                    num_neg_jac_elems = jnp.sum(new_elem_state)
+                    if num_neg_jac_elems>0:
+                        fol_warning(f"although nodes are swapped, {num_neg_jac_elems} {element_type} elements still have negative jacobians or inverted !")
 
     def GetNodesIds(self) -> jnp.array:
         return self.node_ids

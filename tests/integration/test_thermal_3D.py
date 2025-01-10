@@ -5,7 +5,7 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.thermal_3D_fe_hex import ThermalLoss3D
+from fol.loss_functions.thermal import ThermalLoss3DHexa
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
@@ -25,7 +25,7 @@ class TestThermal3D(unittest.TestCase):
 
 
         self.fe_mesh = create_3D_box_mesh(Nx=11,Ny=11,Nz=11,Lx=1,Ly=1,Lz=1,case_dir=self.test_directory)
-        self.thermal_loss = ThermalLoss3D("thermal_loss",loss_settings={"dirichlet_bc_dict":{"T":{"left":1.0,"right":0.1}},
+        self.thermal_loss = ThermalLoss3DHexa("thermal_loss",loss_settings={"dirichlet_bc_dict":{"T":{"left":1.0,"right":0.1}},
                                                                         "beta":0,"c":0,"num_gp":2},
                                                                         fe_mesh=self.fe_mesh)
             

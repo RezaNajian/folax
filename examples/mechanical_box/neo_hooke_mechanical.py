@@ -2,7 +2,7 @@ import sys
 import os
 
 import numpy as np
-from fol.loss_functions.nonlin_mechanical_3D_fe_tetra import NonLinearMechanicalLoss3DTetra
+from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
@@ -30,7 +30,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                 "Uz":{"left":0.0,"right":-0.05}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
 
-    mechanical_loss_3d = NonLinearMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+    mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                                    "material_dict":material_dict},
                                                                                    fe_mesh=fe_mesh)
 

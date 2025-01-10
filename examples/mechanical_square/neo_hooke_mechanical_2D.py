@@ -4,7 +4,7 @@ import optax
 from flax import nnx
 import jax
 import numpy as np
-from fol.loss_functions.mechanical_2D_fe_quad_neohooke import MechanicalLoss2D
+from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
@@ -32,7 +32,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
     
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
-    mechanical_loss_2d = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+    mechanical_loss_2d = NeoHookeMechanicalLoss2DQuad("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                               "num_gp":2,
                                                                               "material_dict":material_dict},
                                                                               fe_mesh=fe_mesh)
@@ -112,7 +112,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
     # solve FE here
-    if solve_FE:
+    if True:
         fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                                     "maxiter":1000,"pre-conditioner":"ilu"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,

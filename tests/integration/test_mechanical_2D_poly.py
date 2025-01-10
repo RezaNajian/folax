@@ -5,7 +5,7 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.mechanical_2D_fe_quad import MechanicalLoss2D
+from fol.loss_functions.mechanical import MechanicalLoss2DQuad
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control2D import VoronoiControl2D
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
@@ -27,7 +27,7 @@ class TestMechanicalPoly2D(unittest.TestCase):
                    "Uy":{"left":0.0,"right":0.05}}
         
         material_dict = {"young_modulus":1,"poisson_ratio":0.3}
-        self.mechanical_loss = MechanicalLoss2D("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
+        self.mechanical_loss = MechanicalLoss2DQuad("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                                 "num_gp":2,
                                                                                 "material_dict":material_dict},
                                                                                 fe_mesh=self.fe_mesh)
