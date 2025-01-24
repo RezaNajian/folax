@@ -237,7 +237,7 @@ class FiniteElementLoss(Loss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies)**2,(min_elem_energy,max_elem_energy,avg_elem_energy)
+        return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
