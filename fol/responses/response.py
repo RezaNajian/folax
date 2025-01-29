@@ -23,10 +23,7 @@ class Response(ABC):
         pass
 
     @abstractmethod
-    def ComputeAdjointBasedGradients(self):
-        pass
-
-    def ComputeFDBasedGradients(self):
+    def ComputeAdjointJacobianMatrixAndRHSVector(self):
         pass
 
     @abstractmethod
