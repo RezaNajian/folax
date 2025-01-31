@@ -207,8 +207,22 @@ class FiniteElementLoss(Loss):
                                           elem_controls:jnp.array,
                                           elem_dofs:jnp.array,
                                           elem_BC:jnp.array,
-                                          elem_mask_BC:jnp.array):
+                                          elem_mask_BC:jnp.array,
+                                          transpose_jac:bool):
         _,re,ke = self.ComputeElement(elem_xyz,elem_controls,elem_dofs)
+
+       # Convert transpose_jac (bool) to an integer index (0 = False, 1 = True)
+        index = jnp.asarray(transpose_jac, dtype=jnp.int32)
+
+        # Define the two branches for switch
+        branches = [
+            lambda _: ke,                  # Case 0: No transpose
+            lambda _: jnp.transpose(ke)    # Case 1: Transpose ke
+        ]
+
+        # Apply the switch operation
+        ke = jax.lax.switch(index, branches, None)
+
         return self.ApplyDirichletBCOnElementResidualAndJacobian(re,ke,elem_BC,elem_mask_BC)
 
     @partial(jit, static_argnums=(0,))
@@ -218,7 +232,8 @@ class FiniteElementLoss(Loss):
                                                         full_control_vector:jnp.array,
                                                         full_dof_vector:jnp.array,
                                                         full_dirichlet_BC_vec:jnp.array,
-                                                        full_mask_dirichlet_BC_vec:jnp.array):
+                                                        full_mask_dirichlet_BC_vec:jnp.array,
+                                                        transpose_jac:bool):
         return self.ComputeElementResidualAndJacobian(xyz[elements_nodes[element_id],:],
                                                       full_control_vector[elements_nodes[element_id]],
                                                       full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -226,7 +241,8 @@ class FiniteElementLoss(Loss):
                                                       full_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       full_mask_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+                                                      jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
+                                                      transpose_jac)
 
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLoss(self,full_control_params:jnp.array,unknown_dofs:jnp.array):
@@ -241,21 +257,22 @@ class FiniteElementLoss(Loss):
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False):
         
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
         mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
         
-        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None)) \
+        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None,None)) \
                                                             (self.fe_mesh.GetElementsIds(self.element_type),
                                                              self.fe_mesh.GetElementsNodes(self.element_type),
                                                              self.fe_mesh.GetNodesCoordinates(),
                                                              total_control_vars,
                                                              total_primal_vars,
                                                              BC_vector,
-                                                             mask_BC_vector)
+                                                             mask_BC_vector,
+                                                             transpose_jacobian)
 
         # first compute the global residual vector
         residuals_vector = jnp.zeros((self.total_number_of_dofs))
