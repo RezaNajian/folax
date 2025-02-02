@@ -40,7 +40,7 @@ class ThermalTransientLoss2DQuad(FiniteElementLossTransientHetero):
         @jit
         def compute_at_gauss_point(xi,eta,total_weight):
             Nf = self.shape_function.evaluate(xi,eta)
-            conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
+            #conductivity_at_gauss = jnp.dot(Nf, Ke.squeeze())
             dN_dxi = self.shape_function.derivatives(xi,eta)
             J = jnp.dot(dN_dxi.T, xyze[:,0:2])
             detJ = jnp.linalg.det(J)
@@ -48,7 +48,7 @@ class ThermalTransientLoss2DQuad(FiniteElementLossTransientHetero):
             B = jnp.dot(invJ,dN_dxi.T)
             T_at_gauss_n = jnp.dot(Nf, Te_n)
             T_at_gauss_c = jnp.dot(Nf, Te_c)
-            gp_stiffness =  jnp.dot(B.T, B) * detJ * total_weight * conductivity_at_gauss
+            gp_stiffness =  jnp.dot(B.T, B) * detJ * total_weight #* conductivity_at_gauss
             gp_mass = self.rho * self.cp* jnp.outer(Nf, Nf) * detJ * total_weight
             gp_f = total_weight * detJ * body_force *  Nf.reshape(-1,1) 
             gp_t = self.rho * self.cp * 0.5/(self.dt)*total_weight * detJ *(T_at_gauss_n-T_at_gauss_c)**2
@@ -64,6 +64,6 @@ class ThermalTransientLoss2DQuad(FiniteElementLossTransientHetero):
         Me = jnp.sum(m_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
         Te = jnp.sum(t_gps)
-        # element_residual = jax.lax.stop_gradient((Me+self.dt*Se)@Te_n- Me@Te_c) 
+        # element_residual = jax.lax.stop_gradient((Me+self.dt*Se)@Te_n - Me@Te_c) 
 
         return 0.5*Te_n.T@Se@Te_n + Te, (Me+self.dt*Se)@Te_n - Me@Te_c, (Me+self.dt*Se)

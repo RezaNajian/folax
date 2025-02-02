@@ -57,6 +57,55 @@ def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cma
     if file_name is not None:
         plt.savefig(file_name)
 
+
+def plot_mesh_vec_data_thermal(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
+                       block_bool=False, colour_bar=True, colour_bar_name=None,
+                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
+    num_vectors = len(vectors_list)
+    if num_vectors < 1 or num_vectors > 4:
+        raise ValueError("vectors_list must contain between 1 and 4 elements.")
+
+    if subplot_titles is not None and len(subplot_titles) != num_vectors:
+        raise ValueError("subplot_titles must have the same number of elements as vectors_list if provided.")
+
+    # Determine the grid size for the subplots
+    grid_size = math.ceil(math.sqrt(num_vectors))
+    fig, axs = plt.subplots(grid_size, grid_size, figsize=(5*grid_size, 5*grid_size), squeeze=False)
+    
+    # Flatten the axs array and hide unused subplots if any
+    axs = axs.flatten()
+    for ax in axs[num_vectors:]:
+        ax.axis('off')
+
+    for i, squared_mesh_vec_data in enumerate(vectors_list):
+        N = int((squared_mesh_vec_data.reshape(-1, 1).shape[0])**0.5)
+        im = axs[i].imshow(squared_mesh_vec_data.reshape(N, N), cmap=cmap, extent=[0, L, 0, L],vmin=0, vmax=1)
+
+        if subplot_titles is not None:
+            axs[i].set_title(subplot_titles[i])
+        else:
+            axs[i].set_title(f'Plot {i+1}')
+
+        if colour_bar:
+            fig.colorbar(im, ax=axs[i], fraction=0.046, pad=0.04)
+
+        if X_axis_name is not None:
+            axs[i].set_xlabel(X_axis_name)
+
+        if Y_axis_name is not None:
+            axs[i].set_ylabel(Y_axis_name)
+
+    if fig_title is not None:
+        plt.suptitle(fig_title)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if show:
+        plt.show(block=block_bool)
+
+    if file_name is not None:
+        plt.savefig(file_name)
+
 def plot_mesh_vec_data_phasefield(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
                        X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
@@ -743,3 +792,57 @@ def plot_relative_l2_error_multiple(time_array,error_array, label_name, subplot_
 
     if file_name is not None:
         plt.savefig(file_name)
+
+def generate_composite_material(
+    points, 
+    num_inclusions=10, 
+    inclusion_radius=0.2, 
+    inclusion_value=0.2, 
+    matrix_value=1
+):
+    """
+    Generate composite-like material samples with spherical inclusions using meshio coor
+    Parameters:
+        points (np.ndarray): Meshio coordinates array of shape (num_points, 3).
+        num_inclusions (int): Number of inclusions per sample.
+        inclusion_radius (float): Radius of the spherical inclusions.
+        inclusion_value (float): Value assigned to the inclusion phase.
+        matrix_value (float): Value assigned to the matrix phase.
+    Returns:
+        np.ndarray: Array of shape (num_samples, num_points) with composite patterns.
+    """
+    num_points = points.shape[0]
+    samples = []
+    # Initialize the material array with the matrix value
+    material = np.full(num_points, matrix_value, dtype=float)
+    # List to store inclusion centers
+    inclusion_centers = [np.array([0.3995, 0.8279, 0.9229]),
+                         np.array([0.0435, 0.2529, 0.7887]),
+                         np.array([0.4041, 0.0104, 0.1794]),
+                         np.array([0.8309, 0.3136, 0.2780]),
+                         np.array([0.5803, 0.9523, 0.2323]),
+                         np.array([0.1439, 0.2935, 0.3608]),
+                         np.array([0.5844, 0.2953, 0.9866]),
+                         np.array([0.9155, 0.0424, 0.6355]),
+                         np.array([0.9087, 0.7211, 0.7662]),
+                         np.array([0.1959, 0.9935, 0.1157])]
+    # Generate random, non-overlapping centers
+    # for _ in range(num_inclusions):
+    #     while True:
+    #         # Randomly choose the center of the inclusion within the coordinate range
+    #         center = np.random.uniform(points.min(axis=0), points.max(axis=0), size=3)
+    #         # Check for overlap with existing inclusions
+    #         if all(np.linalg.norm(center - np.array(existing_center)) > 2 * inclusion_
+    #                for existing_center in inclusion_centers):
+    #             # Add the center to the list of inclusion centers
+    #             inclusion_centers.append(center)
+    #             break
+    # Create inclusions based on the generated centers
+    for center in inclusion_centers:
+        # Compute the distance from the center for all points
+        distances = np.linalg.norm(points - center, axis=1)
+        # Assign inclusion value to points within the radius
+        material[distances <= inclusion_radius] = inclusion_value
+    # Add the result to samples
+    samples.append(material)
+    return np.array(samples)

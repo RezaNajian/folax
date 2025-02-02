@@ -14,7 +14,6 @@ from fol.tools.decoration_functions import *
 from jax.experimental import sparse
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.fem_utilities import *
-from fol.geometries import fe_element_dict
 
 class FiniteElementLossTransientHetero(Loss):
     """FE-based losse
@@ -74,19 +73,19 @@ class FiniteElementLossTransientHetero(Loss):
         else:
             self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
-    
-        # fe element
-        self.fe_element = fe_element_dict[self.element_type]
+        
 
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():
             self.num_gp = self.loss_settings["num_gp"]
             if self.num_gp == 1:
-                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
+                g_points,g_weights = GaussQuadrature().one_point_GQ
             elif self.num_gp == 2:
-                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_2")
+                g_points,g_weights = GaussQuadrature().two_point_GQ
             elif self.num_gp == 3:
-                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_3")
+                g_points,g_weights = GaussQuadrature().three_point_GQ
+            elif self.num_gp == 4:
+                g_points,g_weights = GaussQuadrature().four_point_GQ
             else:
                 raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
             if self.element_type == 'tetra':
@@ -98,7 +97,7 @@ class FiniteElementLossTransientHetero(Loss):
                     raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
 
         else:
-            self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
+            g_points,g_weights = GaussQuadrature().one_point_GQ
             self.loss_settings["num_gp"] = 1
             self.num_gp = 1
 
@@ -106,6 +105,20 @@ class FiniteElementLossTransientHetero(Loss):
             raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")
 
         self.dim = self.loss_settings["compute_dims"]
+
+        if self.dim==1:
+            self.g_points = jnp.array([[xi] for xi in g_points]).flatten()
+            self.g_weights = jnp.array([[w_i] for w_i in g_weights]).flatten()
+        elif self.dim==2:
+            # self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
+            g_point_unordered = jnp.array([[xi, eta] for xi in g_points for eta in g_points])
+            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[2],g_point_unordered[3],g_point_unordered[1]]).flatten()
+            self.g_weights = jnp.array([[w_i , w_j] for w_i in g_weights for w_j in g_weights]).flatten()
+        elif self.dim==3:
+            g_point_unordered = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points])
+            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[4],g_point_unordered[6],g_point_unordered[2],
+                                       g_point_unordered[1], g_point_unordered[5],g_point_unordered[7],g_point_unordered[3]]).flatten()
+            self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
         @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
@@ -127,7 +140,6 @@ class FiniteElementLossTransientHetero(Loss):
 
         self.initialized = True
 
-
     @partial(jit, static_argnums=(0,))
     def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
         return self.full_dof_vector_function(known_dofs,unknown_dofs)
@@ -141,51 +153,9 @@ class FiniteElementLossTransientHetero(Loss):
     def GetTotalNumberOfDOFs(self):
         return self.total_number_of_dofs
     
-    @abstractmethod
-    def ComputeElementHetero(self,
-                       elem_xyz:jnp.array,
-                       elem_controls:jnp.array,
-                       elem_hetero:jnp.array,
-                       elem_dofs:jnp.array) -> tuple[float, jnp.array, jnp.array]:
+    def ComputeSingleLoss(self) -> None:
         pass
 
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergyHetero(self,
-                             elem_xyz:jnp.array,
-                             elem_controls:jnp.array,
-                             elem_hetero:jnp.array,
-                             elem_dofs:jnp.array) -> float:
-        return self.ComputeElementHetero(elem_xyz,elem_controls,elem_hetero,elem_dofs)[0]
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementEnergyVmapCompatibleHetero(self,
-                                           element_id:jnp.integer,
-                                           elements_nodes:jnp.array,
-                                           xyz:jnp.array,
-                                           full_control_vector:jnp.array,
-                                           full_hetero_vector:jnp.array,
-                                           full_dof_vector:jnp.array):
-        return self.ComputeElementEnergyHetero(xyz[elements_nodes[element_id],:],
-                                         full_control_vector[elements_nodes[element_id]],
-                                         full_hetero_vector[elements_nodes[element_id]],
-                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementsEnergiesHetero(self,total_control_vars:jnp.array,total_hetero_vars:jnp.array,total_primal_vars:jnp.array):
-        # parallel calculation of energies
-        return jax.vmap(self.ComputeElementEnergyVmapCompatibleHetero,(0,None,None,None,None,None)) \
-                        (self.fe_mesh.GetElementsIds(self.element_type),
-                        self.fe_mesh.GetElementsNodes(self.element_type),
-                        self.fe_mesh.GetNodesCoordinates(),
-                        total_control_vars,
-                        total_hetero_vars,
-                        total_primal_vars)
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeTotalEnergyHetero(self,total_control_vars:jnp.array,total_hetero_vars:jnp.array,total_primal_vars:jnp.array):
-        return jnp.sum(self.ComputeElementsEnergiesHetero(total_control_vars,total_hetero_vars,total_primal_vars)) 
-  
     @partial(jit, static_argnums=(0,))
     def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
         nodes_ids *= self.number_dofs_per_node
@@ -218,6 +188,47 @@ class FiniteElementLossTransientHetero(Loss):
         mask_BC_matrix = jnp.fill_diagonal(mask_BC_matrix, masked_diag_entries, inplace=False)
 
         return   BC_matrix @ elem_res, BC_matrix @ elem_jac + mask_BC_matrix
+
+    @abstractmethod
+    def ComputeElementHetero(self,
+                       elem_xyz:jnp.array,
+                       elem_controls:jnp.array,
+                       elem_hetero:jnp.array,
+                       elem_dofs:jnp.array) -> tuple[float, jnp.array, jnp.array]:
+        pass
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementEnergyHetero(self,
+                             elem_xyz:jnp.array,
+                             elem_controls:jnp.array,
+                             elem_hetero:jnp.array,
+                             elem_dofs:jnp.array) -> float:
+        return self.ComputeElementHetero(elem_xyz,elem_controls,elem_hetero,elem_dofs)[0]
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementEnergyVmapCompatibleHetero(self,
+                                           element_id:jnp.integer,
+                                           elements_nodes:jnp.array,
+                                           xyz:jnp.array,
+                                           full_control_vector:jnp.array,
+                                           full_hetero_vector:jnp.array,
+                                           full_dof_vector:jnp.array):
+        return self.ComputeElementEnergyHetero(xyz[elements_nodes[element_id],:],
+                                         full_control_vector[elements_nodes[element_id]],
+                                         full_hetero_vector[elements_nodes[element_id]],
+                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementsEnergiesHetero(self,total_control_vars:jnp.array,total_hetero_vars:jnp.array,total_primal_vars:jnp.array):
+        # parallel calculation of energies
+        return jax.vmap(self.ComputeElementEnergyVmapCompatibleHetero,(0,None,None,None,None,None)) \
+                        (self.fe_mesh.GetElementsIds(self.element_type),
+                        self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesCoordinates(),
+                        total_control_vars,
+                        total_hetero_vars,
+                        total_primal_vars)
     
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLossHetero(self,full_control_params:jnp.array,full_hetero_params:jnp.array,unknown_dofs:jnp.array):
@@ -231,6 +242,10 @@ class FiniteElementLossTransientHetero(Loss):
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
         return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
 
+    @partial(jit, static_argnums=(0,))
+    def ComputeTotalEnergyHetero(self,total_control_vars:jnp.array,total_hetero_vars:jnp.array,total_primal_vars:jnp.array):
+        return jnp.sum(self.ComputeElementsEnergies(total_control_vars,total_hetero_vars,total_primal_vars)) 
+    
     @partial(jit, static_argnums=(0,))
     def ComputeElementResidualAndJacobianHetero(self,
                                           elem_xyz:jnp.array,
@@ -260,24 +275,12 @@ class FiniteElementLossTransientHetero(Loss):
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       full_mask_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
-    
-    @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params:jnp.array,full_hetero_params:jnp.array,unknown_dofs:jnp.array):
-        elems_energies = self.ComputeElementsEnergiesHetero(full_control_params.reshape(-1,1),
-                                                            full_hetero_params.reshape(-1,1),
-                                                      self.GetFullDofVector(full_control_params,
-                                                                            unknown_dofs))
-        # some extra calculation for reporting and not traced
-        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
-        max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
-        min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
-            
+        
     @print_with_timestamp_and_execution_time
     def ComputeJacobianMatrixAndResidualVectorHetero(self,total_control_vars: jnp.array,total_hetero_vars: jnp.array,total_primal_vars: jnp.array):   
         BC_vector = jnp.ones((self.total_number_of_dofs))
-        BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
+        BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
         
         elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianHeteroVmapCompatible,(0,None,None,None,None,None,None,None)) \

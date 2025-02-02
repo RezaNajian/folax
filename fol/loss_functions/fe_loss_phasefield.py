@@ -14,6 +14,7 @@ from fol.tools.decoration_functions import *
 from jax.experimental import sparse
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.fem_utilities import *
+from fol.geometries import fe_element_dict
 
 class FiniteElementLossPhasefield(Loss):
     """FE-based losse
@@ -75,17 +76,18 @@ class FiniteElementLossPhasefield(Loss):
 
         
 
+        # fe element
+        self.fe_element = fe_element_dict[self.element_type]
+
         # now prepare gauss integration
         if "num_gp" in self.loss_settings.keys():
             self.num_gp = self.loss_settings["num_gp"]
             if self.num_gp == 1:
-                g_points,g_weights = GaussQuadrature().one_point_GQ
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
             elif self.num_gp == 2:
-                g_points,g_weights = GaussQuadrature().two_point_GQ
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_2")
             elif self.num_gp == 3:
-                g_points,g_weights = GaussQuadrature().three_point_GQ
-            elif self.num_gp == 4:
-                g_points,g_weights = GaussQuadrature().four_point_GQ
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_3")
             else:
                 raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
             if self.element_type == 'tetra':
@@ -97,7 +99,7 @@ class FiniteElementLossPhasefield(Loss):
                     raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
 
         else:
-            g_points,g_weights = GaussQuadrature().one_point_GQ
+            self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
             self.loss_settings["num_gp"] = 1
             self.num_gp = 1
 
@@ -105,21 +107,6 @@ class FiniteElementLossPhasefield(Loss):
             raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")
 
         self.dim = self.loss_settings["compute_dims"]
-
-        # Assume the number of GPs is two in each dimension
-        if self.dim==1:
-            self.g_points = jnp.array([[xi] for xi in g_points]).flatten()
-            self.g_weights = jnp.array([[w_i] for w_i in g_weights]).flatten()
-        elif self.dim==2:
-            # self.g_points = jnp.array([[xi, eta] for xi in g_points for eta in g_points]).flatten()
-            g_point_unordered = jnp.array([[xi, eta] for xi in g_points for eta in g_points])
-            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[2],g_point_unordered[3],g_point_unordered[1]]).flatten()
-            self.g_weights = jnp.array([[w_i , w_j] for w_i in g_weights for w_j in g_weights]).flatten()
-        elif self.dim==3:
-            g_point_unordered = jnp.array([[xi,eta,zeta] for xi in g_points for eta in g_points for zeta in g_points])
-            self.g_points = jnp.array([g_point_unordered[0], g_point_unordered[4],g_point_unordered[6],g_point_unordered[2],
-                                       g_point_unordered[1], g_point_unordered[5],g_point_unordered[7],g_point_unordered[3]]).flatten()
-            self.g_weights = jnp.array([[w_i,w_j,w_k] for w_i in g_weights for w_j in g_weights for w_k in g_weights]).flatten()
 
         @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
@@ -263,11 +250,12 @@ class FiniteElementLossPhasefield(Loss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies)**2,(min_elem_energy,max_elem_energy,avg_elem_energy)
+        return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):   
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array):
+        
         BC_vector = jnp.ones((self.total_number_of_dofs))
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
         if self.dirichlet_indices.size > 0:
