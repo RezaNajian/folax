@@ -11,6 +11,11 @@ from fol.tools.logging_functions import Logger
 from fol.responses.fe_response import FiniteElementResponse
 from fol.solvers.adjoint_fe_solver import AdjointFiniteElementSolver
 import pickle
+import jax
+import jax.numpy as jnp
+import sympy as sp
+from sympy import Matrix, MatrixSymbol
+from sympy.utilities.lambdify import lambdify
 
 # directory & save handling
 working_directory_name = 'square_mechanical_2D'
@@ -19,7 +24,7 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":11,
+model_settings = {"L":1,"N":51,
                     "Ux_left":0.0,"Ux_right":0.05,
                     "Uy_left":0.0,"Uy_right":0.05}
 
@@ -38,10 +43,10 @@ mechanical_loss_2d = MechanicalLoss2DQuad("mechanical_loss_2d",loss_settings={"d
 
 fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
                             "beta":20,"min":1e-1,"max":1}
-fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
+fourier_control = FourierControl("E",fourier_control_settings,fe_mesh)
 
 
-myresponse = FiniteElementResponse("my_response",response_formula="U.dot(U)",fe_loss=mechanical_loss_2d,control=fourier_control)
+myresponse = FiniteElementResponse("my_response",response_formula="(E**2)*U[0]",fe_loss=mechanical_loss_2d,control=fourier_control)
 
 fe_mesh.Initialize()
 mechanical_loss_2d.Initialize()
@@ -80,18 +85,23 @@ for test in range(0,1):
     first_adj_fe_solver = AdjointFiniteElementSolver("first_adj_fe_solver",myresponse,adj_fe_setting)
     first_adj_fe_solver.Initialize()
 
-    FE_adj_UVW = first_adj_fe_solver.Solve(K_matrix[eval_id],
+    FE_adj_UV = first_adj_fe_solver.Solve(K_matrix[eval_id],
                             FE_UV,
                             jnp.ones(2*fe_mesh.GetNumberOfNodes()))
     
-    myresponse.ComputeResponseNodalControlDerivatives(K_matrix[eval_id],FE_UV)
-
     plot_mesh_vec_data(1,[FE_UV[0::2],FE_UV[1::2],
-                          FE_adj_UVW[0::2],FE_adj_UVW[1::2]],
+                          FE_adj_UV[0::2],FE_adj_UV[1::2]],
                     ["U","V","adj-U","adj-V"],
                     fig_title=" FEM and adj FEM solution",
                     file_name=os.path.join(case_dir,f"FEM-adj-UV-dist_test_{eval_id}.png"))
 
+    control_derivatives = myresponse.ComputeAdjointNodalControlDerivatives(K_matrix[eval_id],FE_UV,FE_adj_UV)
+    shape_derivatives = myresponse.ComputeAdjointNodalShapeDerivatives(K_matrix[eval_id],FE_UV,FE_adj_UV)
 
+    plot_mesh_vec_data(1,[shape_derivatives[0::3],shape_derivatives[1::3],
+                          shape_derivatives[2::3],control_derivatives],
+                    ["df/dx","df/dy","df/dz","df/dE"],
+                    fig_title="adjoint-based derivatives",
+                    file_name=os.path.join(case_dir,f"adjoint_derivatives_{eval_id}.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)
