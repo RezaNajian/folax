@@ -10,7 +10,8 @@ scripts_and_args = [
     ("mechanical_box","neo_hooke_mechanical.py", "clean_dir=true","fol_num_epochs=10"),
     ("mechanical_hook","hook.py", "clean_dir=true","fol_num_epochs=10"),
     ("mechanical_square", "mechanical_2D_poly.py", "clean_dir=true", "fol_num_epochs=10"),
-    ("mechanical_square", "neo_hooke_mechanical_2D.py", "clean_dir=true", "fol_num_epochs=10")
+    ("mechanical_square", "neo_hooke_mechanical_2D.py", "clean_dir=true", "fol_num_epochs=10"),
+    ("MNIST", "mnist_classifier.py", "clean_dir=true", "num_epochs=10")
 ]
 
 # Run each script with its arguments
