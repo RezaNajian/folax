@@ -3,19 +3,17 @@ import os
 import optax
 import numpy as np
 from fol.loss_functions.mechanical import MechanicalLoss2DQuad
-from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.responses.fe_response import FiniteElementResponse
 from fol.solvers.adjoint_fe_solver import AdjointFiniteElementSolver
+from fol.tools.decoration_functions import *
 import pickle
 import jax
 import jax.numpy as jnp
-import sympy as sp
-from sympy import Matrix, MatrixSymbol
-from sympy.utilities.lambdify import lambdify
+
 
 # directory & save handling
 working_directory_name = 'square_mechanical_2D'
@@ -74,6 +72,8 @@ for test in range(0,1):
     linear_fe_solver.Initialize()
     FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
     fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+
+    fol_info(f"myresponse.ComputeValue:{myresponse.ComputeValue(K_matrix[eval_id],FE_UV)}")
 
     plot_mesh_vec_data(1,[K_matrix[eval_id,:],FE_UV[0::2],FE_UV[1::2]],
                     ["K","U","V"],
