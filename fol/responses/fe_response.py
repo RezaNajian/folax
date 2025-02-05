@@ -10,14 +10,31 @@ from fol.loss_functions.fe_loss import FiniteElementLoss
 from fol.controls.control import Control
 import jax
 import jax.numpy as jnp
-from sympy import symbols, Matrix
-from sympy.parsing.sympy_parser import parse_expr
-from sympy.utilities.lambdify import lambdify
-
 
 class FiniteElementResponse(Response):
+    """
+    A derived class that represents a finite element response in numerical optimization.
+
+    This class extends the `Response` base class and provides functionalities for handling
+    finite element loss computations, control parameters, and response evaluations using JAX.
+
+    Attributes:
+        response_formula (str): The formula used to compute the response.
+        fe_loss (FiniteElementLoss): The finite element loss object containing DOFs and problem settings.
+        control (Control): The control object representing optimization parameters.
+    """
 
     def __init__(self, name: str, response_formula: str, fe_loss: FiniteElementLoss, control: Control):
+        """
+        Initializes the `FiniteElementResponse` object.
+
+        Args:
+            name (str): The name of the response.
+            response_formula (str): A string representation of the response formula.
+            fe_loss (FiniteElementLoss): A finite element loss object containing DOFs and configurations.
+            control (Control): A control object representing optimization parameters.
+        """
+
         super().__init__(name)
         self.response_formula = response_formula
         self.fe_loss = fe_loss
@@ -25,6 +42,15 @@ class FiniteElementResponse(Response):
 
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
+        """
+        Initializes the finite element response by setting up necessary computations.
+
+        If the response is already initialized, it will not be reinitialized unless
+        explicitly requested.
+
+        Args:
+            reinitialize (bool, optional): If True, forces reinitialization. Defaults to False.
+        """
 
         if self.initialized and not reinitialize:
             return
@@ -45,6 +71,18 @@ class FiniteElementResponse(Response):
 
     @partial(jit, static_argnums=(0,))
     def CalculateNMatrix2D(self,N_vec:jnp.array) -> jnp.array:
+        """
+        Computes the shape function matrix (N) for 2D finite elements.
+
+        This function generates a 2x(2*N) shape function matrix, where N is the number of shape functions.
+
+        Args:
+            N_vec (jnp.array): The vector of shape function values.
+
+        Returns:
+            jnp.array: The computed 2D shape function matrix.
+        """
+
         N_mat = jnp.zeros((2, 2 * N_vec.size))
         indices = jnp.arange(N_vec.size)   
         N_mat = N_mat.at[0, 2 * indices].set(N_vec)
@@ -53,6 +91,18 @@ class FiniteElementResponse(Response):
     
     @partial(jit, static_argnums=(0,))
     def CalculateNMatrix3D(self,N_vec:jnp.array) -> jnp.array:
+        """
+        Computes the shape function matrix (N) for 3D finite elements.
+
+        This function generates a 3x(3*N) shape function matrix, where N is the number of shape functions.
+
+        Args:
+            N_vec (jnp.array): The vector of shape function values.
+
+        Returns:
+            jnp.array: The computed 3D shape function matrix.
+        """
+
         N_mat = jnp.zeros((3,3*N_vec.size))
         N_mat = N_mat.at[0,0::3].set(N_vec)
         N_mat = N_mat.at[1,1::3].set(N_vec)
@@ -61,6 +111,21 @@ class FiniteElementResponse(Response):
 
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValue(self,xyze,de,uvwe):
+        """
+        Computes the response value for a single finite element.
+
+        This method calculates the response contribution from a single element by integrating 
+        over the element's Gauss points.
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+
+        Returns:
+            jnp.array: The computed response value for the element.
+        """
+
         @jit
         def compute_at_gauss_point(gp_point,gp_weight):
             N_vec = self.fe_loss.fe_element.ShapeFunctionsValues(gp_point)
@@ -77,14 +142,50 @@ class FiniteElementResponse(Response):
     
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueStateGrad(self,xyze,de,uvwe):
+        """
+        Computes the gradient of the response's element with respect to the state variables.
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+
+        Returns:
+            jnp.array: The gradient of the response with respect to the state variables.
+        """
+
         return jax.grad(self.ComputeResponseElementValue,argnums=2)(xyze,de,uvwe)
     
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueControlGrad(self,xyze,de,uvwe):
+        """
+        Computes the gradient of the response's element with respect to the control variables.
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+
+        Returns:
+            jnp.array: The gradient of the response with respect to the control variables.
+        """
+
         return jax.grad(self.ComputeResponseElementValue,argnums=1)(xyze,de,uvwe)
     
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueShapeGrad(self,xyze,de,uvwe):
+        """
+        Computes the gradient of the response's element with respect to the shape (nodal coordinates).
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+
+        Returns:
+            jnp.array: The gradient of the response with respect to the nodal coordinates, flattened.
+        """
+
         return jax.grad(self.ComputeResponseElementValue,argnums=0)(xyze,de,uvwe).flatten()
 
     @partial(jit, static_argnums=(0,))
@@ -94,32 +195,43 @@ class FiniteElementResponse(Response):
                                            xyz:jnp.array,
                                            full_control_vector:jnp.array,
                                            full_dof_vector:jnp.array):
+        """
+        Computes the response value for a single element in a vectorized-compatible manner.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+
+        Returns:
+            jnp.array: The computed response value for the given element.
+        """
         return self.ComputeResponseElementValue(xyz[elements_nodes[element_id],:],
                                          full_control_vector[elements_nodes[element_id]],
                                          full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                          jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1))
 
-    @partial(jit, static_argnums=(0,))
-    def ComputeResponseElementsValues(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
-        # parallel calculation of element values
-        return jax.vmap(self.ComputeResponseElementValueVmapCompatible,(0,None,None,None,None)) \
-                        (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
-                        self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type),
-                        self.fe_loss.fe_mesh.GetNodesCoordinates(),
-                        total_control_vars,
-                        total_primal_vars)
-
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def ComputeValue(self,nodal_control_values:jnp.array,nodal_dof_values:jnp.array):
-        return jnp.sum(self.ComputeResponseElementsValues(nodal_control_values,nodal_dof_values))
+        """
+        Computes the total response value by summing the contributions from all elements.
 
-    @partial(jit, static_argnums=(0,))
-    def ComputeElementRHS(self,
-                          elem_xyz:jnp.array,
-                          elem_controls:jnp.array,
-                          elem_dofs:jnp.array):
-        return self.ComputeResponseElementValueStateGrad(elem_xyz,elem_controls,elem_dofs)
+        Args:
+            nodal_control_values (jnp.array): The global nodal control variable vector.
+            nodal_dof_values (jnp.array): The global nodal state variable vector.
+
+        Returns:
+            jnp.array: The total computed response value.
+        """
+        return jnp.sum(jax.vmap(self.ComputeResponseElementValueVmapCompatible,(0,None,None,None,None)) \
+                        (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
+                        self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type),
+                        self.fe_loss.fe_mesh.GetNodesCoordinates(),
+                        nodal_control_values,
+                        nodal_dof_values))
 
     @partial(jit, static_argnums=(0,))
     def ComputeElementRHSVmapCompatible(self,element_id:jnp.integer,
@@ -127,7 +239,24 @@ class FiniteElementResponse(Response):
                                             xyz:jnp.array,
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array):
-        return self.ComputeElementRHS(xyz[elements_nodes[element_id],:],
+        """
+        Computes the RHS vector for a single element in a vectorized-compatible manner.
+
+        The element RHS vector is obtained as the gradient of the response with respect to 
+        the element's state variables.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+
+        Returns:
+            jnp.array: The computed RHS vector for the given element.
+        """
+
+        return self.ComputeResponseElementValueStateGrad(xyz[elements_nodes[element_id],:],
                                       full_control_vector[elements_nodes[element_id]],
                                       full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1))
@@ -135,7 +264,23 @@ class FiniteElementResponse(Response):
 
     @print_with_timestamp_and_execution_time
     def ComputeAdjointJacobianMatrixAndRHSVector(self,nodal_control_values:jnp.array,nodal_dof_values:jnp.array):
-        
+        """
+        Computes the adjoint Jacobian matrix and RHS vector for the finite element system.
+
+        The RHS vector is computed by summing element-wise contributions, applying Dirichlet 
+        boundary conditions, and scaling appropriately. The adjoint Jacobian matrix is obtained from 
+        the finite element loss function, which is transpose of the state Jacobian matrix.
+
+        Args:
+            nodal_control_values (jnp.array): The global nodal control variable vector.
+            nodal_dof_values (jnp.array): The global nodal state variable vector.
+
+        Returns:
+            Tuple[jnp.array, jnp.array]: A tuple containing:
+                - sparse_jacobian (jnp.array): The computed adjoint Jacobian matrix.
+                - rhs_vector (jnp.array): The computed RHS vector for the system.
+        """
+
         elements_rhs = jax.vmap(self.ComputeElementRHSVmapCompatible,(0,None,None,None,None)) \
                                                             (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
                                                              self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type),
@@ -165,6 +310,21 @@ class FiniteElementResponse(Response):
                                             xyz:jnp.array,
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array):
+        """
+        Computes the local nodal shape derivatives of the response function for a given element 
+        in a vectorized-compatible manner.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+
+        Returns:
+            jnp.array: The computed shape derivatives for the given element.
+        """
+
         return self.ComputeResponseElementValueShapeGrad(xyz[elements_nodes[element_id],:],
                                                     full_control_vector[elements_nodes[element_id]],
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -172,6 +332,22 @@ class FiniteElementResponse(Response):
 
     @partial(jit, static_argnums=(0,))
     def ComputeLossElementShapeGrad(self,xyze,de,uvwe,adj_uvwe):
+        """
+        Computes the adjoint-based shape gradient of the loss function for a given finite element.
+
+        This function calculates the sensitivity of the loss function with respect to 
+        nodal coordinates using automatic differentiation (jacobian of the residual) and adjoint vars.
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+            adj_uvwe (jnp.array): The adjoint state variables.
+
+        Returns:
+            jnp.array: The shape gradient of the loss function for the element.
+        """
+
         jacobian_fn = jax.jacrev(lambda *args: self.fe_loss.ComputeElement(*args)[1], argnums=0)
         res_shape_grads = jnp.squeeze(jacobian_fn(xyze, de, uvwe))
         res_shape_grads = res_shape_grads.reshape(*res_shape_grads.shape[:-2], -1)
@@ -184,6 +360,21 @@ class FiniteElementResponse(Response):
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array,
                                             full_adj_dof_vector:jnp.array):
+        """
+        Computes the shape derivatives of the loss function for an element in a vectorized-compatible manner.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+            full_adj_dof_vector (jnp.array): The global adjoint state variable vector.
+
+        Returns:
+            jnp.array: The computed shape derivatives for the given element.
+        """
+
         return self.ComputeLossElementShapeGrad(xyz[elements_nodes[element_id],:],
                                                     full_control_vector[elements_nodes[element_id]],
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -196,6 +387,21 @@ class FiniteElementResponse(Response):
     def ComputeAdjointNodalShapeDerivatives(self,nodal_control_values:jnp.array,
                                                  nodal_dof_values:jnp.array,
                                                  nodal_adj_dof_values:jnp.array):
+        """
+        Computes the adjoint-based nodal shape derivatives for the entire finite element mesh.
+
+        This function calculates local shape derivatives for each element using automatic differentiation,
+        then assembles the global derivative vector.
+
+        Args:
+            nodal_control_values (jnp.array): The global nodal control variable vector.
+            nodal_dof_values (jnp.array): The global nodal state variable vector.
+            nodal_adj_dof_values (jnp.array): The global adjoint state variable vector.
+
+        Returns:
+            jnp.array: The assembled global shape derivative vector.
+        """        
+
         response_elements_local_shape_derv = jax.vmap(self.ComputeResponseLocalNodalShapeDerivativesVmapCompatible,(0,None,None,None,None)) \
                                                             (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
                                                              self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type),
@@ -226,6 +432,21 @@ class FiniteElementResponse(Response):
                                             xyz:jnp.array,
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array):
+        """
+        Computes the local nodal control derivatives of the response function for a given element 
+        in a vectorized-compatible manner.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+
+        Returns:
+            jnp.array: The computed control derivatives for the given element.
+        """
+        
         return self.ComputeResponseElementValueControlGrad(xyz[elements_nodes[element_id],:],
                                                     full_control_vector[elements_nodes[element_id]],
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -233,6 +454,22 @@ class FiniteElementResponse(Response):
 
     @partial(jit, static_argnums=(0,))
     def ComputeLossElementControlGrad(self,xyze,de,uvwe,adj_uvwe):
+        """
+        Computes the adjoint-based control gradient of the loss function for a given finite element.
+
+        This function calculates the sensitivity of the loss function with respect to control variables
+        using automatic differentiation (jacobian of the residual) and element adjoint vector.
+
+        Args:
+            xyze (jnp.array): The nodal coordinates of the element.
+            de (jnp.array): The control variables associated with the element.
+            uvwe (jnp.array): The state variables (displacements) associated with the element.
+            adj_uvwe (jnp.array): The adjoint state variables.
+
+        Returns:
+            jnp.array: The control gradient of the loss function for the element.
+        """
+
         jacobian_fn = jax.jacrev(lambda *args: self.fe_loss.ComputeElement(*args)[1], argnums=1)
         res_control_grads = jnp.squeeze(jacobian_fn(xyze, de, uvwe))
         return (adj_uvwe.T @ res_control_grads).flatten()
@@ -244,6 +481,21 @@ class FiniteElementResponse(Response):
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array,
                                             full_adj_dof_vector:jnp.array):
+        """
+        Computes the control derivatives of the loss function for an element in a vectorized-compatible manner.
+
+        Args:
+            element_id (jnp.integer): The ID of the element.
+            elements_nodes (jnp.array): The connectivity matrix of elements to nodes.
+            xyz (jnp.array): The coordinates of all nodes.
+            full_control_vector (jnp.array): The global control variable vector.
+            full_dof_vector (jnp.array): The global state variable vector.
+            full_adj_dof_vector (jnp.array): The global adjoint state variable vector.
+
+        Returns:
+            jnp.array: The computed control derivatives for the given element.
+        """
+
         return self.ComputeLossElementControlGrad(xyz[elements_nodes[element_id],:],
                                                     full_control_vector[elements_nodes[element_id]],
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -256,6 +508,21 @@ class FiniteElementResponse(Response):
     def ComputeAdjointNodalControlDerivatives(self,nodal_control_values:jnp.array,
                                                    nodal_dof_values:jnp.array,
                                                    nodal_adj_dof_values:jnp.array):
+        """
+        Computes the adjoint-based nodal control derivatives for the entire finite element mesh.
+
+        This function calculates local control derivatives for each element using automatic differentiation,
+        then assembles the global derivative vector.
+
+        Args:
+            nodal_control_values (jnp.array): The global nodal control variable vector.
+            nodal_dof_values (jnp.array): The global nodal state variable vector.
+            nodal_adj_dof_values (jnp.array): The global adjoint state variable vector.
+
+        Returns:
+            jnp.array: The assembled global control derivative vector.
+        """
+
         response_elements_local_control_derv = jax.vmap(self.ComputeResponseLocalNodalControlDerivativesVmapCompatible,(0,None,None,None,None)) \
                                                             (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
                                                              self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type),
@@ -279,6 +546,14 @@ class FiniteElementResponse(Response):
             grad_vector = grad_vector.at[number_controls_per_node*self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type)+control_idx].add(jnp.squeeze(total_elem_control_grads[:,control_idx::number_controls_per_node]))
 
         return grad_vector
+    
+    @print_with_timestamp_and_execution_time
+    def ComputeFDNodalControlDerivatives(self):
+        pass
+
+    @print_with_timestamp_and_execution_time
+    def ComputeFDNodalShapeDerivatives(self):
+        pass
 
     def Finalize(self) -> None:
         pass

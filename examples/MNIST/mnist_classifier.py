@@ -105,7 +105,7 @@ def main(num_epochs=10,clean_dir=False):
                     test_set=(data_dict["test_images"][start_test_id:end_test_id],data_dict["test_labels"][start_test_id:end_test_id].reshape(-1,1)),
                     test_settings={"test_frequency":10},
                     batch_size=10,
-                    convergence_settings={"num_epochs":20,"relative_error":1e-100,"absolute_error":1e-100},
+                    convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
                     plot_settings={"plot_save_rate":10},
                     save_settings={"save_nn_model":True,
                                   "best_model_checkpointing":True,
@@ -146,7 +146,7 @@ def main(num_epochs=10,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    num_epochs = 2000
+    num_epochs = 200
     clean_dir = False
 
     # Parse the command-line arguments
