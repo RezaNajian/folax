@@ -8,8 +8,11 @@ from fol.tools.decoration_functions import *
 from fol.tools.fem_utilities import *
 from fol.loss_functions.fe_loss import FiniteElementLoss
 from fol.controls.control import Control
+from fol.solvers.fe_solver import FiniteElementSolver
 import jax
+from tqdm import trange
 import jax.numpy as jnp
+import numpy as np
 
 class FiniteElementResponse(Response):
     """
@@ -214,7 +217,6 @@ class FiniteElementResponse(Response):
                                          jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1))
 
     @print_with_timestamp_and_execution_time
-    @partial(jit, static_argnums=(0,))
     def ComputeValue(self,nodal_control_values:jnp.array,nodal_dof_values:jnp.array):
         """
         Computes the total response value by summing the contributions from all elements.
@@ -299,8 +301,8 @@ class FiniteElementResponse(Response):
         # multiple by -1 
         rhs_vector *= -1
 
-        # get the jacobian of the loss
-        sparse_jacobian,_ = self.fe_loss.ComputeJacobianMatrixAndResidualVector(nodal_control_values,nodal_dof_values,False)
+        # get the jacobian of the loss with transpose flag 
+        sparse_jacobian,_ = self.fe_loss.ComputeJacobianMatrixAndResidualVector(nodal_control_values,nodal_dof_values,True)
 
         return sparse_jacobian,rhs_vector
 
@@ -541,19 +543,95 @@ class FiniteElementResponse(Response):
         total_elem_control_grads = response_elements_local_control_derv + elements_residuals_adj_control_derv
         # compute the global derivative vector
         grad_vector = jnp.zeros((self.control.num_controlled_vars))
-        number_controls_per_node = number_controls_per_node = int(self.control.num_controlled_vars / self.fe_loss.fe_mesh.GetNumberOfNodes())
+        number_controls_per_node = int(self.control.num_controlled_vars / self.fe_loss.fe_mesh.GetNumberOfNodes())
         for control_idx in range(number_controls_per_node):
             grad_vector = grad_vector.at[number_controls_per_node*self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type)+control_idx].add(jnp.squeeze(total_elem_control_grads[:,control_idx::number_controls_per_node]))
 
         return grad_vector
     
     @print_with_timestamp_and_execution_time
-    def ComputeFDNodalControlDerivatives(self):
-        pass
+    def ComputeFDNodalControlDerivatives(self,nodal_control_values:jnp.array,
+                                              fe_solver:FiniteElementSolver,
+                                              fd_step_size:float=1e-4,
+                                              fd_mode="FWD"):
+        # solve for the unperturbed controls
+        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+
+        if fd_mode=="FWD" or fd_mode=="CD":
+            unpert_res_val = self.ComputeValue(nodal_control_values,unpert_dofs)
+        else:
+            fol_error("only Forward (FWD), Central Difference (CD) methods are implemented !")
+
+        pbar = trange(nodal_control_values.shape[0])
+
+        FD_grad_vector = jnp.zeros((nodal_control_values.shape[0]))
+        for control_idx in pbar:
+            # per forward
+            nodal_control_values = nodal_control_values.at[control_idx].add(fd_step_size)
+            # calculate fw
+            fw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+            fw_res_val = self.ComputeValue(nodal_control_values,fw_dofs)
+            if fd_mode=="FWD":
+                FD_sens = (fw_res_val-unpert_res_val)/fd_step_size
+            
+            # remove pert
+            nodal_control_values = nodal_control_values.at[control_idx].add(-fd_step_size)
+
+            # now backward if CD
+            if fd_mode=="CD":
+                nodal_control_values = nodal_control_values.at[control_idx].add(-fd_step_size)
+                bw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+                bw_res_val = self.ComputeValue(nodal_control_values,bw_dofs)
+                FD_sens = (fw_res_val-bw_res_val)/(2*fd_step_size)
+                # remove pert
+                nodal_control_values = nodal_control_values.at[control_idx].add(fd_step_size)
+
+            pbar.set_postfix({f"control:":control_idx,f"{fd_mode} sensitivity:":FD_sens})
+
+            FD_grad_vector = FD_grad_vector.at[control_idx].set(FD_sens)
+
+        return FD_grad_vector
 
     @print_with_timestamp_and_execution_time
-    def ComputeFDNodalShapeDerivatives(self):
-        pass
+    def ComputeFDNodalShapeDerivatives(self,nodal_control_values:jnp.array,
+                                            fe_solver:FiniteElementSolver,
+                                            fd_step_size:float=1e-4,
+                                            fd_mode="FWD"):
+        # solve for the unperturbed controls
+        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+
+        if fd_mode=="FWD" or fd_mode=="CD":
+            unpert_res_val = self.ComputeValue(nodal_control_values,unpert_dofs)
+        else:
+            fol_error("only Forward (FWD), Central Difference (CD) methods are implemented !")
+
+        pbar = trange(self.fe_loss.fe_mesh.GetNumberOfNodes())
+
+        def pert_and_compute(node_idx,component):
+            self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(fd_step_size)
+            fw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+            fw_pert_res_val = self.ComputeValue(nodal_control_values,fw_pert_dofs)
+            if fd_mode=="FWD":
+                self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(-fd_step_size)
+                return (fw_pert_res_val-unpert_res_val)/fd_step_size
+            elif fd_mode=="CD":
+                self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(-2*fd_step_size)
+                bw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+                bw_pert_res_val = self.ComputeValue(nodal_control_values,bw_pert_dofs)
+                self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(fd_step_size)
+                return (fw_pert_res_val-bw_pert_res_val)/(2*fd_step_size)
+
+        FD_grad_vector = jnp.zeros((self.fe_loss.fe_mesh.GetNumberOfNodes(),3))
+        for node_idx in pbar:
+            FD_sens = jnp.zeros((3))
+            for component in range(self.fe_loss.dim):
+                FD_sens = FD_sens.at[component].set(pert_and_compute(node_idx,component))
+            
+            FD_grad_vector = FD_grad_vector.at[node_idx].set(FD_sens)
+
+            pbar.set_postfix({f"Node:":node_idx,f"{fd_mode} shape sensitivity:":FD_sens})
+
+        return FD_grad_vector.flatten()
 
     def Finalize(self) -> None:
         pass

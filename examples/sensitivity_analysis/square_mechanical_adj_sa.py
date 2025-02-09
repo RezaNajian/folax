@@ -22,7 +22,7 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":51,
+model_settings = {"L":1,"N":11,
                     "Ux_left":0.0,"Ux_right":0.05,
                     "Uy_left":0.0,"Uy_right":0.05}
 
@@ -64,7 +64,7 @@ for test in range(0,1):
     eval_id = test
 
     # solve FE here
-    fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
+    fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                                 "maxiter":1000,"pre-conditioner":"ilu"},
                     "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                 "maxiter":10,"load_incr":5}}
@@ -98,10 +98,22 @@ for test in range(0,1):
     control_derivatives = myresponse.ComputeAdjointNodalControlDerivatives(K_matrix[eval_id],FE_UV,FE_adj_UV)
     shape_derivatives = myresponse.ComputeAdjointNodalShapeDerivatives(K_matrix[eval_id],FE_UV,FE_adj_UV)
 
+    # now compute FD-based sensitivities
+    FD_control_sens = myresponse.ComputeFDNodalControlDerivatives(K_matrix[eval_id],linear_fe_solver,
+                                                          fd_step_size=1e-5,fd_mode="CD")
+
+    plot_mesh_vec_data(1,[control_derivatives,FD_control_sens],
+                          ["df/dE","FD-df/dE"],
+                          fig_title="Control Derivatives Verification",
+                          file_name=os.path.join(case_dir,f"control_derivatives_verification_{eval_id}.png"))
+    
+    FD_shape_sens = myresponse.ComputeFDNodalShapeDerivatives(K_matrix[eval_id],linear_fe_solver,
+                                                              fd_step_size=1e-5,fd_mode="CD")
+
     plot_mesh_vec_data(1,[shape_derivatives[0::3],shape_derivatives[1::3],
-                          shape_derivatives[2::3],control_derivatives],
-                    ["df/dx","df/dy","df/dz","df/dE"],
-                    fig_title="adjoint-based derivatives",
-                    file_name=os.path.join(case_dir,f"adjoint_derivatives_{eval_id}.png"))
+                          FD_shape_sens[0::3],FD_shape_sens[1::3]],
+                          ["df/dx","df/dy","FD-df/dx","FD-df/dy"],
+                          fig_title="Shape Derivatives Verification",
+                          file_name=os.path.join(case_dir,f"shape_derivatives_verification_{eval_id}.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)
