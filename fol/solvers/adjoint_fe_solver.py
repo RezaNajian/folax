@@ -18,6 +18,8 @@ class AdjointFiniteElementSolver(FiniteElementSolver):
     @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars:jnp.array,current_dofs:jnp.array,current_adjoint_dofs:jnp.array):
         BC_applied_jac,BC_applied_rhs = self.fe_response.ComputeAdjointJacobianMatrixAndRHSVector(current_control_vars,current_dofs)
+        # here we need to multiply by -1 since the solver later mutiplies by -1
+        BC_applied_rhs *= -1
         return self.LinearSolve(BC_applied_jac,BC_applied_rhs,current_adjoint_dofs)
 
         
