@@ -70,8 +70,7 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
                 Defaults to the current directory ('.').
         """
         super().__init__(name,loss_function,flax_neural_network,
-                         optax_optimizer,checkpoint_settings,
-                         working_directory)
+                         optax_optimizer)
         self.control = control
         
     @print_with_timestamp_and_execution_time

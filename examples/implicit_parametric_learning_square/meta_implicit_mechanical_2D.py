@@ -104,10 +104,7 @@ fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fou
                                             flax_neural_network=hyper_network,
                                             main_loop_optax_optimizer=main_loop_transform,
                                             latent_step_size=1e-2,
-                                            num_latent_iterations=3,
-                                            checkpoint_settings={"restore_state":False,
-                                            "state_directory":case_dir+"/flax_state"},
-                                            working_directory=case_dir)
+                                            num_latent_iterations=3)
 fol.Initialize()
 
 train_start_id = 0
@@ -130,11 +127,11 @@ fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
                                    "interval_state_checkpointing":True,
                                    "interval_state_checkpointing_frequency":5,
                                    "interval_state_checkpointing_directory":case_dir,
-                                   "final_state_directory":case_dir+"/flax_final_state"})
+                                   "final_state_directory":case_dir+"/flax_final_state"},
+          working_directory=case_dir)
 
 # load teh best model
 fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
-
 
 for test in range(train_start_id,test_end_id):
     eval_id = test
