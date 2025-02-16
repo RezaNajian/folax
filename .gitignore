@@ -10,3 +10,4 @@ dist/
 build/
 play_ground/
 flax_state/
+*-py-env

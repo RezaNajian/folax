@@ -110,7 +110,6 @@ fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fou
                                             working_directory=case_dir)
 fol.Initialize()
 
-
 train_start_id = 0
 train_end_id = 20
 test_start_id = 3*train_end_id
@@ -118,15 +117,24 @@ test_end_id = 4*train_end_id
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
           test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-          test_settings={"test_frequency":10},batch_size=1,
-            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-            plot_settings={"plot_save_rate":100},
-            save_settings={"save_nn_model":True,
-                         "best_model_checkpointing":True,
-                         "best_model_checkpointing_frequency":100})
+          test_frequency=10,
+          batch_size=1,
+          convergence_settings={"num_epochs":17,
+                                "relative_error":1e-100,
+                                "absolute_error":1e-100},
+          plot_settings={"save_frequency":100},
+          restore_nnx_state_settings={"restore":False,"state_directory":case_dir+"/flax_final_state"},
+          train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10,"state_directory":case_dir+"/flax_train_state"},
+          test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":12,"state_directory":case_dir+"/flax_test_state"},
+          save_nnx_state_settings={"save_final_state":True,
+                                   "interval_state_checkpointing":True,
+                                   "interval_state_checkpointing_frequency":5,
+                                   "interval_state_checkpointing_directory":case_dir,
+                                   "final_state_directory":case_dir+"/flax_final_state"})
 
 # load teh best model
-fol.RestoreCheckPoint(fol.checkpoint_settings)
+fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
+
 
 for test in range(train_start_id,test_end_id):
     eval_id = test
