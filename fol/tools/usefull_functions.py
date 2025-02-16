@@ -8,6 +8,7 @@ import meshio
 import os
 import shutil
 from fol.mesh_input_output.mesh import Mesh
+import copy
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -641,5 +642,6 @@ def Neo_Hooke(F,k,mu):
 
 def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     filtered_update = {k: given_dict[k] for k in default_dict if k in given_dict}
-    default_dict.update(filtered_update)
-    return default_dict
+    updated_dict = copy.deepcopy(default_dict)
+    updated_dict.update(filtered_update)
+    return updated_dict
