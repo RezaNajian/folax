@@ -69,10 +69,7 @@ class TestMechanicalNL2D(unittest.TestCase):
         self.fol = ExplicitParametricOperatorLearning(name="dis_fol",control=self.fourier_control,
                                                         loss_function=self.mechanical_loss,
                                                         flax_neural_network=fol_net,
-                                                        optax_optimizer=chained_transform,
-                                                        checkpoint_settings={"restore_state":False,
-                                                        "state_directory":self.test_directory+"/flax_state"},
-                                                        working_directory=self.test_directory)
+                                                        optax_optimizer=chained_transform)
 
         self.fol.Initialize()
         self.fe_solver.Initialize()
@@ -81,7 +78,8 @@ class TestMechanicalNL2D(unittest.TestCase):
     def test_compute(self):
 
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":200})
+                       convergence_settings={"num_epochs":200},
+                       working_directory=self.test_directory)
 
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
         UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1,:],np.zeros(UV_FOL.shape)))

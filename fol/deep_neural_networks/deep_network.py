@@ -46,29 +46,23 @@ class DeepNetwork(ABC):
     """
     default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
                                     "relative_error":1e-8,"absolute_error":1e-8}
-    default_plot_settings = {"plot_list":["total_loss"],"plot_frequency":1,"save_frequency":100}
-    default_restore_nnx_state_settings = {"restore":False,"state_directory":"./flax_state"}
-    default_train_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"./flax_train_state"}
-    default_test_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"./flax_test_state"}
-    default_save_nnx_state_settings = {"save_final_state":True,"final_state_directory":"./flax_final_state",
+    default_plot_settings = {"plot_list":["total_loss"],"plot_frequency":1,"save_frequency":100,"save_directory":"."}
+    default_restore_nnx_state_settings = {"restore":False,"state_directory":"flax_state"}
+    default_train_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"flax_train_state"}
+    default_test_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"flax_test_state"}
+    default_save_nnx_state_settings = {"save_final_state":True,"final_state_directory":"flax_final_state",
                                        "interval_state_checkpointing":False,"interval_state_checkpointing_frequency":0,"interval_state_checkpointing_directory":"."}
 
     def __init__(self,
                  name:str,
                  loss_function:Loss,
                  flax_neural_network:nnx.Module,
-                 optax_optimizer:GradientTransformation,
-                 checkpoint_settings:dict={},
-                 working_directory='.'):
+                 optax_optimizer:GradientTransformation):
         self.name = name
         self.loss_function = loss_function
         self.flax_neural_network = flax_neural_network
         self.optax_optimizer = optax_optimizer
-        self.checkpoint_settings = checkpoint_settings
-        self.working_directory = working_directory
         self.initialized = False
-        self.default_checkpoint_settings = {"restore_state":False,
-                                            "state_directory":'./flax_state'}
 
     def Initialize(self,reinitialize=False) -> None:
         """
@@ -100,52 +94,8 @@ class DeepNetwork(ABC):
         # create orbax checkpointer
         self.checkpointer = ocp.StandardCheckpointer()
 
-        self.checkpoint_settings = UpdateDefaultDict(self.default_checkpoint_settings,
-                                                     self.checkpoint_settings)
-        
-        # restore flax nn.Module from the file
-        if self.checkpoint_settings["restore_state"]:
-            self.RestoreCheckPoint(self.checkpoint_settings)
-
         # initialize the nnx optimizer
         self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)
-
-    def CreateBatches(self,data: Tuple[jnp.ndarray, jnp.ndarray], batch_size: int) -> Iterator[jnp.ndarray]:
-        """
-        Creates batches from the input dataset.
-
-        This method splits the input data into batches of a specified size, 
-        yielding input data and optionally target labels if provided.
-
-        Parameters
-        ----------
-        data : Tuple[jnp.ndarray, jnp.ndarray]
-            A tuple of input data and target labels.
-        batch_size : int
-            The number of samples per batch.
-
-        Yields
-        ------
-        Iterator[jnp.ndarray]
-            Batches of input data and optionally target labels.
-        """
-
-        # Unpack data into data_x and data_y
-        if len(data) > 1:
-            data_x, data_y = data  
-            if data_x.shape[0] != data_y.shape[0]:
-                fol_error("data_x and data_y must have the same number of samples.")
-        else:
-            data_x = data[0]
-
-        # Iterate over the dataset and yield batches of data_x and data_y
-        for i in range(0, data_x.shape[0], batch_size):
-            batch_x = data_x[i:i+batch_size, :]
-            if len(data) > 1:
-                batch_y = data_y[i:i+batch_size, :]
-                yield batch_x, batch_y
-            else:
-                yield batch_x,
 
     def GetName(self) -> str:
         """
@@ -210,70 +160,6 @@ class DeepNetwork(ABC):
                                          loss_name+"_avg":jnp.mean(batch_avgs),
                                          "total_loss":total_mean_loss})
 
-    # @partial(jax.jit, static_argnums=(0,))
-    # def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, 
-    #                     train_batch:Tuple[jnp.ndarray, jnp.ndarray]):
-    #     """
-    #     Performs a single training step.
-
-    #     This method computes the loss for a batch of data, calculates gradients, and updates 
-    #     the model's parameters using the provided optimizer.
-
-    #     Parameters
-    #     ----------
-    #     nn_model : nnx.Module
-    #         The Flax neural network model.
-    #     optimizer : nnx.Optimizer
-    #         The flax optimizer to apply the gradients to the model.
-    #     batch_set : Tuple[jnp.ndarray, jnp.ndarray]
-    #         A batch of input data and corresponding target labels.
-
-    #     Returns
-    #     -------
-    #     dict
-    #         A dictionary containing information about the training step, such as loss values.
-    #     """
-
-    #     nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
-
-    #     (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
-    #                                                                 (train_batch,nnx_model)
-    #     nnx_optimizer.update(batch_grads)
-    #     _, new_state = nnx.split((nnx_model, nnx_optimizer))
-    #     return batch_dict,new_state
-    
-    # @partial(jax.jit, static_argnums=(0,))
-    # def TestStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState,
-    #                    test_batch:Tuple[jnp.ndarray, jnp.ndarray]):
-    #     """
-    #     Performs a single test step.
-
-    #     This method evaluates the model's performance on a test batch by computing the loss and
-    #     returning additional metrics without updating the model parameters.
-
-    #     Parameters
-    #     ----------
-    #     nnx_graphdef : nnx.GraphDef
-    #         The neural network graph definition, specifying the model architecture and configurations.
-    #     nxx_state : nnx.GraphState
-    #         The state of the neural network, including parameters and optimizer state.
-    #     test_batch : Tuple[jnp.ndarray, jnp.ndarray]
-    #         A batch of input data and corresponding target labels for testing.
-
-    #     Returns
-    #     -------
-    #     tuple
-    #         A tuple containing:
-    #         - test_batch_dict (dict): A dictionary with information about the test step, such as loss values
-    #         and other computed metrics.
-    #         - state (nnx.GraphState): The updated state of the model after processing the test batch.
-    #     """
-
-    #     nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
-    #     (test_loss, test_batch_dict) = self.ComputeBatchLossValue(test_batch,nnx_model)
-    #     _, state = nnx.split((nnx_model, nnx_optimizer))
-    #     return test_batch_dict,state
-
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, state, data):
         nn, opt = state
@@ -299,20 +185,37 @@ class DeepNetwork(ABC):
               restore_nnx_state_settings:dict={},
               train_checkpoint_settings:dict={},
               test_checkpoint_settings:dict={},
-              save_nnx_state_settings:dict={}):
+              save_nnx_state_settings:dict={},
+              working_directory='.'):
 
         convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
         fol_info(f"convergence settings:{convergence_settings}")
-        plot_settings = UpdateDefaultDict(self.default_plot_settings,plot_settings)
+
+        default_plot_settings = copy.deepcopy(self.default_plot_settings)
+        default_plot_settings["save_directory"] = working_directory
+        plot_settings = UpdateDefaultDict(default_plot_settings,plot_settings)
         plot_settings["test_frequency"] = test_frequency
         fol_info(f"plot settings:{plot_settings}")
-        restore_nnx_state_settings = UpdateDefaultDict(self.default_restore_nnx_state_settings,restore_nnx_state_settings)
+
+        default_restore_nnx_state_settings = copy.deepcopy(self.default_restore_nnx_state_settings)
+        default_restore_nnx_state_settings["state_directory"] = working_directory + "/" + default_restore_nnx_state_settings["state_directory"]
+        restore_nnx_state_settings = UpdateDefaultDict(default_restore_nnx_state_settings,restore_nnx_state_settings)
         fol_info(f"restore settings:{restore_nnx_state_settings}")
-        train_checkpoint_settings = UpdateDefaultDict(self.default_train_checkpoint_settings,train_checkpoint_settings)
+
+        default_train_checkpoint_settings = copy.deepcopy(self.default_train_checkpoint_settings)
+        default_train_checkpoint_settings["state_directory"] = working_directory + "/" + default_train_checkpoint_settings["state_directory"]
+        train_checkpoint_settings = UpdateDefaultDict(default_train_checkpoint_settings,train_checkpoint_settings)
         fol_info(f"train checkpoint settings:{train_checkpoint_settings}")
-        test_checkpoint_settings = UpdateDefaultDict(self.default_test_checkpoint_settings,test_checkpoint_settings)
+
+        default_test_checkpoint_settings = copy.deepcopy(self.default_test_checkpoint_settings)
+        default_test_checkpoint_settings["state_directory"] = working_directory + "/" + default_test_checkpoint_settings["state_directory"]
+        test_checkpoint_settings = UpdateDefaultDict(default_test_checkpoint_settings,test_checkpoint_settings)
         fol_info(f"test checkpoint settings:{test_checkpoint_settings}")
-        save_nnx_state_settings = UpdateDefaultDict(self.default_save_nnx_state_settings,save_nnx_state_settings)
+        
+        default_save_nnx_state_settings = copy.deepcopy(self.default_save_nnx_state_settings)
+        default_save_nnx_state_settings["final_state_directory"] = working_directory + "/" + default_save_nnx_state_settings["final_state_directory"]
+        default_save_nnx_state_settings["interval_state_checkpointing_directory"] = working_directory + "/" + default_save_nnx_state_settings["interval_state_checkpointing_directory"]
+        save_nnx_state_settings = UpdateDefaultDict(default_save_nnx_state_settings,save_nnx_state_settings)
         fol_info(f"save nnx state settings:{save_nnx_state_settings}")
 
         # restore state if needed 
@@ -562,7 +465,7 @@ class DeepNetwork(ABC):
         plt.ylabel("Log Value")
         plt.legend()
         plt.grid(True)
-        plt.savefig(os.path.join(self.working_directory,"training_history.png"), bbox_inches='tight')
+        plt.savefig(os.path.join(plot_settings["save_directory"],"training_history.png"), bbox_inches='tight')
         plt.close()
 
     @abstractmethod

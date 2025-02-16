@@ -67,10 +67,7 @@ class TestMechanical3D(unittest.TestCase):
         self.fol = ExplicitParametricOperatorLearning(name="dis_fol",control=self.voronoi_control,
                                                         loss_function=self.mechanical_loss_3d,
                                                         flax_neural_network=fol_net,
-                                                        optax_optimizer=chained_transform,
-                                                        checkpoint_settings={"restore_state":False,
-                                                        "state_directory":self.test_directory+"/flax_state"},
-                                                        working_directory=self.test_directory)
+                                                        optax_optimizer=chained_transform)
 
         self.fol.Initialize()
         self.linear_fe_solver.Initialize()        
@@ -78,7 +75,8 @@ class TestMechanical3D(unittest.TestCase):
 
     def test_compute(self):
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":1000,"relative_error":1e-12,"absolute_error":1e-12})
+                       convergence_settings={"num_epochs":1000,"relative_error":1e-12,"absolute_error":1e-12},
+                       working_directory=self.test_directory)
         T_FOL = np.array(self.fol.Predict(self.coeffs_matrix.reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.linear_fe_solver.Solve(self.K_matrix,np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)
