@@ -22,19 +22,12 @@ class CategoricalDeepLearning(DeepNetwork):
     def __init__(self,
                  name:str,
                  flax_neural_network:nnx.Module,
-                 optax_optimizer:GradientTransformation,
-                 checkpoint_settings:dict={},
-                 working_directory='.'
-                 ):
+                 optax_optimizer:GradientTransformation):
 
         self.name = name
         self.flax_neural_network = flax_neural_network
         self.optax_optimizer = optax_optimizer
-        self.checkpoint_settings = checkpoint_settings
-        self.working_directory = working_directory
         self.initialized = False
-        self.default_checkpoint_settings = {"restore_state":False,
-                                            "state_directory":'./flax_state'}
         
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
@@ -44,13 +37,6 @@ class CategoricalDeepLearning(DeepNetwork):
         
         # create orbax checkpointer
         self.checkpointer = ocp.StandardCheckpointer()
-
-        self.checkpoint_settings = UpdateDefaultDict(self.default_checkpoint_settings,
-                                                     self.checkpoint_settings)
-        
-        # restore flax nn.Module from the file
-        if self.checkpoint_settings["restore_state"]:
-            self.RestoreCheckPoint(self.checkpoint_settings)
 
         # initialize the nnx optimizer
         self.nnx_optimizer = nnx.Optimizer(self.flax_neural_network, self.optax_optimizer)

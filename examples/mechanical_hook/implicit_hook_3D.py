@@ -90,22 +90,16 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                                 flax_neural_network=hyper_network,
                                                 main_loop_optax_optimizer=main_loop_transform,
                                                 latent_step_size=1e-2,
-                                                num_latent_iterations=3,
-                                                checkpoint_settings={"restore_state":False,
-                                                "state_directory":case_dir+"/flax_state"},
-                                                working_directory=case_dir)
+                                                num_latent_iterations=3)
     fol.Initialize()
 
     fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),batch_size=1,
                 convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                plot_settings={"plot_save_rate":100},
-                save_settings={"save_nn_model":True,
-                               "best_model_checkpointing":True,
-                               "best_model_checkpointing_frequency":100})
-
+                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                working_directory=case_dir)
 
     # load teh best model
-    fol.RestoreCheckPoint(fol.checkpoint_settings)
+    fol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))

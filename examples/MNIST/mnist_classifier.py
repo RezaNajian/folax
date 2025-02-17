@@ -89,10 +89,7 @@ def main(num_epochs=10,clean_dir=False):
   main_loop_transform = optax.chain(optax.adam(1e-5))
   ca_learning = CategoricalDeepLearning(name="mnist_categorical_learning",
                                         flax_neural_network=deep_network,
-                                        optax_optimizer=main_loop_transform,
-                                        checkpoint_settings={"restore_state":False,
-                                        "state_directory":case_dir+"/flax_state"},
-                                        working_directory=case_dir)
+                                        optax_optimizer=main_loop_transform)
 
   ca_learning.Initialize()
 
@@ -103,13 +100,12 @@ def main(num_epochs=10,clean_dir=False):
   ca_learning.Train(train_set=(data_dict["train_images"][start_train_id:end_train_id],
                               data_dict["train_labels"][start_train_id:end_train_id].reshape(-1,1)),
                     test_set=(data_dict["test_images"][start_test_id:end_test_id],data_dict["test_labels"][start_test_id:end_test_id].reshape(-1,1)),
-                    test_settings={"test_frequency":10},
+                    test_frequency=10,
                     batch_size=10,
                     convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                    plot_settings={"plot_save_rate":10},
-                    save_settings={"save_nn_model":True,
-                                  "best_model_checkpointing":True,
-                                  "best_model_checkpointing_frequency":10})
+                    plot_settings={"save_frequency":10},
+                    train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                    working_directory=case_dir)
 
   train_set_predictions = ca_learning.Predict(data_dict["train_images"][start_train_id:end_train_id])
   train_set_predicted_cat = jnp.argmax(train_set_predictions,axis=1)
