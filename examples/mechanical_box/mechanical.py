@@ -105,16 +105,14 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
                                              loss_function=mechanical_loss_3d,
                                              flax_neural_network=fol_net,
-                                             optax_optimizer=chained_transform,
-                                             checkpoint_settings={"restore_state":False,
-                                            "state_directory":f"./{working_directory_name}/flax_state"},
-                                             working_directory=case_dir)
+                                             optax_optimizer=chained_transform)
 
     fol.Initialize()
 
     # single sample training for eval_id
     fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),
-              convergence_settings={"num_epochs":fol_num_epochs})
+              convergence_settings={"num_epochs":fol_num_epochs},
+              working_directory=case_dir)
 
     # predict for all samples 
     FOL_UVWs = fol.Predict(coeffs_matrix)
