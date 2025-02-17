@@ -117,16 +117,14 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol = ExplicitParametricOperatorLearning(name="dis_fol",control=voronoi_control,
                                              loss_function=mechanical_loss_3d,
                                              flax_neural_network=fol_net,
-                                             optax_optimizer=chained_transform,
-                                             checkpoint_settings={"restore_state":False,
-                                            "state_directory":f"./{working_directory_name}/flax_state"},
-                                             working_directory=case_dir)
+                                             optax_optimizer=chained_transform)
 
     fol.Initialize()
 
     # single sample training for eval_id
     fol.Train(train_set=(pc_train_mat,),
-              convergence_settings={"num_epochs":fol_num_epochs})
+              convergence_settings={"num_epochs":fol_num_epochs},
+              working_directory=case_dir)
 
     # fe settings and solvers initialize
     fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
