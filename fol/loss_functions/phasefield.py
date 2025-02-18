@@ -127,7 +127,12 @@ class PhaseFieldLoss2DQuad(PhaseFieldLoss):
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["T"],  
                                "element_type":"quad"},fe_mesh)
-
+        
+class PhaseFieldLoss2DTri(PhaseFieldLoss):
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        super().__init__(name,{**loss_settings,"compute_dims":2,
+                               "ordered_dofs": ["T"],  
+                               "element_type":"triangle"},fe_mesh)
 class PhaseFieldLoss3DHexa(PhaseFieldLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():

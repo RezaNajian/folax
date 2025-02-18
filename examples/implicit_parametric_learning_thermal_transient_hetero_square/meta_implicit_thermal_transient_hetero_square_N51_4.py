@@ -17,13 +17,13 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 import jax
 jax.config.update("jax_default_matmul_precision", "float32")
 # directory & save handling
-working_directory_name = 'siren_implicit_thermal_2D_dt_0005_7'
+working_directory_name = 'siren_implicit_thermal_2D_dt_0005_N51_4'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":21,
+model_settings = {"L":1,"N":51,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
@@ -46,24 +46,47 @@ no_control.Initialize()
 # create some random coefficients & K for training
 create_random_coefficients = True
 if create_random_coefficients:
-    def generate_random_smooth_patterns(L, N, num_samples=9000):
-        kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
-        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1)
+    def generate_random_smooth_patterns(L, N, num_samples=10000, smoothness_levels=[0.05, 0.1, 0.2, 0.3, 0.4]):
+        """
+        Generate mixed random smooth patterns using a Gaussian Process with varying smoothness levels.
 
-        # Create the grid
+        Parameters:
+            L (float): Length of the domain.
+            N (int): Number of grid points per dimension.
+            num_samples (int): Total number of samples to generate (divided among smoothness levels).
+            smoothness_levels (list): List of length scales for different smoothness levels.
+
+        Returns:
+            np.ndarray: A shuffled array of normalized samples from all smoothness levels.
+        """
         x = np.linspace(0, L, N)
         y = np.linspace(0, L, N)
         X1, X2 = np.meshgrid(x, y)
         X = np.vstack([X1.ravel(), X2.ravel()]).T
 
-        # Generate multiple samples
-        y_samples = gp.sample_y(X, n_samples=num_samples, random_state=0)
+        all_samples = []
 
-        # Normalize each sample
-        scaled_y_samples = np.array([((y_sample - np.min(y_sample)) / (np.max(y_sample) - np.min(y_sample))) 
-                                     for y_sample in y_samples.T])
+        for length_scale in smoothness_levels:
+            kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale, (1e-2, 1e2))
+            gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1)
 
-        return scaled_y_samples
+            # Generate an equal number of samples per smoothness level
+            num_per_level = num_samples // len(smoothness_levels)
+            y_samples = gp.sample_y(X, n_samples=num_per_level, random_state=0)
+
+            # Normalize each sample
+            scaled_y_samples = np.array([(y_sample - np.min(y_sample)) / (np.max(y_sample) - np.min(y_sample))
+                                         for y_sample in y_samples.T])
+
+            all_samples.append(scaled_y_samples)
+
+        # Concatenate all samples from different smoothness levels
+        mixed_samples = np.vstack(all_samples)
+
+        # Shuffle the samples randomly
+        np.random.shuffle(mixed_samples)
+
+        return mixed_samples
     
     def generate_morph_pattern(N):
         # Initialize hetero_morph array
@@ -113,17 +136,17 @@ K_matrix = no_control.ComputeBatchControlledVariables(hetero_info)
 
 # design synthesizer & modulator NN for hypernetwork
 characteristic_length = model_settings["N"]
-characteristic_length = 128
+characteristic_length = 256
 synthesizer_nn = MLP(name="synthesizer_nn",
                      input_size=3,
                      output_size=1,
                      hidden_layers=[characteristic_length] * 6,
                      activation_settings={"type":"sin",
-                                          "prediction_gain":60,
+                                          "prediction_gain":30,
                                           "initialization_gain":1.0},
                      skip_connections_settings={"active":False,"frequency":1})
 
-latent_size = 2 * characteristic_length
+latent_size = characteristic_length
 modulator_nn = MLP(name="modulator_nn",
                    input_size=latent_size,
                    use_bias=False) 
@@ -133,7 +156,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 10000
+num_epochs = 2000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
@@ -152,14 +175,14 @@ fol.Initialize()
 
 
 train_start_id = 0
-train_end_id = 8000
+train_end_id = 4800
 test_start_id = 1*train_end_id
 test_end_id = int(1.2*train_end_id)
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
         #   test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
 # #         #   test_settings={"test_frequency":10},
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-            batch_size=200,
+            batch_size=120,
             convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             save_settings={"save_nn_model":True,

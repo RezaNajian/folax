@@ -19,11 +19,11 @@ jax.config.update("jax_default_matmul_precision", "float32")
 # directory & save handling
 working_directory_name = 'siren_implicit_thermal_2D_dt_0005_7'
 case_dir = os.path.join('.', working_directory_name)
-create_clean_directory(working_directory_name)
+# create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":21,
+model_settings = {"L":1,"N":61,
                 "T_left":1.0,"T_right":0.0}
 
 # creation of the model
@@ -134,7 +134,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
 
 # create fol optax-based optimizer
 num_epochs = 10000
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
+learning_rate_scheduler = optax.linear_schedule(init_value=5e-4, end_value=1e-6, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
 # create fol
@@ -158,19 +158,19 @@ test_end_id = int(1.2*train_end_id)
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
         #   test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
 # #         #   test_settings={"test_frequency":10},
-fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-            batch_size=200,
-            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-            plot_settings={"plot_save_rate":100},
-            save_settings={"save_nn_model":True,
-                         "best_model_checkpointing":True,
-                         "best_model_checkpointing_frequency":100})
+# fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
+#             batch_size=200,
+#             convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+#             plot_settings={"plot_save_rate":100},
+#             save_settings={"save_nn_model":True,
+#                          "best_model_checkpointing":True,
+#                          "best_model_checkpointing_frequency":100})
 
 # load teh best model
 fol.RestoreCheckPoint(fol.checkpoint_settings)
 
 # relative_L2_error = 0.0
-num_steps = 50
+num_steps = 5
 eval_start_id = 0
 eval_end_id = 1
 FOL_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
@@ -208,20 +208,20 @@ time_list = [int(num_steps/5) - 1,int(num_steps/2) - 1,num_steps - 1]
 plot_mesh_vec_data_thermal(1,[coeffs_matrix[eval_id],FOL_T[:,time_list[0]],FOL_T[:,time_list[1]],FOL_T[:,time_list[2]]],
                    ["","","",""],
                    fig_title="Initial condition and implicit FOL solution",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FOL-T-dist.png"))
+                   file_name=os.path.join(case_dir,"SR_FOL-T-dist.png"))
 
 plot_mesh_vec_data_thermal(1,[coeffs_matrix[eval_id],FE_T[:,time_list[0]],FE_T[:,time_list[1]],FE_T[:,time_list[2]]],
                    ["","","",""],
                    fig_title="Initial condition and FEM solution",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FEM-T-dist.png"))
+                   file_name=os.path.join(case_dir,"SR_FEM-T-dist.png"))
 plot_mesh_vec_data(1,[coeffs_matrix[eval_id],absolute_error[:,time_list[0]],absolute_error[:,time_list[1]],absolute_error[:,time_list[2]]],
                    ["","","",""],
                    fig_title="Initial condition and iFOL error against FEM",cmap = "jet",
-                   file_name=os.path.join(case_dir,"FOL-T-Error-dist.png"))
+                   file_name=os.path.join(case_dir,"SR_FOL-T-Error-dist.png"))
 
 plot_mesh_vec_data(1,[hetero_info[0]],
                    [""],
                    fig_title="Heterogeneous microstructure",cmap = "viridis",
-                   file_name=os.path.join(case_dir,"hetero_microstucture_fine.png"))
+                   file_name=os.path.join(case_dir,"SR_hetero_microstucture_fine.png"))
 
 fe_mesh.Finalize(export_dir=case_dir)

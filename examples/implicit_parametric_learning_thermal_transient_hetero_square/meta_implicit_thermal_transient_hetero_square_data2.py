@@ -17,7 +17,7 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 import jax
 jax.config.update("jax_default_matmul_precision", "float32")
 # directory & save handling
-working_directory_name = 'siren_implicit_thermal_2D_dt_0005_7'
+working_directory_name = 'siren_implicit_thermal_2D_dt_0005_6'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -134,7 +134,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
 
 # create fol optax-based optimizer
 num_epochs = 10000
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
+learning_rate_scheduler = optax.linear_schedule(init_value=5e-4, end_value=1e-6, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
 # create fol
