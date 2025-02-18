@@ -18,34 +18,6 @@ from fol.tools.usefull_functions import *
 from .nns import HyperNetwork
 
 class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning):
-    """
-    A meta-learning framework for implicit parametric operator learning.
-
-    This class extends `ImplicitParametricOperatorLearning` by introducing meta-learning capabilities, 
-    such as latent loop optimization. It enables efficient learning of parametric operators using deep 
-    neural networks and advanced optimization techniques.
-
-    Attributes
-    ----------
-    name : str
-        The name of the neural network model for identification purposes.
-    control : Control
-        An instance of the `Control` class that manages the parametric learning process.
-    loss_function : Loss
-        The objective function to minimize during training.
-    flax_neural_network : HyperNetwork
-        The Flax-based hypernetwork model defining the architecture and forward pass.
-    main_loop_optax_optimizer : GradientTransformation
-        The Optax optimizer used for the primary optimization loop.
-    latent_step : float
-        Step size for latent loop optimization.
-    num_latent_iterations : int
-        Number of iterations for latent loop optimization.
-    checkpoint_settings : dict
-        Configuration dictionary for managing checkpoints. Defaults to an empty dictionary.
-    working_directory : str
-        Path to the working directory where model outputs and checkpoints are saved. Defaults to the current directory.
-    """
 
     def __init__(self,
                  name:str,
@@ -54,10 +26,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
                  flax_neural_network:HyperNetwork,
                  main_loop_optax_optimizer:GradientTransformation,
                  latent_step_size:float=1e-2,
-                 num_latent_iterations:int=3,
-                 checkpoint_settings:dict={},
-                 working_directory='.'
-                 ):
+                 num_latent_iterations:int=3):
         """
         Initializes the `MetaImplicitParametricOperatorLearning` class.
 
@@ -80,18 +49,13 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             The step size for latent loop optimization. Default is 1e-2.
         num_latent_iterations : int, optional
             The number of iterations for latent loop optimization. Default is 3.
-        checkpoint_settings : dict, optional
-            Configuration dictionary for managing checkpoints. Default is an empty dictionary.
-        working_directory : str, optional
-            Path to the working directory where outputs and checkpoints are saved. Default is the current directory.
 
         Returns
         -------
         None
         """
         super().__init__(name,control,loss_function,flax_neural_network,
-                         main_loop_optax_optimizer,checkpoint_settings,
-                         working_directory)
+                         main_loop_optax_optimizer)
         
         self.latent_step = latent_step_size
         self.num_latent_iterations = num_latent_iterations

@@ -104,12 +104,8 @@ fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fou
                                             flax_neural_network=hyper_network,
                                             main_loop_optax_optimizer=main_loop_transform,
                                             latent_step_size=1e-2,
-                                            num_latent_iterations=3,
-                                            checkpoint_settings={"restore_state":False,
-                                            "state_directory":case_dir+"/flax_state"},
-                                            working_directory=case_dir)
+                                            num_latent_iterations=3)
 fol.Initialize()
-
 
 train_start_id = 0
 train_end_id = 20
@@ -118,15 +114,15 @@ test_end_id = 4*train_end_id
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
           test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-          test_settings={"test_frequency":10},batch_size=1,
-            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-            plot_settings={"plot_save_rate":100},
-            save_settings={"save_nn_model":True,
-                         "best_model_checkpointing":True,
-                         "best_model_checkpointing_frequency":100})
+          test_frequency=10,
+          batch_size=1,
+          convergence_settings={"num_epochs":num_epochs,
+                                "relative_error":1e-100,
+                                "absolute_error":1e-100},
+          working_directory=case_dir)
 
 # load teh best model
-fol.RestoreCheckPoint(fol.checkpoint_settings)
+fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
 for test in range(train_start_id,test_end_id):
     eval_id = test

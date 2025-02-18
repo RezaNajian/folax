@@ -242,9 +242,5 @@ for test in range(eval_start_id,eval_end_id):
     FEPlotter.plot_triangulated_error(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
                                 [absolute_error[:,time_list2[0]],absolute_error[:,time_list2[1]],absolute_error[:,time_list2[2]],absolute_error[:,time_list2[3]]],
                                 filename=os.path.join(case_dir,"FOL-FE_errors_initialsteps.png"))
-<<<<<<< Updated upstream
     FEPlotter.plot_mesh(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),filename=os.path.join(case_dir,'FE_mesh_particle.png'))
-=======
-    FEPlotter.plot_mesh(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),filename=filename=os.path.join(case_dir,'FE_mesh_particle.png'))
->>>>>>> Stashed changes
 fe_mesh.Finalize(export_dir=case_dir)

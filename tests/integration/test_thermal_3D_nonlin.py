@@ -63,10 +63,7 @@ class TestThermalNonLinear(unittest.TestCase):
         self.fol = ExplicitParametricOperatorLearning(name="dis_fol",control=self.fourier_control,
                                                         loss_function=self.thermal_loss,
                                                         flax_neural_network=fol_net,
-                                                        optax_optimizer=chained_transform,
-                                                        checkpoint_settings={"restore_state":False,
-                                                        "state_directory":self.test_directory+"/flax_state"},
-                                                        working_directory=self.test_directory)
+                                                        optax_optimizer=chained_transform)
 
         self.fol.Initialize()
         self.nonlin_fe_solver.Initialize()        
@@ -74,7 +71,8 @@ class TestThermalNonLinear(unittest.TestCase):
 
     def test_compute(self):
         self.fol.Train(train_set=(self.coeffs_matrix[-1].reshape(-1,1).T,),
-                       convergence_settings={"num_epochs":1500})
+                       convergence_settings={"num_epochs":1500},
+                        working_directory=self.test_directory)
         T_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
         T_FEM = np.array(self.nonlin_fe_solver.Solve(self.K_matrix[-1,:],np.zeros(T_FOL.shape)))
         l2_error = 100 * np.linalg.norm(T_FOL-T_FEM,ord=2)/ np.linalg.norm(T_FEM,ord=2)

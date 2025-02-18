@@ -8,6 +8,7 @@ import meshio
 import os
 import shutil
 from fol.mesh_input_output.mesh import Mesh
+import copy
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -736,113 +737,9 @@ def Neo_Hooke(F,k,mu):
     
     return xsie, Se, C_tangent_fourth
 
+
 def UpdateDefaultDict(default_dict:dict,given_dict:dict):
-# <<<<<<< HEAD
-#     filtered_update = {k: given_dict[k] for k in default_dict 
-#                     if k in given_dict and isinstance(given_dict[k], type(default_dict[k]))}
-# =======
-#     
-# >>>>>>> origin/main
     filtered_update = {k: given_dict[k] for k in default_dict if k in given_dict}
-    default_dict.update(filtered_update)
-    return default_dict
-
-def plot_relative_l2_error(time_array,error_array, subplot_titles=None, fig_title=None,
-                       block_bool=False, colour_bar=True, colour_bar_name=None,
-                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
-    plt.clf()
-    plt.plot(time_array,error_array,"r.-")
-    if X_axis_name is not None:
-        plt.xlabel(X_axis_name)
-
-    if Y_axis_name is not None:
-        plt.ylabel(Y_axis_name)
-    
-    x_ticks = time_array  # 6 ticks from 0 to 10
-    plt.xticks(x_ticks)
-
-    # Adjust layout
-    plt.tight_layout()
-
-    if show:
-        plt.show(block=block_bool)
-
-    if file_name is not None:
-        plt.savefig(file_name)
-
-def plot_relative_l2_error_multiple(time_array,error_array, label_name, subplot_titles=None, fig_title=None,
-                       block_bool=False, colour_bar=True, colour_bar_name=None,
-                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
-    plt.clf()
-    for i in range(error_array.shape[0]):
-        plt.plot(time_array,error_array[i],".-",label=label_name[i])
-
-    if X_axis_name is not None:
-        plt.xlabel(X_axis_name)
-
-    if Y_axis_name is not None:
-        plt.ylabel(Y_axis_name)
-    
-    plt.legend()
-    # Adjust layout
-    plt.tight_layout()
-
-    if show:
-        plt.show(block=block_bool)
-
-    if file_name is not None:
-        plt.savefig(file_name)
-
-def generate_composite_material(
-    points, 
-    num_inclusions=10, 
-    inclusion_radius=0.2, 
-    inclusion_value=0.2, 
-    matrix_value=1
-):
-    """
-    Generate composite-like material samples with spherical inclusions using meshio coor
-    Parameters:
-        points (np.ndarray): Meshio coordinates array of shape (num_points, 3).
-        num_inclusions (int): Number of inclusions per sample.
-        inclusion_radius (float): Radius of the spherical inclusions.
-        inclusion_value (float): Value assigned to the inclusion phase.
-        matrix_value (float): Value assigned to the matrix phase.
-    Returns:
-        np.ndarray: Array of shape (num_samples, num_points) with composite patterns.
-    """
-    num_points = points.shape[0]
-    samples = []
-    # Initialize the material array with the matrix value
-    material = np.full(num_points, matrix_value, dtype=float)
-    # List to store inclusion centers
-    inclusion_centers = [np.array([0.3995, 0.8279, 0.9229]),
-                         np.array([0.0435, 0.2529, 0.7887]),
-                         np.array([0.4041, 0.0104, 0.1794]),
-                         np.array([0.8309, 0.3136, 0.2780]),
-                         np.array([0.5803, 0.9523, 0.2323]),
-                         np.array([0.1439, 0.2935, 0.3608]),
-                         np.array([0.5844, 0.2953, 0.9866]),
-                         np.array([0.9155, 0.0424, 0.6355]),
-                         np.array([0.9087, 0.7211, 0.7662]),
-                         np.array([0.1959, 0.9935, 0.1157])]
-    # Generate random, non-overlapping centers
-    # for _ in range(num_inclusions):
-    #     while True:
-    #         # Randomly choose the center of the inclusion within the coordinate range
-    #         center = np.random.uniform(points.min(axis=0), points.max(axis=0), size=3)
-    #         # Check for overlap with existing inclusions
-    #         if all(np.linalg.norm(center - np.array(existing_center)) > 2 * inclusion_
-    #                for existing_center in inclusion_centers):
-    #             # Add the center to the list of inclusion centers
-    #             inclusion_centers.append(center)
-    #             break
-    # Create inclusions based on the generated centers
-    for center in inclusion_centers:
-        # Compute the distance from the center for all points
-        distances = np.linalg.norm(points - center, axis=1)
-        # Assign inclusion value to points within the radius
-        material[distances <= inclusion_radius] = inclusion_value
-    # Add the result to samples
-    samples.append(material)
-    return np.array(samples)
+    updated_dict = copy.deepcopy(default_dict)
+    updated_dict.update(filtered_update)
+    return updated_dict
