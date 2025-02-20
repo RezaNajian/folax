@@ -6,7 +6,7 @@ from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning_v2 import MetaAlphaMetaImplicitParametricOperatorLearningV2
+from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning_v2 import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.deep_neural_networks.implicit_parametric_operator_learning import ImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -97,7 +97,7 @@ learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7,
 main_loop_transform = optax.chain(optax.adam(1e-5))
 latent_step_optimizer = optax.chain(optax.adam(1e-1))
 # create fol
-fol = MetaAlphaMetaImplicitParametricOperatorLearningV2(name="meta_implicit_ol",
+fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_ol",
                                                         control=fourier_control,
                                                         loss_function=mechanical_loss_3d,
                                                         flax_neural_network=hyper_network,

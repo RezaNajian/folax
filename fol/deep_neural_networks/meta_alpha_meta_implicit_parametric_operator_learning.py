@@ -4,19 +4,26 @@
  License: FOL/LICENSE
 """
 
-from typing import Tuple 
+from typing import Tuple,Iterator
 import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
 from optax import GradientTransformation
 from flax import nnx
+from tqdm import trange
 from .implicit_parametric_operator_learning import ImplicitParametricOperatorLearning
 from fol.tools.decoration_functions import *
 from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
 from fol.tools.usefull_functions import *
 from .nns import HyperNetwork
+
+class LatentStepModel(nnx.Module):
+    def __init__(self, init_latent_step_value):
+        self.latent_step = nnx.Param(init_latent_step_value)
+    def __call__(self):
+        return self.latent_step 
 
 class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning):
     """
@@ -50,9 +57,7 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
                  main_loop_optax_optimizer:GradientTransformation,
                  latent_step_optax_optimizer:GradientTransformation,
                  latent_step_size:float=1e-2,
-                 num_latent_iterations:int=3,
-                 checkpoint_settings:dict={},
-                 working_directory='.'
+                 num_latent_iterations:int=3
                  ):
         """
         Initializes the MetaAlphaMetaImplicitParametricOperatorLearning instance.
@@ -76,329 +81,287 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
             convergence and adaptability for varying problem conditions.
         """
         super().__init__(name,control,loss_function,flax_neural_network,
-                         main_loop_optax_optimizer,checkpoint_settings,
-                         working_directory)
+                         main_loop_optax_optimizer)
         
         self.latent_step_optimizer = latent_step_optax_optimizer
-        self.latent_step = latent_step_size
+        self.latent_step_nnx_model = LatentStepModel(latent_step_size)
         self.num_latent_iterations = num_latent_iterations
-        self.latent_step_optimizer_state = self.latent_step_optimizer.init(self.latent_step)
-        self.default_checkpoint_settings = {"restore_state":False,
-                                            "state_directory":'./flax_state',
-                                            "meta_state_directory":'./meta_state'}
+        self.latent_nnx_optimizer = nnx.Optimizer(self.latent_step_nnx_model,self.latent_step_optimizer)
 
     @partial(nnx.jit, static_argnums=(0,))
-    def ComputeSingleLossValue(self,orig_features:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module,latent_opt_step:float):
-        """
-        Computes the single loss value for a given input feature set, neural network model, 
-        and latent optimization step size. This method optimizes the latent code iteratively 
-        and evaluates the loss.
-
-        Args:
-            orig_features (Tuple[jnp.ndarray, jnp.ndarray]): 
-                A tuple containing the original feature set, where:
-                - The first element is the input features for the neural network.
-                - The second element is auxiliary data, such as labels or other metadata.
-            nn_model (nnx.Module): 
-                The neural network model used for computation. It should support 
-                evaluation with input latent codes and coordinates.
-            latent_opt_step (float): 
-                Step size for updating the latent code during optimization.
-
-        Returns:
-            float: The computed single loss value after optimizing the latent code.
-
-        Notes:
-            - Initializes the latent code as a zero vector with a size equal to the 
-              input dimensions of the neural network.
-            - Uses the control object to compute controlled variables based on the 
-              original features.
-            - Iteratively updates the latent code using the gradient of the loss function.
-            - Computes the final loss based on the optimized latent code and the neural network output.
-
-        Optimization Process:
-            1. Define a loss function based on the neural network's output and the 
-               controlled variables.
-            2. Compute the gradient of the loss with respect to the latent code.
-            3. Perform a specified number of latent optimization iterations, updating 
-               the latent code using the step size.
-            4. Return the final loss value using the optimized latent code.
-        """     
-        latent_code = jnp.zeros(nn_model.in_features)
-        control_output = self.control.ComputeControlledVariables(orig_features[0])
-
-        @jax.jit
-        def loss(input_latent_code):
-            nn_output = nn_model(input_latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-            return self.loss_function.ComputeSingleLoss(control_output,nn_output)[0]
-
-        loss_latent_grad_fn = jax.grad(loss)
-        for _ in range(self.num_latent_iterations):
-            latent_code -= latent_opt_step * loss_latent_grad_fn(latent_code)
-        
+    def ComputeSingleLossValue(self,latent_and_control:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        latent_code = latent_and_control[0]
+        control_output = self.control.ComputeControlledVariables(latent_and_control[1])
         nn_output = nn_model(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
         return self.loss_function.ComputeSingleLoss(control_output,nn_output)
 
-    @partial(nnx.jit, static_argnums=(0,))
-    def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module,latent_opt_step:float):
-        """
-        Computes the batch loss value for a given set of input features, neural network model, 
-        and latent optimization step size. This method evaluates the loss over a batch of samples 
-        and returns aggregated metrics.
-
-        Args:
-            batch_set (Tuple[jnp.ndarray, jnp.ndarray]): 
-                A tuple containing the batch of input data, where:
-                - The first element is a batch of input features for the neural network.
-                - The second element is auxiliary data, such as labels or other metadata, 
-                  for each sample in the batch.
-            nn_model (nnx.Module): 
-                The neural network model used for computation. It should support evaluation 
-                with input latent codes and coordinates.
-            latent_opt_step (float): 
-                Step size for updating the latent code during optimization.
-
-        Returns:
-            Tuple[float, dict]:
-                - The total mean loss across the batch.
-                - A dictionary of aggregated metrics, including:
-                    - "{loss_name}_min": Minimum loss value across the batch.
-                    - "{loss_name}_max": Maximum loss value across the batch.
-                    - "{loss_name}_avg": Average loss value across the batch.
-                    - "total_loss": The total mean loss.
-
-        """
-
-        batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None,None))(batch_set,nn_model,latent_opt_step)
-        loss_name = self.loss_function.GetName()
-        total_mean_loss = jnp.mean(batch_losses)
-        return total_mean_loss, ({loss_name+"_min":jnp.min(batch_mins),
-                                         loss_name+"_max":jnp.max(batch_maxs),
-                                         loss_name+"_avg":jnp.mean(batch_avgs),
-                                         "total_loss":total_mean_loss})
-
-    @partial(jax.jit, static_argnums=(0,))
-    def TrainMetaStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, 
-                      latent_opt_state:optax.OptState,latent_step:float,
-                      train_batch:Tuple[jnp.ndarray, jnp.ndarray]):
-        """
-        Executes a single meta-training step, optimizing the neural network model parameters, 
-        latent step size, and latent step optimizer state based on a given training batch.
-
-        Args:
-            nnx_graphdef (nnx.GraphDef): 
-                The neural network graph definition containing the model architecture.
-            nxx_state (nnx.GraphState): 
-                The state of the neural network, including parameters and optimizer states.
-            latent_opt_state (optax.OptState): 
-                The current state of the optimizer for the latent step size.
-            latent_step (float): 
-                The current latent step size used for latent code optimization.
-            train_batch (Tuple[jnp.ndarray, jnp.ndarray]): 
-                A tuple containing the training batch, where:
-                - The first element is a batch of input features for the neural network.
-                - The second element is auxiliary data, such as labels or other metadata.
-
-        Returns:
-            Tuple[dict, nnx.GraphState, float, optax.OptState]:
-                - A dictionary containing batch-level loss metrics, including aggregated statistics.
-                - The updated state of the neural network (parameters and optimizer states).
-                - The updated latent step size after applying optimization updates.
-                - The updated latent step optimizer state.
-
-        Workflow:
-            1. Merge the graph definition and state into a neural network model and optimizer.
-            2. Compute the batch loss and gradients using `ComputeBatchLossValue`.
-            3. Use the latent step optimizer to compute updates for the latent step size based on gradients.
-            4. Apply the updates to the latent step size and latent optimizer state.
-            5. Update the neural network optimizer with the computed gradients.
-            6. Split the updated model and optimizer back into a new state.
-            7. Return the batch metrics, updated neural network state, updated latent step size, 
-               and updated latent optimizer state.
-
-        Notes:
-            - Uses `jax.jit` for just-in-time compilation to improve performance.
-            - Supports auxiliary outputs (e.g., batch-level statistics) along with loss and gradient computations.
-            - Handles simultaneous optimization of neural network parameters and latent step size.
-        """
-        nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
-
-        (batch_loss, batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=(1,2),has_aux=True) \
-                                                                    (train_batch,nnx_model,self.latent_step)
-        
-        latent_step_update, new_latent_opt_state = self.latent_step_optimizer.update(batch_grads[1], latent_opt_state)
-        updated_latent_step = optax.apply_updates(latent_step, latent_step_update)
-
-        nnx_optimizer.update(batch_grads[0])
-        _, new_state = nnx.split((nnx_model, nnx_optimizer))
-        return batch_dict,new_state,updated_latent_step,new_latent_opt_state
+    def Finalize(self):
+        pass
     
-    def TrainStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState, 
-                        train_batch:Tuple[jnp.ndarray, jnp.ndarray]):
-        """
-        Executes a single training step for the neural network model and updates 
-        the latent step size and optimizer state based on the given training batch.
+    @partial(nnx.jit, static_argnums=(0,))
+    def ComputeBatchLatent(self,batch_X:jnp.ndarray,flax_neural_network:nnx.Module,latent_step:nnx.Module):
+        @nnx.jit
+        def compute_single_latent(sample_x:jnp.ndarray):
 
-        Args:
-            nnx_graphdef (nnx.GraphDef): 
-                The neural network graph definition containing the model architecture.
-            nxx_state (nnx.GraphState): 
-                The state of the neural network, including parameters and optimizer states.
-            train_batch (Tuple[jnp.ndarray, jnp.ndarray]): 
-                A tuple containing the training batch, where:
-                - The first element is a batch of input features for the neural network.
-                - The second element is auxiliary data, such as labels or other metadata.
-
-        Returns:
-            Tuple[dict, nnx.GraphState]:
-                - A dictionary containing batch-level loss metrics, including aggregated statistics.
-                - The updated state of the neural network (parameters and optimizer states).
-
-        Workflow:
-            1. Calls `TrainMetaStep` to execute a single meta-training step, which includes:
-                - Optimizing the neural network parameters.
-                - Updating the latent step size and optimizer state.
-            2. Updates the internal latent step size and latent optimizer state attributes.
-            3. Returns the batch loss metrics and updated neural network state.
-
-        Notes:
-            - Simplifies the process by abstracting the details of meta-training into `TrainMetaStep`.
-            - Useful for performing iterative training over multiple batches in a loop.
-        """
-        batch_dict,new_state,self.latent_step,self.latent_step_optimizer_state = self.TrainMetaStep(nnx_graphdef,
-                                                                                           nxx_state,
-                                                                                           self.latent_step_optimizer_state,
-                                                                                           self.latent_step,
-                                                                                           train_batch)
-        return batch_dict,new_state
-
-    @partial(jax.jit, static_argnums=(0,))
-    def TestStep(self, nnx_graphdef:nnx.GraphDef, nxx_state:nnx.GraphState,
-                       test_batch:Tuple[jnp.ndarray, jnp.ndarray]):
-        """
-        Executes a single testing step, evaluating the loss and performance metrics 
-        for a given test batch without updating model parameters or latent variables.
-
-        Args:
-            nnx_graphdef (nnx.GraphDef): 
-                The neural network graph definition containing the model architecture.
-            nxx_state (nnx.GraphState): 
-                The state of the neural network, including parameters and optimizer states.
-            test_batch (Tuple[jnp.ndarray, jnp.ndarray]): 
-                A tuple containing the test batch, where:
-                - The first element is a batch of input features for the neural network.
-                - The second element is auxiliary data, such as labels or other metadata.
-
-        Returns:
-            Tuple[dict, nnx.GraphState]:
-                - A dictionary containing batch-level loss metrics, including aggregated statistics.
-                - The state of the neural network (parameters and optimizer states), unchanged.
-
-        Notes:
-            - This function is intended for evaluation purposes and does not update model parameters 
-              or latent step variables.
-            - Uses `jax.jit` for just-in-time compilation to improve performance.
-        """
-
-        nnx_model, nnx_optimizer = nnx.merge(nnx_graphdef, nxx_state)
-        (test_loss, test_batch_dict) = self.ComputeBatchLossValue(test_batch,nnx_model,self.latent_step)
-        _, state = nnx.split((nnx_model, nnx_optimizer))
-        return test_batch_dict,state
-
-    def RestoreCheckPoint(self,checkpoint_settings:dict):
-        """
-        Restores the model state, including the latent step size, from a specified checkpoint.
-
-        Args:
-            checkpoint_settings (dict): 
-                A dictionary containing checkpoint configuration settings, including:
-                - "meta_state_directory" (str, optional): Path to the directory containing the latent step checkpoint.
-
-        Returns:
-            None
-
-        Notes:
-            - Ensures that both model parameters and the latent step size are restored when checkpointing.
-            - Uses `self.checkpointer.restore` for restoring the latent step size from the specified directory.
-        """
-        super().RestoreCheckPoint(checkpoint_settings)
-        if "meta_state_directory" in checkpoint_settings.keys():
-            meta_state_directory = checkpoint_settings["meta_state_directory"]
-            absolute_path = os.path.abspath(meta_state_directory)
-            self.latent_step = self.checkpointer.restore(absolute_path,{"latent_step":self.latent_step})["latent_step"]
-            fol_info(f"latent_step {self.latent_step} is restored from {meta_state_directory}")
-
-    def SaveCheckPoint(self):
-        """
-        Saves the current model state, including the latent step size, to a specified checkpoint.
-
-        Args:
-            None
-
-        Returns:
-            None
-
-        Notes:
-            - Ensures that both model parameters and the latent step size are checkpointed.
-            - Forces the save operation to overwrite existing checkpoint data for the latent step size.
-        """
-        # save meta learning latent_step
-        state_directory = self.checkpoint_settings["meta_state_directory"]
-        absolute_path = os.path.abspath(state_directory)
-        self.checkpointer.save(absolute_path, {"latent_step":self.latent_step},force=True)
-        fol_info(f"latent_step {self.latent_step} is saved to {state_directory}")
-        super().SaveCheckPoint()
-
-    @print_with_timestamp_and_execution_time
-    def Predict(self,batch_X:jnp.ndarray):
-        """
-        Predicts the output for a batch of input samples by optimizing the latent code for each sample.
-
-        Args:
-            batch_X (jnp.ndarray): 
-                A batch of input features, where each row corresponds to a single input sample.
-
-        Returns:
-            jnp.ndarray:
-                An array of predicted outputs for the input batch, where each row corresponds 
-                to the prediction for a single input sample.
-
-        Workflow:
-            1. Defines a helper function `predict_single_sample` that performs prediction for a single input sample:
-                - Initializes the latent code as a zero vector.
-                - Computes controlled variables based on the input sample.
-                - Defines a loss function based on the neural network output and the controlled variables.
-                - Iteratively optimizes the latent code using the gradient of the loss function.
-                - Computes the neural network output for the optimized latent code.
-                - Converts the neural network output to a full degree-of-freedom vector using the loss function.
-            2. Uses `jax.vmap` to vectorize `predict_single_sample` over the input batch.
-            3. Returns the predictions for the batch as a `jnp.ndarray`.
-
-        Notes:
-            - The method uses just-in-time (JIT) compilation for improved performance in optimizing the latent code.
-            - The latent code optimization process is repeated for each input sample in the batch.
-            - The prediction output is based on the optimized latent code and the neural network model.
-
-        """
-        def predict_single_sample(sample_x:jnp.ndarray):
-
-            latent_code = jnp.zeros(self.flax_neural_network.in_features)
+            latent_code = jnp.zeros(flax_neural_network.in_features)
             control_output = self.control.ComputeControlledVariables(sample_x)
 
-            @jax.jit
+            @nnx.jit
             def loss(input_latent_code):
-                nn_output = self.flax_neural_network(input_latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
+                nn_output = flax_neural_network(input_latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
                 return self.loss_function.ComputeSingleLoss(control_output,nn_output)[0]
 
             loss_latent_grad_fn = jax.grad(loss)
             for _ in range(self.num_latent_iterations):
-                latent_code -= self.latent_step * loss_latent_grad_fn(latent_code)
+                latent_code -= latent_step() * loss_latent_grad_fn(latent_code)
 
-            nn_output = self.flax_neural_network(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
+            return latent_code
 
-            return self.loss_function.GetFullDofVector(sample_x,nn_output)
+        return jnp.array(jax.vmap(compute_single_latent)(batch_X))
 
-        return jnp.array(jax.vmap(predict_single_sample)(batch_X))
+    def SaveCheckPoint(self,check_point_type,checkpoint_state_dir):
+        """
+        Saves the current state of the neural network to a specified directory.
 
-    def Finalize(self):
-        pass
+        This method stores the state of the neural network model in a designated directory, ensuring the model's 
+        state can be restored later.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+            The current state of the neural network is saved to the specified directory. A confirmation message is 
+            logged to indicate the successful save operation.
+
+        Notes
+        -----
+        - The directory for saving the checkpoint is specified in the `checkpoint_settings` attribute under the 
+        `state_directory` key.
+        - The directory path is converted to an absolute path before saving.
+        - Uses the `self.checkpointer.save` method to store the state and forces the save operation.
+        - Logs the save operation using `fol_info`.
+        """
+        
+        nn_checkpoint_state_dir = checkpoint_state_dir + "/nn"
+        absolute_path = os.path.abspath(nn_checkpoint_state_dir)
+        self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
+
+        latent_checkpoint_state_dir = checkpoint_state_dir + "/latent"
+        absolute_path = os.path.abspath(latent_checkpoint_state_dir)
+        self.checkpointer.save(absolute_path, nnx.state(self.latent_step_nnx_model),force=True)
+
+        fol_info(f"{check_point_type} meta flax nnx state is saved to {checkpoint_state_dir}")
+
+    def RestoreState(self,restore_state_directory:str):
+        """
+        Restores the state of the neural network from a saved checkpoint.
+
+        This method retrieves the saved state of the neural network from a specified directory and updates the model 
+        to reflect the restored state.
+
+        Parameters
+        ----------
+        checkpoint_settings : dict
+            A dictionary containing the settings for checkpoint restoration.
+            Expected keys:
+            - `state_directory` (str): The directory path where the checkpoint is saved.
+
+        Returns
+        -------
+        None
+            The neural network's state is restored and updated in place. A message is logged to confirm the restoration process.
+
+        Notes
+        -----
+        - Ensure the `state_directory` key is included in the `checkpoint_settings` dictionary, and the specified directory exists.
+        - This method uses `nnx.state` to retrieve the current state of the model and updates it with the restored state.
+        - Logs the restoration process using `fol_info`.
+        """
+
+        # restore nn 
+        nn_restore_state_directory = restore_state_directory + "/nn"
+        absolute_path = os.path.abspath(nn_restore_state_directory)
+        nn_state = nnx.state(self.flax_neural_network)
+        restored_state = self.checkpointer.restore(absolute_path, nn_state)
+        nnx.update(self.flax_neural_network, restored_state)
+
+        # restore latent 
+        latent_restore_state_directory = restore_state_directory + "/latent"
+        absolute_path = os.path.abspath(latent_restore_state_directory)
+        latent_state = nnx.state(self.latent_step_nnx_model)
+        restored_state = self.checkpointer.restore(absolute_path, latent_state)
+        nnx.update(self.latent_step_nnx_model, restored_state)
+
+        fol_info(f"meta flax nnx state is restored from {restore_state_directory}")
+
+    @partial(nnx.jit, static_argnums=(0,))
+    def TrainStep(self, meta_state, data):
+        nn_model, main_optimizer, latent_step_model, latent_optimizer = meta_state
+        meta_model = (nn_model,latent_step_model)
+
+        @nnx.jit
+        def compute_batch_loss(batch_X,meta_model):
+            nn_model, latent_step_model = meta_model
+            latent_codes = self.ComputeBatchLatent(batch_X,nn_model,latent_step_model)
+            return self.ComputeBatchLossValue((latent_codes,batch_X),nn_model)[0],latent_codes
+        
+        (loss_value,latent_codes),meta_grads = nnx.value_and_grad(compute_batch_loss,argnums=1,has_aux=True) (data[0],meta_model)
+        main_optimizer.update(meta_grads[0])
+        latent_optimizer.update(meta_grads[1])
+        return loss_value
+    
+    @partial(nnx.jit, static_argnums=(0,))
+    def TestStep(self, meta_state, data):
+        nn_model, main_optimizer, latent_step_model, latent_optimizer = meta_state
+        latent_codes = self.ComputeBatchLatent(data[0],nn_model,latent_step_model)
+        return self.ComputeBatchLossValue((latent_codes,data[0]),nn_model)[0]
+
+    @print_with_timestamp_and_execution_time
+    def Train(self, 
+              train_set:Tuple[jnp.ndarray, jnp.ndarray], 
+              test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])),
+              test_frequency:int=100, 
+              batch_size:int=100, 
+              convergence_settings:dict={}, 
+              plot_settings:dict={},
+              restore_nnx_state_settings:dict={},
+              train_checkpoint_settings:dict={},
+              test_checkpoint_settings:dict={},
+              save_nnx_state_settings:dict={},
+              working_directory='.'):
+
+        convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
+        fol_info(f"convergence settings:{convergence_settings}")
+
+        default_plot_settings = copy.deepcopy(self.default_plot_settings)
+        default_plot_settings["save_directory"] = working_directory
+        plot_settings = UpdateDefaultDict(default_plot_settings,plot_settings)
+        plot_settings["test_frequency"] = test_frequency
+        fol_info(f"plot settings:{plot_settings}")
+
+        default_restore_nnx_state_settings = copy.deepcopy(self.default_restore_nnx_state_settings)
+        default_restore_nnx_state_settings["state_directory"] = working_directory + "/" + default_restore_nnx_state_settings["state_directory"]
+        restore_nnx_state_settings = UpdateDefaultDict(default_restore_nnx_state_settings,restore_nnx_state_settings)
+        fol_info(f"restore settings:{restore_nnx_state_settings}")
+
+        default_train_checkpoint_settings = copy.deepcopy(self.default_train_checkpoint_settings)
+        default_train_checkpoint_settings["state_directory"] = working_directory + "/" + default_train_checkpoint_settings["state_directory"]
+        train_checkpoint_settings = UpdateDefaultDict(default_train_checkpoint_settings,train_checkpoint_settings)
+        fol_info(f"train checkpoint settings:{train_checkpoint_settings}")
+
+        default_test_checkpoint_settings = copy.deepcopy(self.default_test_checkpoint_settings)
+        default_test_checkpoint_settings["state_directory"] = working_directory + "/" + default_test_checkpoint_settings["state_directory"]
+        test_checkpoint_settings = UpdateDefaultDict(default_test_checkpoint_settings,test_checkpoint_settings)
+        fol_info(f"test checkpoint settings:{test_checkpoint_settings}")
+        
+        default_save_nnx_state_settings = copy.deepcopy(self.default_save_nnx_state_settings)
+        default_save_nnx_state_settings["final_state_directory"] = working_directory + "/" + default_save_nnx_state_settings["final_state_directory"]
+        default_save_nnx_state_settings["interval_state_checkpointing_directory"] = working_directory + "/" + default_save_nnx_state_settings["interval_state_checkpointing_directory"]
+        save_nnx_state_settings = UpdateDefaultDict(default_save_nnx_state_settings,save_nnx_state_settings)
+        fol_info(f"save nnx state settings:{save_nnx_state_settings}")
+
+        # restore state if needed 
+        if restore_nnx_state_settings['restore']:
+            self.RestoreState(restore_nnx_state_settings["state_directory"])
+
+        # adjust batch for parallization reasons
+        adjusted_batch_size = next(i for i in range(batch_size, 0, -1) if len(train_set[0]) % i == 0)   
+        if adjusted_batch_size!=batch_size:
+            fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")   
+            batch_size = adjusted_batch_size  
+
+        train_history_dict = {"total_loss":[]}
+        test_history_dict = {"total_loss":[]}
+        pbar = trange(convergence_settings["num_epochs"])
+        converged = False
+        rng, _ = jax.random.split(jax.random.PRNGKey(0))
+        meta_state = (self.flax_neural_network, self.nnx_optimizer, self.latent_step_nnx_model, self.latent_nnx_optimizer)
+
+        # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b 
+        # and discussions in https://github.com/google/flax/issues/4045
+        train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs))    
+
+        for epoch in pbar:
+            # update least values in case of restore
+            if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
+                train_checkpoint_settings["least_loss"] = self.TestStep(meta_state,train_set)
+            if test_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
+                test_checkpoint_settings["least_loss"] = self.TestStep(meta_state,test_set)            
+
+            # parallel batching and train step
+            rng, sub = jax.random.split(rng)
+            order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)            
+            _, losses = train_multiple_steps_with_idxs(meta_state, train_set, order)
+            train_history_dict["total_loss"].append(losses.mean())
+            
+            # test step
+            if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
+                test_history_dict["total_loss"].append(self.TestStep(meta_state,test_set))
+            
+            # print step   
+            if len(test_set[0])>0:
+                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
+                              "test_loss":test_history_dict["total_loss"][-1],
+                              "latent_step":self.latent_step_nnx_model().value}
+            else:
+                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
+                              "latent_step":self.latent_step_nnx_model().value}
+
+            pbar.set_postfix(print_dict)
+
+            # check converged
+            converged = self.CheckConvergence(train_history_dict,convergence_settings)
+
+            # plot the histories
+            if (epoch>0 and epoch %plot_settings["save_frequency"] == 0) or converged:
+                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
+
+            # train checkpointing
+            if train_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
+                (epoch)%train_checkpoint_settings["frequency"] == 0 and \
+                train_history_dict["total_loss"][-1] < train_checkpoint_settings["least_loss"]:
+                fol_info(f"train total_loss improved from {train_checkpoint_settings['least_loss']} to {train_history_dict['total_loss'][-1]}")
+                train_checkpoint_settings["least_loss"] = train_history_dict["total_loss"][-1]
+                self.SaveCheckPoint("train",train_checkpoint_settings["state_directory"])
+
+            # test checkpointing
+            if test_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
+                (epoch)%test_checkpoint_settings["frequency"] == 0 and \
+                test_history_dict["total_loss"][-1] < test_checkpoint_settings["least_loss"]:
+                fol_info(f"test total_loss improved from {test_checkpoint_settings['least_loss']} to {test_history_dict['total_loss'][-1]}")
+                test_checkpoint_settings["least_loss"] = test_history_dict["total_loss"][-1]
+                self.SaveCheckPoint("test",test_checkpoint_settings["state_directory"])
+
+            # interval checkpointing
+            if save_nnx_state_settings["interval_state_checkpointing"] and epoch>0 and \
+            (epoch)%save_nnx_state_settings["interval_state_checkpointing_frequency"] == 0:
+                self.SaveCheckPoint(f"interval {epoch}",save_nnx_state_settings["interval_state_checkpointing_directory"]+"/flax_train_state_epoch_"+str(epoch))
+
+            if epoch<convergence_settings["num_epochs"]-1 and converged:
+                break          
+
+        if train_checkpoint_settings["least_loss_checkpointing"] and \
+            train_history_dict["total_loss"][-1] < train_checkpoint_settings['least_loss']:
+            fol_info(f"train total_loss improved from {train_checkpoint_settings['least_loss']} to {train_history_dict['total_loss'][-1]}")
+            self.SaveCheckPoint("train",train_checkpoint_settings["state_directory"])
+
+        if test_checkpoint_settings["least_loss_checkpointing"] and \
+            test_history_dict["total_loss"][-1] < test_checkpoint_settings['least_loss']:
+            fol_info(f"test total_loss improved from {test_checkpoint_settings['least_loss']} to {test_history_dict['total_loss'][-1]}")
+            self.SaveCheckPoint("test",test_checkpoint_settings["state_directory"])
+
+        if save_nnx_state_settings["save_final_state"]:
+            self.SaveCheckPoint("final",save_nnx_state_settings["final_state_directory"])
+
+        self.checkpointer.close()  # Close resources properly
+
+    @print_with_timestamp_and_execution_time
+    def Predict(self,batch_control:jnp.ndarray):
+        batch_X = jax.vmap(self.control.ComputeControlledVariables)(batch_control)
+        latent_codes = self.ComputeBatchLatent(batch_control,self.flax_neural_network,self.latent_step_nnx_model)
+        batch_Y =jax.vmap(self.flax_neural_network,(0,None))(latent_codes,self.loss_function.fe_mesh.GetNodesCoordinates())
+        batch_Y = batch_Y.reshape(latent_codes.shape[0], -1)[:,self.loss_function.non_dirichlet_indices]
+        return jax.vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)

@@ -3,6 +3,8 @@ import os
 
 # Define the scripts and their arguments
 scripts_and_args = [
+    ("implicit_control_solution_decoder_data_driven","meta_implicit_decoder_fourier_fields.py", "clean_dir=true","ifol_num_epochs=10"),
+    ("implicit_parametric_learning_square","meta_implicit_pr_lr_mechanical_2D.py", "clean_dir=true","ifol_num_epochs=10"),
     ("thermal_box","thermal_box.py", "clean_dir=true","fol_num_epochs=10"),
     ("thermal_fol","thermal_fol.py", "clean_dir=true","fol_num_epochs=10"),
     ("mechanical_box","mechanical.py", "clean_dir=true","fol_num_epochs=10"),
