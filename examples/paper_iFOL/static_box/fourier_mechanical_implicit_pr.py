@@ -114,13 +114,13 @@ train_start_id = 0
 train_end_id = 10
 fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
           test_set=(coeffs_matrix[train_start_id:train_start_id+1,:],),
-          test_frequency=100,
-          batch_size=1,
+          test_frequency=10,
+          batch_size=3,
           convergence_settings={"num_epochs":2000,"relative_error":1e-100,"absolute_error":1e-100},
           plot_settings={"save_frequency":1},
-          train_checkpoint_settings={"least_loss_checkpointing":False,"frequency":1},
-          test_checkpoint_settings={"least_loss_checkpointing":False,"frequency":1},
-          restore_nnx_state_settings={"restore":False,"state_directory":case_dir+"/flax_train_state"},
+          train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10,"state_directory":case_dir+"/flax_train_state"},
+          test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10,"state_directory":case_dir+"/flax_test_state"},
+          restore_nnx_state_settings={"restore":False,"state_directory":case_dir+"/flax_final_state"},
           working_directory=case_dir)
 
 # load the best model
