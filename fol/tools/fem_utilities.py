@@ -355,7 +355,7 @@ class MaterialModel:
             return C
 
 
-class NeoHookianModel(MaterialModel):
+class IncompressibleNeoHookianModel(MaterialModel):
     """
     Material model.
     """
@@ -402,6 +402,42 @@ class NeoHookianModel(MaterialModel):
         C_iso = (2/3)*(J**(-2/3))*jnp.vdot(S_bar,C)*P_bar - \
                 (2/3)*(jnp.einsum('ij,kl->ijkl',invC,S_iso) + jnp.einsum('ij,kl->ijkl',S_iso,invC))
         C_tangent_fourth = C_vol + C_iso
+        Se_voigt = self.TensorToVoigt(Se)
+        C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
+        return xsie, Se_voigt, C_tangent
+
+class CompressibleNeoHookeanMaterial(MaterialModel):
+    """
+    Material model.
+    """
+    @partial(jit, static_argnums=(0,))
+    def evaluate(self, F, mu, lamda):
+        """
+        Evaluate the stress and tangent operator at given local coordinates.
+        This method should be overridden by subclasses.
+
+        Parameters:
+        F (ndarray): Deformation gradient.
+        args (float): Optional material constants
+
+        Returns:
+        jnp.ndarray: Values of stress and tangent operator at given local coordinates.
+        """
+        # Supporting functions:
+
+        C = jnp.dot(F.T,F)
+        invC = jnp.linalg.inv(C)
+        J = jnp.linalg.det(F)
+        I_c = jnp.linalg.trace(C)
+
+        # Strain Energy
+        xsie = 0.5*mu*(I_c - 3) - mu*jnp.log(J) + 0.5*lamda*(jnp.log(J)**2)
+
+        # Stress Tensor
+        Se = mu*(jnp.eye(C.shape[0]) - invC) + lamda*(jnp.log(J))*invC
+
+        
+        C_tangent_fourth = 0.5*(jnp.einsum('ik,jl->ijkl',invC,invC) + jnp.einsum('il,jk->ijkl',invC,invC))
         Se_voigt = self.TensorToVoigt(Se)
         C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
         return xsie, Se_voigt, C_tangent

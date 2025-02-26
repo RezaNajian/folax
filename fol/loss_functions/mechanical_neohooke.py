@@ -21,7 +21,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             fol_error("material_dict should provided in the loss settings !")
         self.e = self.loss_settings["material_dict"]["young_modulus"]
         self.v = self.loss_settings["material_dict"]["poisson_ratio"]  
-        self.material_model = NeoHookianModel()
+        self.material_model = CompressibleNeoHookeanMaterial()
         if self.dim == 2:
             self.CalculateNMatrix = self.CalculateNMatrix2D
             self.CalculateKinematics = self.CalculateKinematics2D
@@ -113,7 +113,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             mu_at_gauss = e_at_gauss / (2 * (1 + self.v))
 
             H,F,B = self.CalculateKinematics(DN_DX_T,uvwe)
-            xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            xsi,S,C = self.material_model.evaluate(F,mu_at_gauss,mu_at_gauss)
             
             gp_stiffness = gp_weight * detJ * (B.T @ C @ B)
             gp_f = gp_weight * detJ * N_mat.T @ self.body_force

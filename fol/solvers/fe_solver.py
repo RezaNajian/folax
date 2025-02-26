@@ -5,6 +5,7 @@
 """
 import scipy
 import jax.numpy as jnp
+import jax
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 from fol.loss_functions.fe_loss import FiniteElementLoss
@@ -34,6 +35,7 @@ class FiniteElementSolver(Solver):
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
 
+        jax.config.update("jax_enable_x64", True)
         if "linear_solver_settings" in self.fe_solver_settings.keys():
             self.linear_solver_settings = UpdateDefaultDict(self.linear_solver_settings,
                                                             self.fe_solver_settings["linear_solver_settings"])
