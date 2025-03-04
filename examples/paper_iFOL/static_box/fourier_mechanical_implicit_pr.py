@@ -6,8 +6,7 @@ from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning_v2 import MetaAlphaMetaImplicitParametricOperatorLearning
-from fol.deep_neural_networks.implicit_parametric_operator_learning import ImplicitParametricOperatorLearning
+from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
