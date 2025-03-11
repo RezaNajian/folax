@@ -69,15 +69,15 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         B = B.at[2, 3 * indices].set(F[0, 2] * DN_DX_T[2, indices])
         B = B.at[2, 3 * indices + 1].set(F[1, 2] * DN_DX_T[2, indices])
         B = B.at[2, 3 * indices + 2].set(F[2, 2] * DN_DX_T[2, indices])
-        B = B.at[3, 3 * indices].set(F[0, 1] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[1, indices])
-        B = B.at[3, 3 * indices + 1].set(F[1, 1] * DN_DX_T[2, indices] + F[1, 2] * DN_DX_T[1, indices])
-        B = B.at[3, 3 * indices + 2].set(F[2, 1] * DN_DX_T[2, indices] + F[2, 2] * DN_DX_T[1, indices])
+        B = B.at[3, 3 * indices].set(F[0, 0] * DN_DX_T[1, indices] + F[0, 1] * DN_DX_T[0, indices])
+        B = B.at[3, 3 * indices + 1].set(F[1, 0] * DN_DX_T[1, indices] + F[1, 1] * DN_DX_T[0, indices])
+        B = B.at[3, 3 * indices + 2].set(F[2, 0] * DN_DX_T[1, indices] + F[2, 1] * DN_DX_T[0, indices])
         B = B.at[4, 3 * indices].set(F[0, 0] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[0, indices])
         B = B.at[4, 3 * indices + 1].set(F[1, 0] * DN_DX_T[2, indices] + F[1, 2] * DN_DX_T[0, indices])
         B = B.at[4, 3 * indices + 2].set(F[2, 0] * DN_DX_T[2, indices] + F[2, 2] * DN_DX_T[0, indices])
-        B = B.at[5, 3 * indices].set(F[0, 0] * DN_DX_T[1, indices] + F[0, 1] * DN_DX_T[0, indices])
-        B = B.at[5, 3 * indices + 1].set(F[1, 0] * DN_DX_T[1, indices] + F[1, 1] * DN_DX_T[0, indices])
-        B = B.at[5, 3 * indices + 2].set(F[2, 0] * DN_DX_T[1, indices] + F[2, 1] * DN_DX_T[0, indices])
+        B = B.at[5, 3 * indices].set(F[0, 1] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[1, indices])
+        B = B.at[5, 3 * indices + 1].set(F[1, 1] * DN_DX_T[2, indices] + F[1, 2] * DN_DX_T[1, indices])
+        B = B.at[5, 3 * indices + 2].set(F[2, 1] * DN_DX_T[2, indices] + F[2, 2] * DN_DX_T[1, indices])  
 
         return H,F,B
     
@@ -108,17 +108,52 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             J = self.fe_element.Jacobian(xyze,gp_point)
             detJ = jnp.linalg.det(J)
 
-            e_at_gauss = jnp.dot(N_vec, de.squeeze())
+            e_at_gauss = jnp.dot(N_vec, self.e*de.squeeze())
             k_at_gauss = e_at_gauss / (3 * (1 - 2*self.v))
             mu_at_gauss = e_at_gauss / (2 * (1 + self.v))
+            lambda_at_gauss = e_at_gauss * self.v / ((1 + self.v)*(1 - 2*self.v))
 
             H,F,B = self.CalculateKinematics(DN_DX_T,uvwe)
-            xsi,S,C = self.material_model.evaluate(F,mu_at_gauss,mu_at_gauss)
+            xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+
+            S_mat = jnp.zeros((3,3))
+            S_mat = S_mat.at[0,0].set(S[0,0])
+            S_mat = S_mat.at[0,1].set(S[3,0])
+            S_mat = S_mat.at[0,2].set(S[4,0])
+            S_mat = S_mat.at[1,0].set(S[3,0])
+            S_mat = S_mat.at[1,1].set(S[1,0])
+            S_mat = S_mat.at[1,2].set(S[5,0])
+            S_mat = S_mat.at[2,0].set(S[4,0])
+            S_mat = S_mat.at[2,1].set(S[5,0])
+            S_mat = S_mat.at[2,2].set(S[2,0])
+            num_nodes = DN_DX_T.shape[1]
+            gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
+
+            gp_geo_stiffness = gp_geo_stiffness.at[0:3,0:3].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,0])))
+            gp_geo_stiffness = gp_geo_stiffness.at[0:3,3:6].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,1])))
+            gp_geo_stiffness = gp_geo_stiffness.at[0:3,6:9].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,2])))
+            gp_geo_stiffness = gp_geo_stiffness.at[0:3,9:12].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,3])))
+
+            gp_geo_stiffness = gp_geo_stiffness.at[3:6,0:3].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,0])))
+            gp_geo_stiffness = gp_geo_stiffness.at[3:6,3:6].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,1])))
+            gp_geo_stiffness = gp_geo_stiffness.at[3:6,6:9].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,2])))
+            gp_geo_stiffness = gp_geo_stiffness.at[3:6,9:12].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,3])))
+
+            gp_geo_stiffness = gp_geo_stiffness.at[6:9,0:3].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,0])))
+            gp_geo_stiffness = gp_geo_stiffness.at[6:9,3:6].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,1])))
+            gp_geo_stiffness = gp_geo_stiffness.at[6:9,6:9].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,2])))
+            gp_geo_stiffness = gp_geo_stiffness.at[6:9,9:12].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,3])))
+
+            gp_geo_stiffness = gp_geo_stiffness.at[9:12,0:3].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,0])))
+            gp_geo_stiffness = gp_geo_stiffness.at[9:12,3:6].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,1])))
+            gp_geo_stiffness = gp_geo_stiffness.at[9:12,6:9].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,2])))
+            gp_geo_stiffness = gp_geo_stiffness.at[9:12,9:12].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,3])))
             
             gp_stiffness = gp_weight * detJ * (B.T @ C @ B)
+            gp_geo_stiffness = gp_weight * detJ * gp_geo_stiffness  # will be added to gp_stiffness
             gp_f = gp_weight * detJ * N_mat.T @ self.body_force
             gp_fint = gp_weight * detJ * jnp.dot(B.T,S)
-            gp_energy = gp_weight * detJ * xsi
+            gp_energy = xsi
             return gp_energy,gp_stiffness,gp_f,gp_fint
 
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
@@ -148,3 +183,12 @@ class NeoHookeMechanicalLoss3DTetra(NeoHookeMechanicalLoss):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
+
+class NeoHookeMechanicalLoss3DHexa(NeoHookeMechanicalLoss):
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
+        super().__init__(name,{**loss_settings,"compute_dims":3,
+                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "element_type":"hexahedron"},fe_mesh)
+

@@ -80,7 +80,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                 coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
     # create fol optax-based optimizer
-    num_epochs = 2000
+    num_epochs = fol_num_epochs
     learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
     main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
@@ -107,7 +107,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # solve FE here
     solve_FE = True
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"}}
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
+                      "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
+                                            "maxiter":10,"load_incr":10}}
         first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d,fe_setting)
         first_fe_solver.Initialize()
         FE_UVW = np.array(first_fe_solver.Solve(K_matrix[eval_id],jnp.ones(3*fe_mesh.GetNumberOfNodes())))  

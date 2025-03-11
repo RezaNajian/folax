@@ -27,7 +27,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # p# create fe-based loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.1},
+    bc_dict = {"Ux":{"left":0.0,"right":0.25},
                     "Uy":{"left":0.0,"right":0.02},
                     "Uz":{"left":0.0,"right":0.02}}
 
@@ -79,14 +79,14 @@ def main(ifol_num_epochs=10,clean_dir=False):
         bc_matrix = loaded_control_dict["bc_matrix"]
 
     # add intended BC to the end of samples
-    wanted_bc = np.array([0.1,0.02,0.02])
+    wanted_bc = np.array([0.25,0.02,0.02])
     bc_matrix = np.vstack((bc_matrix,wanted_bc))
     print(bc_matrix.shape, "is bc matrix shape")
     bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
-    characteristic_length = 8
+    characteristic_length = 64
     depth = 2
-    latent_size_factor = 2
+    latent_size_factor = 4
 
     print(f"characteristic lenght: {characteristic_length} \n depth: {depth} \n latent size: {latent_size_factor*characteristic_length}")
     # design synthesizer & modulator NN for hypernetwork
@@ -180,23 +180,22 @@ def main(ifol_num_epochs=10,clean_dir=False):
         linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_3d,fe_setting)
         linear_fe_solver.Initialize()
 
-        print("bc nodal value matrix: ", bc_nodal_value_matrix[eval_id].shape)
-        FE_UVW = np.array(linear_fe_solver.Solve(bc_nodal_value_matrix[eval_id],np.zeros(3*fe_mesh.GetNumberOfNodes())))  
-        fe_mesh[f'U_FE_{eval_id}'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+        # FE_UVW = np.array(linear_fe_solver.Solve(bc_nodal_value_matrix[eval_id],jnp.zeros(3*fe_mesh.GetNumberOfNodes())))  
+        # fe_mesh[f'U_FE_{eval_id}'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
-        absolute_error = abs(FOL_UVW.reshape(-1,1)- FE_UVW.reshape(-1,1))
-        fe_mesh[f'abs_error_{eval_id}'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 3))
+        # absolute_error = abs(FOL_UVW.reshape(-1,1)- FE_UVW.reshape(-1,1))
+        # fe_mesh[f'abs_error_{eval_id}'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     fe_mesh.Finalize(export_dir=case_dir, export_format="vtu")
 
-    for eval_id in [otf_id]:
-        fe_mesh_name=fe_mesh.file_name.split('.')[0]
-        plot3D(fe_mesh_name, mesh_file_path=case_dir, fe_vec=f'U_FE_{eval_id}', fol_vec=f'U_FOL_{eval_id}',
-            plot_name=f"deformed_mesh_comparison_{eval_id}.png", scale_factor=2.0)
+    # for eval_id in [otf_id]:
+    #     fe_mesh_name=fe_mesh.file_name.split('.')[0]
+    #     plot3D(fe_mesh_name, mesh_file_path=case_dir, fe_vec=f'U_FE_{eval_id}', fol_vec=f'U_FOL_{eval_id}',
+    #         plot_name=f"deformed_mesh_comparison_{eval_id}.png", scale_factor=2.0)
 
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 2000
+    ifol_num_epochs = 1000
     clean_dir = False
 
     # Parse the command-line arguments

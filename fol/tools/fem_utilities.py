@@ -8,9 +8,11 @@
 fem_utilities.py
 A module for performing basic finite element operations.
 """
+import numpy as np
 import jax.numpy as jnp
 from jax import jit
 from functools import partial
+import jax
 
 class ConstantsMeta(type):
     def __setattr__(self, key, value):
@@ -320,9 +322,9 @@ class MaterialModel:
             voigt = voigt.at[0,0].set(tensor[0,0])
             voigt = voigt.at[1,0].set(tensor[1,1])
             voigt = voigt.at[2,0].set(tensor[2,2])
-            voigt = voigt.at[3,0].set(tensor[1,2])
+            voigt = voigt.at[3,0].set(tensor[0,1])
             voigt = voigt.at[4,0].set(tensor[0,2])
-            voigt = voigt.at[5,0].set(tensor[0,1])
+            voigt = voigt.at[5,0].set(tensor[1,2])
             return voigt
 
     def FourthTensorToVoigt(self,Cf):
@@ -345,7 +347,7 @@ class MaterialModel:
             C = jnp.zeros((6, 6))
             indices = [
                 (0, 0), (1, 1), (2, 2), 
-                (1, 2), (0, 2), (0, 1)
+                (0, 1), (0, 2), (1, 2)
                 ]
             
             for I, (i, j) in enumerate(indices):
@@ -355,7 +357,7 @@ class MaterialModel:
             return C
 
 
-class IncompressibleNeoHookianModel(MaterialModel):
+class NeoHookianModel(MaterialModel):
     """
     Material model.
     """
@@ -386,8 +388,7 @@ class IncompressibleNeoHookianModel(MaterialModel):
         xsie_vol = (k/4)*(J**2 - 2*jnp.log(J) -1)
         I1_bar = (J**(-2/3))*jnp.trace(C)
         xsie_iso = 0.5*mu*(I1_bar - 3)
-        loss_positive_bias = 100     # To prevent loss to become a negative number
-        xsie = xsie_vol + xsie_iso + loss_positive_bias
+        xsie = xsie_vol + xsie_iso
 
         # Stress Tensor
         S_vol = J*p*invC
@@ -436,8 +437,133 @@ class CompressibleNeoHookeanMaterial(MaterialModel):
         # Stress Tensor
         Se = mu*(jnp.eye(C.shape[0]) - invC) + lamda*(jnp.log(J))*invC
 
-        
-        C_tangent_fourth = 0.5*(jnp.einsum('ik,jl->ijkl',invC,invC) + jnp.einsum('il,jk->ijkl',invC,invC))
+        # Fourth order tensor I:
+        I_fourth = jnp.zeros((3,3,3,3))
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    for l in range(3):
+                        I_fourth = I_fourth.at[i,j,k,l].add(0.5*(invC[i,k]*invC[j,l] + invC[i,l]*invC[j,k]))
+
+        C_tangent_fourth = lamda*jnp.einsum('ij,kl->ijkl', invC,invC,) + 2*(mu - lamda*jnp.log(J))*I_fourth
         Se_voigt = self.TensorToVoigt(Se)
         C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
         return xsie, Se_voigt, C_tangent
+    
+class IncompressibleNeoHookianModel(MaterialModel):
+    """
+    Material model.
+    """
+    @partial(jit, static_argnums=(0,))
+    def evaluate(self, F, k, mu):
+        """
+        Evaluate the stress and tangent operator at given local coordinates.
+        This method should be overridden by subclasses.
+
+        Parameters:
+        F (ndarray): Deformation gradient.
+        args (float): Optional material constants
+
+        Returns:
+        jnp.ndarray: Values of stress and tangent operator at given local coordinates.
+        """
+        
+        C = jnp.dot(F.T,F)
+        invC = jnp.linalg.inv(C)
+        J = jnp.linalg.det(F)
+        C_ = (jnp.linalg.det(C)**(-1/3))*C
+
+        IC = jnp.linalg.trace(C)
+        IIIC = jnp.linalg.det(C)
+        IC_ = jnp.linalg.trace(C_)
+
+        U = 0.5*k*(J - 1)**2
+        # U = 0.25*k*(J**2 - 2*jnp.log(J) - 1)
+        p = k*(J - 1)   # p = dU/dJ
+        # p = 0.5*k*(J - (1/J))
+
+        # Fourth order tensor I:
+        I_fourth = jnp.zeros((3,3,3,3))
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    for l in range(3):
+                        I_fourth = I_fourth.at[i,j,k,l].add(0.5*(invC[i,k]*invC[j,l] + invC[i,l]*invC[j,k]))
+
+        tang_C_ = 2*mu*(IIIC**(-1/3))*((1/3)*IC*I_fourth - (1/3)*jnp.einsum('ij,kl->ijkl',jnp.eye(C.shape[0]),invC) -
+                                        (1/3)*jnp.einsum('ij,kl->ijkl',invC,jnp.eye(C.shape[0])) + 
+                                        (1/9)*IC*jnp.einsum('ij,kl->ijkl',invC,invC))
+        tang_Cp = p*J*(jnp.einsum('ij,kl->ijkl',invC,invC) - 2*I_fourth)
+        tang_Ck = k*(J**2)*jnp.einsum('ij,kl->ijkl',invC,invC)
+        
+        # Strain Energy
+        xsie_vol = U
+        xsie_iso = 0.5*mu*(IC_ - 3)
+        xsie = xsie_vol + xsie_iso
+        # xsie = xsie_iso
+
+        # Stress Tensor
+        Se = mu*(IIIC**(-1/3))*(jnp.eye(C.shape[0]) - (1/3)*IC*invC) + p*J*invC
+        # Se = mu*(IIIC**(-1/3))*(jnp.eye(3) - (1/3)*IC*invC) + p*J*invC
+        # tang_C_ = 2.*mu*(IIIC**(-1./3.))*((1./3.)*IC*I_fourth - 
+        #                                   (1./3.)*jnp.einsum('ij,kl->ijkl',jnp.eye(3),invC) -
+        #                                   (1./3.)*jnp.einsum('ij,kl->ijkl',invC,jnp.eye(3)) +
+        #                                   (1./9.)*IC*jnp.einsum('ij,kl->ijkl',invC,invC))
+        # tang_Cp = p*J*(jnp.einsum('ij,kl->ijkl',invC,invC) - 2*I_fourth)
+
+        C_tangent_fourth = tang_C_ + tang_Cp + tang_Ck
+        Se_voigt = self.TensorToVoigt(Se)
+        C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
+        return xsie, Se_voigt, C_tangent
+
+class IncompressibleNeoHookianModelAD(MaterialModel):
+    """
+    Material model.
+    """
+    @partial(jit, static_argnums=(0,))
+    def evaluate(self, F, k, mu):
+        """
+        Evaluate the stress and tangent operator at given local coordinates.
+        This method should be overridden by subclasses.
+
+        Parameters:
+        F (ndarray): Deformation gradient.
+        args (float): Optional material constants
+
+        Returns:
+        jnp.ndarray: Values of stress and tangent operator at given local coordinates.
+        """
+        
+
+        def compute_energy(C, J, k, mu):
+            """ Compute strain energy function for nearly incompressible Neo-Hookean material. """
+            C_ = (J**(-2/3)) * C  # Deviatoric part of C
+            IC_ = jnp.trace(C_)   # Modified first invariant
+            psi = 0.5 * mu * (IC_ - 3) + 0.5 * k * (J - 1)**2
+            return psi
+
+        @jit
+        def compute_stress(C, J, k, mu):
+            """Compute the Second Piola-Kirchhoff stress tensor."""
+            return jax.grad(compute_energy, 0)(C, J, k, mu)  # Directly computes d(psi)/dC
+
+        # @jit
+        def compute_tangent(C, J, k, mu):
+            """Compute the material tangent operator."""
+            return jax.jacfwd(compute_stress, 0)(C, J, k, mu)  # Computes dS/dC
+
+        C = jnp.dot(F.T,F)
+        invC = jnp.linalg.inv(C)
+        J = jnp.linalg.det(F)
+
+        psi = compute_energy(C, J, k, mu)
+        stress = compute_stress(C, J, k, mu)
+        print("stress shape is: ", stress.shape)
+        jax.debug.print("stress vector: {output}", output=stress)
+        tangent = compute_tangent(C, J, k, mu)
+        print("tangent shape is: ", tangent.shape)
+        jax.debug.print("tangent vector: {output}", output=tangent)
+
+        Se_voigt = self.TensorToVoigt(stress)
+        C_tangent = self.FourthTensorToVoigt(tangent) 
+        return psi, Se_voigt, C_tangent

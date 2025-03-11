@@ -41,17 +41,17 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                 BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
+                if jnp.isnan(res_norm):
+                    fol_info("Residual norm is NaN, check inputs!")
+                    raise(ValueError("res_norm contains nan values!"))
                 if res_norm<self.nonlinear_solver_settings["abs_tol"]:
                     fol_info(f"converged; iterations:{i+1},residuals_norm:{res_norm}")
                     break
                     
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
-                if jnp.isnan(res_norm):
-                    fol_info("Residual norm is NaN, check inputs!")
-                    raise(ValueError("res_norm contains nan values!"))
-              
-                applied_BC_dofs = applied_BC_dofs.at[:].add(delta_dofs)
+                # applied_BC_dofs += delta_dofs
+                applied_BC_dofs = applied_BC_dofs.at[self.fe_loss_function.non_dirichlet_indices].add(delta_dofs[self.fe_loss_function.non_dirichlet_indices])
 
                 if delta_norm<self.nonlinear_solver_settings["rel_tol"]:
                     fol_info(f"converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
@@ -62,7 +62,8 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                 else:
                     fol_info(f"iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
 
-            current_dofs[self.fe_loss_function.non_dirichlet_indices] = applied_BC_dofs[self.fe_loss_function.non_dirichlet_indices]
+            # current_dofs = applied_BC_dofs
+            current_dofs = current_dofs.at[self.fe_loss_function.non_dirichlet_indices].set(applied_BC_dofs[self.fe_loss_function.non_dirichlet_indices])
         return applied_BC_dofs
 
 

@@ -199,7 +199,8 @@ class FiniteElementLoss(Loss):
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,2,))
     def ApplyDirichletBCOnDofVector(self,full_dof_vector:jnp.array,load_increment:float=1.0):
-        return full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
+        full_dof_vector = full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
+        return full_dof_vector
 
     @partial(jit, static_argnums=(0,))
     def ApplyDirichletBCOnElementResidualAndJacobian(self,

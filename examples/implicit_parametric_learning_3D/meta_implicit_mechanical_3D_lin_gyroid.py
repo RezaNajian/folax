@@ -26,12 +26,12 @@ def main(ifol_num_epochs=10,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # p# create fe-based loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.0},
-                    "Uy":{"left":0.0,"right":-0.05},
-                    "Uz":{"left":0.0,"right":-0.05}}
+    bc_dict = {"Ux":{"left":0.0,"right":0.05},
+                    "Uy":{"left":0.0,"right":0.02},
+                    "Uz":{"left":0.0,"right":0.02}}
 
     # creation of the model
-    fe_mesh = Mesh("fol_io","gyroid_tanslated_coarse.med","../meshes")
+    fe_mesh = Mesh("fol_io","tpms_gyroid_coarse.med","../meshes")
     fe_mesh.Initialize()
 
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
@@ -72,7 +72,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
         bc_matrix = loaded_control_dict["bc_matrix"]
 
     # add intended BC to the end of samples
-    wanted_bc = np.array([0.0,-0.05,-0.05])
+    wanted_bc = np.array([0.05,0.02,0.02])
     bc_matrix = np.vstack((bc_matrix,wanted_bc))
 
     bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
@@ -186,7 +186,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 500
+    ifol_num_epochs = 200
     clean_dir = False
 
     # Parse the command-line arguments
