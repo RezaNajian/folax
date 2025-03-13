@@ -1,0 +1,13 @@
+*.pyc
+*.vtu
+*.npy
+*.png
+*.msh
+*.log
+build/
+*.egg-info/
+dist/
+build/
+play_ground/
+flax_state/
+*-py-env
