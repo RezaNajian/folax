@@ -295,17 +295,25 @@ class MaterialModel:
         """
         Calculate fourth identity matrix
         """
-        I = jnp.zeros((dim, dim, dim, dim))
-        I = jnp.einsum('ik,jl->ijkl',jnp.eye(dim),jnp.eye(dim))
-        return I
+        # I = jnp.zeros((dim, dim, dim, dim))
+        # I = jnp.einsum('ik,jl->ijkl',jnp.eye(dim),jnp.eye(dim))
+        I4 = jnp.zeros((dim, dim, dim, dim))
+        for i in range(dim):
+            for j in range(dim):
+                I4 = I4.at[i, j, i, j].set(1)
+        return I4
     
     def diad_special(self, A, B, dim):
         """
         Calculate a specific tensor diad: Cijkl = (1/2)*(Aik * Bjl + Ail * Bjk)
         """
-        C = jnp.zeros((dim, dim, dim, dim))
-        C = 0.5*(jnp.einsum('ik,jl->ijkl',A,B) + jnp.einsum('il,jk->ijkl',A,B))
-        return C
+        P = jnp.zeros((dim, dim, dim, dim))
+        for i in range(dim):
+            for j in range(dim):
+                for k in range(dim):
+                    for l in range(dim):
+                        P = P.at[i,j,k,l].add(0.5* (A[i,k]*B[j,l] + A[i,l]*B[j,k]))
+        return P
     
     def TensorToVoigt(self, tensor):
         """
@@ -378,10 +386,9 @@ class NeoHookianModel(MaterialModel):
 
         C = jnp.dot(F.T,F)
         invC = jnp.linalg.inv(C)
-        J0 = jnp.linalg.det(F)
-        eps = 1e-12
-        J = jnp.where(jnp.abs(J0)<eps, eps, J0)
-        p = (k/4)*(2*J-2*J**(-1))
+        J = jnp.sqrt(jnp.linalg.det(C))
+        # p = (k/4)*(2*J-2*J**(-1))
+        ph = 0.5*k*(J-(1/J))
         dp_dJ = (k/4)*(2 + 2*J**(-2))
 
         # Strain Energy
@@ -391,16 +398,19 @@ class NeoHookianModel(MaterialModel):
         xsie = xsie_vol + xsie_iso
 
         # Stress Tensor
-        S_vol = J*p*invC
+        S_vol = J*ph*invC
         I_fourth = self.fourth_order_identity_tensor(C.shape[0])
         P = I_fourth - (1/3)*jnp.einsum('ij,kl->ijkl', invC, C)
         S_bar = mu*jnp.eye(C.shape[0])
         S_iso = (J**(-2/3))*jnp.einsum('ijkl,kl->ij',P,S_bar)
         Se = S_vol + S_iso
 
+        C_ = jnp.einsum('ij,kl->ijkl',jnp.zeros(C.shape),jnp.zeros(C.shape))
+        P_double_C = jnp.einsum('ijkl,klpq->ijpq',P,C_)
         P_bar = self.diad_special(invC,invC,invC.shape[0]) - (1/3)*jnp.einsum('ij,kl->ijkl',invC,invC)
-        C_vol = (J*p + dp_dJ*J**2)*jnp.einsum('ij,kl->ijkl',invC,invC) - 2*J*p*self.diad_special(invC,invC,invC.shape[0])
-        C_iso = (2/3)*(J**(-2/3))*jnp.vdot(S_bar,C)*P_bar - \
+        C_vol = (J*ph + dp_dJ*(J**2))*jnp.einsum('ij,kl->ijkl',invC,invC) - 2*J*ph*self.diad_special(invC,invC,invC.shape[0])
+        C_iso = jnp.einsum('ijkl,pqkl->ijpq',P_double_C,P) + \
+                (2/3)*(J**(-2/3))*jnp.vdot(S_bar,C)*P_bar - \
                 (2/3)*(jnp.einsum('ij,kl->ijkl',invC,S_iso) + jnp.einsum('ij,kl->ijkl',S_iso,invC))
         C_tangent_fourth = C_vol + C_iso
         Se_voigt = self.TensorToVoigt(Se)
