@@ -342,19 +342,16 @@ def plot_triangulated(points, elements, values_list, titles=None, filename=None,
         """
         points = np.asarray(points, dtype=float)
         elements = np.asarray(elements, dtype=int)
-
         # Ensure values_list is a list of NumPy arrays
         if not isinstance(values_list, list):
             values_list = [values_list]
         values_list = [np.asarray(values, dtype=float).flatten() for values in values_list]
-
         # Compute global min/max for consistent color scaling
         if value_range is None:
             vmin, vmax = np.min(np.concatenate(values_list)), np.max(np.concatenate(values_list))
         else:
             vmin, vmax = value_range  # Use user-defined range
         norm = Normalize(vmin=vmin, vmax=vmax)
-
         num_plots = len(values_list)
         if row:
             cols = num_plots
@@ -362,19 +359,15 @@ def plot_triangulated(points, elements, values_list, titles=None, filename=None,
         else:
             cols = min(2, num_plots)  # Up to 2 plots per row
             rows = (num_plots + cols - 1) // cols  # Compute number of rows dynamically
-
         fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 5), constrained_layout=True)
         axes = np.array(axes).reshape(-1)  # Flatten for easy indexing
-
         if titles is None:
             titles = [f"FE Solution {i}" for i in range(num_plots)]
 
         contour_plots = []  # Store contour plots for colorbar reference
-
         for i, (values, ax) in enumerate(zip(values_list, axes)):
             if len(values) != len(points):
                 raise ValueError(f"Mismatch: {len(points)} nodes but {len(values)} values.")
-
             triang = tri.Triangulation(points[:, 0], points[:, 1], elements)
             contour = ax.tricontourf(triang, values, levels=1000, cmap="jet",vmin=vmin, vmax=vmax)
             # ax.triplot(triang, 'k-', alpha=0.3)  # Optional: mesh visualization
@@ -383,22 +376,20 @@ def plot_triangulated(points, elements, values_list, titles=None, filename=None,
             ax.set_frame_on(False)
             ax.set_aspect('equal')  # Maintain correct aspect ratio
             contour_plots.append(contour)
-
+            cmap = cm.jet  # Choose a colormap
+            # Create a ScalarMappable and set the norm
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+            sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])  # Empty array since it's independent
+            # Create the color bar
+            cbar = fig.colorbar(sm, orientation='vertical', fraction=0.05, pad=0.04)
+            # Add a single colorbar spanning all subplots
+            cbar.ax.tick_params(labelsize=24)
+            cbar.set_ticks(np.linspace(vmin, vmax, num=5))
+    
         # Hide empty subplots (if num_plots < rows*cols)
         for i in range(num_plots, len(axes)):
             fig.delaxes(axes[i])
-
-        cmap = cm.jet  # Choose a colormap
-        # Create a ScalarMappable and set the norm
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])  # Empty array since it's independent
-        # Create the color bar
-        # cbar_ax = fig.add_axes([1.05, 0.2, 0.02, 0.6])
-        cbar = fig.colorbar(sm, ax=ax, orientation='vertical', fraction=0.05, pad=0.04)
-        # Add a single colorbar spanning all subplots
-        cbar.ax.tick_params(labelsize=28)
-        cbar.set_ticks(np.linspace(vmin, vmax, num=5))
 
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches="tight")
@@ -435,7 +426,7 @@ def plot_triangulated_error(points, elements, values_list, titles=None, filename
         if len(values) != len(points):
             raise ValueError(f"Mismatch: {len(points)} nodes but {len(values)} values.")
         vmax = np.max(values)
-        vmin = np.minimum(0.0, np.min(values))
+        vmin = 0.0
         norm = Normalize(vmin=vmin, vmax=vmax)
         triang = tri.Triangulation(points[:, 0], points[:, 1], elements)
         contour = ax.tricontourf(triang, values, levels=1000, cmap="jet", norm=norm)
@@ -444,16 +435,18 @@ def plot_triangulated_error(points, elements, values_list, titles=None, filename
         ax.set_frame_on(False)
         ax.set_aspect('equal')  # Maintain correct aspect ratio
         # Add a colorbar for each subplot
-        
-        cbar = fig.colorbar(contour, ax=ax, orientation='vertical', fraction=0.05, pad=0.04)
-        cbar.ax.tick_params(labelsize=18)
-        cbar.set_ticks(np.linspace(vmin, vmax, num=5))
+        cmap = cm.jet  
+        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])  # Empty array since it's independent
+        # Create the color bar
+        cbar = fig.colorbar(sm, ax=ax, orientation='vertical', fraction=0.05, pad=0.04)
+        cbar.ax.tick_params(labelsize=28)
+        cbar.set_ticks(np.linspace(vmin, vmax, num=2))
     # Hide empty subplots (if num_plots < rows * cols)
     for i in range(num_plots, len(axes)):
         fig.delaxes(axes[i])
     if filename:
         plt.savefig(filename, dpi=300, bbox_inches="tight")
-        print(f"Saved figure as: {filename}")
     plt.show()
 
 def plot_mesh_tri(points, elements, filename=None):
