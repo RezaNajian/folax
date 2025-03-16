@@ -567,7 +567,7 @@ def plot_dual_triangulated_gif(points, elements, values_list_1, values_list_2,
     for frame_filename in filenames:
         os.remove(frame_filename)
     os.rmdir(temp_dir)
-    print(f"Saved dual animation as: {filename}")
+    # print(f"Saved dual animation as: {filename}")
 
 def plot_data_input(input_morph, num_columns, filename):
 

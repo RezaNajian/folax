@@ -141,27 +141,37 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         - This method maps the neural network's output to the full DoF vector, including both Dirichlet 
         and non-Dirichlet indices.
         """
-        def predict_single_sample(sample_x:jnp.ndarray):
-
+        def predict_single_sample(sample_x: jnp.ndarray):
             latent_code = jnp.zeros(self.flax_neural_network.in_features)
             control_output = self.control.ComputeControlledVariables(sample_x)
-
             @jax.jit
             def loss(input_latent_code):
-                nn_output = self.flax_neural_network(input_latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-                nn_output = jnp.clip(nn_output, -1, 1)
-                return self.loss_function.ComputeSingleLoss(control_output,nn_output)[0]
-
+                nn_output = self.flax_neural_network(
+                    input_latent_code, self.loss_function.fe_mesh.GetNodesCoordinates()
+                ).flatten()[self.loss_function.non_dirichlet_indices]
+                nn_output = jnp.clip(nn_output, -1, 1) 
+                return self.loss_function.ComputeSingleLoss(control_output, nn_output)[0]
             loss_latent_grad_fn = jax.grad(loss)
-            for _ in range(self.num_latent_iterations):
-                grads = loss_latent_grad_fn(latent_code)
-                latent_code -= self.latent_step * grads / jnp.linalg.norm(grads)
+            
+            @jax.jit
+            def latent_update(latent_code):
+                def body_fun(state, _):
+                    grads = loss_latent_grad_fn(state)
+                    update = self.latent_step * grads / (jnp.linalg.norm(grads) + 1e-8)  
+                    return state - update, None  
+                latent_code, _ = jax.lax.scan(body_fun, latent_code, xs=None, length=self.num_latent_iterations)
+                return latent_code
 
-            nn_output = self.flax_neural_network(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-            nn_output = jnp.clip(nn_output, -1, 1)
-
-            return self.loss_function.GetFullDofVector(sample_x,nn_output)
-
+            latent_code = latent_update(latent_code)           
+            @jax.jit
+            def compute_output(latent_code):
+                nn_output = self.flax_neural_network(
+                    latent_code, self.loss_function.fe_mesh.GetNodesCoordinates()
+                ).flatten()[self.loss_function.non_dirichlet_indices]
+                nn_output = jnp.clip(nn_output, -1, 1)  # Clipping after final prediction
+                return self.loss_function.GetFullDofVector(sample_x, nn_output)      
+            return compute_output(latent_code)
+            
         return jnp.array(jax.vmap(predict_single_sample)(batch_X))
 
     def Finalize(self):
