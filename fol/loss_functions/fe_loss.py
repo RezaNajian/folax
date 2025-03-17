@@ -90,14 +90,6 @@ class FiniteElementLoss(Loss):
                 self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_3")
             else:
                 raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
-            if self.element_type == 'tetra':
-                if self.num_gp == 1:
-                    self.g_points,self.g_weights = GaussQuadratureTetra().one_point_GQ
-                elif self.num_gp == 4:
-                    self.g_points,self.g_weights = GaussQuadratureTetra().four_point_GQ
-                else:
-                    raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
-
         else:
             self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
             self.loss_settings["num_gp"] = 1

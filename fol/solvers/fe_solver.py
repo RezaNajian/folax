@@ -15,12 +15,8 @@ from jax.experimental.sparse.linalg import spsolve
 try:
     from petsc4py import PETSc
     petsc_available = True
-    from slepc4py import SLEPc
-    slepc_available = True
-
 except ImportError:
     petsc_available = False
-    slepc_available = False
 
 
 class FiniteElementSolver(Solver):
@@ -74,20 +70,6 @@ class FiniteElementSolver(Solver):
     def JaxDirectLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
         A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
                                             shape=tangent_matrix.shape)
-        from scipy.sparse.linalg import eigsh
-        max_eigenvalue, _ = eigsh(A_sp_scipy, k=1, which='LA')
-        min_eigenvalue, _ = eigsh(A_sp_scipy, k=1, which='SA')
-        print("Maximum eigenvalue:", max_eigenvalue[0])
-        print("Minimum eigenvalue:", min_eigenvalue[0])
-        print("Condition number:", max_eigenvalue[0]/min_eigenvalue[0]) 
-        # Perform LU decomposition
-        from scipy.sparse.linalg import splu
-        lu = splu(A_sp_scipy)
-        
-        # Compute the determinant as the product of diagonal entries of U
-        det = np.prod(lu.U.diagonal()) * (-1)**lu.perm_r.sum()
-        
-        print("Determinant:", det)
         
         delta_dofs = spsolve(data=A_sp_scipy.data, indices=A_sp_scipy.indices, 
                              indptr=A_sp_scipy.indptr, b=-residual_vector,
@@ -108,73 +90,18 @@ class FiniteElementSolver(Solver):
         rhs.setValues(range(len(residual_vector)), np.array(-residual_vector))
         ksp = PETSc.KSP().create()
         ksp.setOperators(A)
+        ksp.setFromOptions()
         ksp.setType(self.PETSc_ksp_type)
         ksp.pc.setType(self.linear_solver_settings["pre-conditioner"])
 
         if self.PETSc_ksp_type == 'tfqmr':
             ksp.pc.setFactorSolverType('mumps')
-        
-        ksp.setFromOptions()
 
         delta_dofs = PETSc.Vec().createSeq(len(residual_vector))
         ksp.solve(rhs, delta_dofs)
 
         return delta_dofs.getArray()
 
-    # @print_with_timestamp_and_execution_time
-    # def PETScLinearSolver(self,tangent_matrix:BCOO,residual_vector:jnp.array,dofs_vector:jnp.array):
-    #     A_sp_scipy = scipy.sparse.csr_array((tangent_matrix.data, (tangent_matrix.indices[:,0],tangent_matrix.indices[:,1])),
-    #                                         shape=tangent_matrix.shape)
-
-
-    #     A = PETSc.Mat().createAIJ(size=A_sp_scipy.shape, csr=(A_sp_scipy.indptr.astype(PETSc.IntType, copy=False),
-    #                                                    A_sp_scipy.indices.astype(PETSc.IntType, copy=False), A_sp_scipy.data))
-
-    #     rhs = PETSc.Vec().createSeq(len(residual_vector))
-    #     rhs.setValues(range(len(residual_vector)), np.array(-residual_vector))
-    #     ksp = PETSc.KSP().create()
-    #     delta_dofs = PETSc.Vec().createSeq(len(dofs_vector))
-    #     delta_dofs.setValues(range(len(dofs_vector)), np.array(dofs_vector))
-    #     ksp.setOperators(A)
-    #     PETSc.Options().setValue('ksp_compute_eigenvalues', None)
-    #     ksp.setType(self.PETSc_ksp_type)
-    #     ksp.pc.setType(self.linear_solver_settings["pre-conditioner"])
-       
-    #     if self.PETSc_ksp_type == 'tfqmr':
-    #         ksp.pc.setFactorSolverType('mumps')
-        
-    #     ksp.setFromOptions()
-
-    #     # delta_dofs = PETSc.Vec().createSeq(len(residual_vector))
-    #     ksp.solve(rhs, delta_dofs)
-
-    #     eigenvalues = ksp.computeEigenvalues()
-    #     print(f"Computed eigenvalues: {eigenvalues }")
-
-    #     condition_number = jnp.max(jnp.abs(eigenvalues))/jnp.min(jnp.abs(eigenvalues))
-    #     print(f"Condition number estimate: {condition_number}")
-
-    #    # Create an SLEPc eigenvalue solver
-    #     eps = SLEPc.EPS().create()
-    #     eps.setOperators(A)
-    #     eps.setProblemType(SLEPc.EPS.ProblemType.HEP)  # Standard eigenvalue problem
-    #     eps.setType(SLEPc.EPS.Type.ARNOLDI)
-    #     eps.setFromOptions()
-
-    #     # Solve for eigenvalues
-    #     eps.solve()
-
-    #     # Get the number of eigenvalues
-    #     n_eigenvalues = eps.getConverged()
-    #     print(f"Number of eigenvalues converged: {n_eigenvalues}")
-
-    #     # Retrieve and print the eigenvalues
-    #     for i in range(n_eigenvalues):
-    #         value = eps.getEigenvalue(i)
-    #         print(f"Eigenvalue {i}: {value}")
-
-    #     return delta_dofs.getArray()
-    
     def Finalize(self) -> None:
         pass
 

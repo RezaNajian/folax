@@ -173,25 +173,28 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
         and non-Dirichlet indices.
         """
         def predict_single_sample(sample_x:jnp.ndarray,hetero_info:jnp.ndarray):
-
             latent_code = jnp.zeros(self.flax_neural_network.in_features)
             control_output = self.control.ComputeControlledVariables(sample_x)
             hetero_output = self.control.ComputeControlledVariables(hetero_info)
-
             @jax.jit
             def loss(input_latent_code):
                 nn_output = self.flax_neural_network(input_latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
                 nn_output = jnp.clip(nn_output, 0, 1)
                 return self.loss_function.ComputeSingleLoss(control_output,hetero_output,nn_output)[0]
-
             loss_latent_grad_fn = jax.grad(loss)
-            for _ in range(self.num_latent_iterations):
-                grads = loss_latent_grad_fn(latent_code)
-                latent_code -= self.latent_step * grads / jnp.linalg.norm(grads)
 
+            @jax.jit
+            def latent_update(latent_code):
+                def body_fun(state, _):
+                    grads = loss_latent_grad_fn(state)
+                    update = self.latent_step * grads / (jnp.linalg.norm(grads) + 1e-8)  
+                    return state - update, None
+                latent_code,_ = jax.lax.scan(body_fun, latent_code, xs=None, length=self.num_latent_iterations)
+                return latent_code
+            
+            latent_code = latent_update(latent_code)
             nn_output = self.flax_neural_network(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
             nn_output = jnp.clip(nn_output, 0, 1)
-
             return self.loss_function.GetFullDofVector(sample_x,nn_output)
 
         return jnp.array(jax.vmap(predict_single_sample)(batch_X,self.hetero_info.reshape(-1,1).T))

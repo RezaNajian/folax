@@ -238,7 +238,7 @@ class DeepNetwork(ABC):
         # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b 
         # and discussions in https://github.com/google/flax/issues/4045
         train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs))    
-
+       
         for epoch in pbar:
             # update least values in case of restore
             if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
@@ -308,8 +308,6 @@ class DeepNetwork(ABC):
 
         if save_nnx_state_settings["save_final_state"]:
             self.SaveCheckPoint("final",save_nnx_state_settings["final_state_directory"])
-
-        np.save(working_directory+"/train_history_dict.npy",train_history_dict["total_loss"])
 
         self.checkpointer.close()  # Close resources properly
 

@@ -327,7 +327,6 @@ def plot_mesh_vec_data_phasefield(L, vectors_list, subplot_titles=None, fig_titl
     if file_name is not None:
         plt.savefig(file_name)
 
-
 def plot_triangulated(points, elements, values_list, titles=None, filename=None, value_range=None, row=False):
         """
         Plot multiple nodal solutions using triangular elements and save them in a single figure.
@@ -382,7 +381,7 @@ def plot_triangulated(points, elements, values_list, titles=None, filename=None,
             sm = cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])  # Empty array since it's independent
             # Create the color bar
-            cbar = fig.colorbar(sm, orientation='vertical', fraction=0.05, pad=0.04)
+            cbar = fig.colorbar(sm, ax = ax, orientation='vertical', fraction=0.05, pad=0.04)
             # Add a single colorbar spanning all subplots
             cbar.ax.tick_params(labelsize=24)
             cbar.set_ticks(np.linspace(vmin, vmax, num=5))
@@ -395,8 +394,6 @@ def plot_triangulated(points, elements, values_list, titles=None, filename=None,
             plt.savefig(filename, dpi=300, bbox_inches="tight")
             
         plt.show()
-
-
 
 def plot_triangulated_error(points, elements, values_list, titles=None, filename=None):
     """
@@ -441,7 +438,7 @@ def plot_triangulated_error(points, elements, values_list, titles=None, filename
         # Create the color bar
         cbar = fig.colorbar(sm, ax=ax, orientation='vertical', fraction=0.05, pad=0.04)
         cbar.ax.tick_params(labelsize=28)
-        cbar.set_ticks(np.linspace(vmin, vmax, num=2))
+        cbar.set_ticks(np.linspace(vmin, vmax, num=3))
     # Hide empty subplots (if num_plots < rows * cols)
     for i in range(num_plots, len(axes)):
         fig.delaxes(axes[i])
@@ -1150,7 +1147,6 @@ def Neo_Hooke(F,k,mu):
     C_tangent_fourth = C_vol + C_iso
     
     return xsie, Se, C_tangent_fourth
-
 
 def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     filtered_update = {k: given_dict[k] for k in default_dict if k in given_dict}

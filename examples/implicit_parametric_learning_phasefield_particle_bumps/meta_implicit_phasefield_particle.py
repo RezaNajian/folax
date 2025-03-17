@@ -113,7 +113,7 @@ fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
                                 "absolute_error":1e-100},
           working_directory=case_dir)
 
-num_steps = t0
+num_steps = 50
 FOL_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
 eval_id = 8500
 FOL_T_temp  = coeffs_matrix[eval_id,:]

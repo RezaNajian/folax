@@ -18,6 +18,12 @@ class FiniteElementLinearResidualBasedSolver(FiniteElementSolver):
                                             current_control_vars,BC_applied_dofs)
         
         delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,BC_applied_dofs)
+
         return BC_applied_dofs + delta_dofs
 
-    
+        
+
+
+
+
+
