@@ -128,7 +128,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 1
+num_epochs = 10000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
@@ -151,7 +151,7 @@ fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
             convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},working_directory=case_dir)
 
-num_steps = 10
+num_steps = 50
 FOL_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
 eval_id = 8500
 FOL_T_temp  = coeffs_matrix[eval_id,:]
