@@ -1,12 +1,17 @@
 import sys
 import os
+# sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+sys.path.append(os.path.join(os.getcwd(),'../..'))
 import optax
 import numpy as np
 from fol.loss_functions.mechanical import MechanicalLoss2DQuad
+from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
+from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
@@ -25,30 +30,21 @@ def main(ifol_num_epochs=10,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # problem setup
-    model_settings = {"L":1,"N":11,
-                        "Ux_left":0.0,"Ux_right":0.05,
-                        "Uy_left":0.0,"Uy_right":0.05}
+    model_settings = {"L":1,"N":41,
+                        "Ux_left":0.0,"Ux_right":0.5,
+                        "Uy_left":0.0,"Uy_right":0.5}
 
     # creation of the model
     fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
+    fe_mesh.Initialize()
 
     # create fe-based loss function
     bc_dict = {"Ux":{"left":model_settings["Ux_left"],"right":model_settings["Ux_right"]},
             "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
 
-    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
-    mechanical_loss_2d = MechanicalLoss2DQuad("mechanical_loss_2d",loss_settings={"dirichlet_bc_dict":bc_dict,
-                                                                                "num_gp":2,
-                                                                                "material_dict":material_dict},
-                                                                                fe_mesh=fe_mesh)
-
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
                                 "beta":20,"min":1e-1,"max":1}
     fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
-
-
-    fe_mesh.Initialize()
-    mechanical_loss_2d.Initialize()
     fourier_control.Initialize()
 
     # create some random coefficients & K for training
@@ -78,19 +74,26 @@ def main(ifol_num_epochs=10,clean_dir=False):
         fe_mesh.Finalize(export_dir=case_dir)
         exit()
 
+    material_dict = {"young_modulus":1,"poisson_ratio":0.3}
+    loss_settings={"dirichlet_bc_dict":bc_dict,
+                "material_dict":material_dict}
+    mechanical_loss_2d = NeoHookeMechanicalLoss2DQuad("mechanical_loss_2d",loss_settings=loss_settings,
+                                                                                fe_mesh=fe_mesh)
+    mechanical_loss_2d.Initialize()
+
     # design synthesizer & modulator NN for hypernetwork
     characteristic_length = model_settings["N"]
-    characteristic_length = 64
+    characteristic_length = 128
     synthesizer_nn = MLP(name="synthesizer_nn",
                         input_size=3,
                         output_size=2,
-                        hidden_layers=[characteristic_length] * 6,
+                        hidden_layers=[characteristic_length] * 4,
                         activation_settings={"type":"sin",
-                                            "prediction_gain":60,
+                                            "prediction_gain":30,
                                             "initialization_gain":1.0},
                         skip_connections_settings={"active":False,"frequency":1})
 
-    latent_size = 2 * characteristic_length
+    latent_size = 4 * characteristic_length
     modulator_nn = MLP(name="modulator_nn",
                     input_size=latent_size,
                     use_bias=False) 
@@ -102,63 +105,78 @@ def main(ifol_num_epochs=10,clean_dir=False):
     # create fol optax-based optimizer
     num_epochs = ifol_num_epochs
     learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-    main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
+    main_loop_transform = optax.chain(optax.adam(1e-6))
+    latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
     # create fol
-    fol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=fourier_control,
-                                                loss_function=mechanical_loss_2d,
-                                                flax_neural_network=hyper_network,
-                                                main_loop_optax_optimizer=main_loop_transform,
-                                                latent_step_size=1e-2,
-                                                num_latent_iterations=3)
+    fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=fourier_control,
+                                                            loss_function=mechanical_loss_2d,
+                                                            flax_neural_network=hyper_network,
+                                                            main_loop_optax_optimizer=main_loop_transform,
+                                                            latent_step_optax_optimizer=latent_step_optimizer,
+                                                            latent_step_size=1e-2,
+                                                            num_latent_iterations=3)
     fol.Initialize()
 
+    otf_id = 1
+    train_set_otf = coeffs_matrix[otf_id,:].reshape(-1,1).T     # for On The Fly training
+
     train_start_id = 0
-    train_end_id = 20
+    train_end_id = 4
+    train_set_pr = coeffs_matrix[train_start_id:train_end_id,:]     # for parametric training
+
     test_start_id = 3*train_end_id
-    test_end_id = 3*train_end_id + 2
+    test_end_id = 4*train_end_id
+
+    train_set = train_set_otf    # OTF or Parametric 
     # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-            test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-            test_frequency=10,
-            batch_size=1,
-            convergence_settings={"num_epochs":num_epochs,
-                                    "relative_error":1e-100,
-                                    "absolute_error":1e-100},
-            working_directory=case_dir)
+    fol.Train(train_set=(train_set,),
+                test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
+                test_frequency=100,
+                batch_size=1,
+                convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                plot_settings={"plot_save_rate":100},
+                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                working_directory=case_dir)
+
 
     # load teh best model
-    fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
+    fol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
-    for test in range(test_start_id,test_end_id):
-        eval_id = test
-        FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
-        fe_mesh['U_FOL'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
-
-        # solve FE here
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl","tol":1e-6,"atol":1e-6,
+    fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                                     "maxiter":1000,"pre-conditioner":"ilu"},
                         "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
-                                                    "maxiter":10,"load_incr":5}}
-        linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
-        linear_fe_solver.Initialize()
-        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))  
-        fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+                                                    "maxiter":20,"load_incr":80}}
 
-        absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-        fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
+    # for test in range(test_start_id,test_end_id):
+
+    for test in [otf_id]:
+        eval_id = test
+        FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
+        fe_mesh[f'U_FOL_{eval_id}'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+        fe_mesh[f'K_{eval_id}'] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(), 1))
+
+        # solve FE here
+        if FE_solve:
+            nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlinear_fe_solver",mechanical_loss_2d,fe_setting)
+            nonlinear_fe_solver.Initialize()
+            FE_UV = np.array(nonlinear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))
+            fe_mesh[f'U_FE_{eval_id}'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+
+            absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+            fe_mesh[f'abs_error_{eval_id}'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
 
-        plot_mesh_vec_data(1,[FOL_UV[0::2],FOL_UV[1::2],absolute_error[0::2],absolute_error[1::2]],
-                        ["U","V","abs_error_U","abs_error_V"],
-                        fig_title="implicit FOL solution and error",
-                        file_name=os.path.join(case_dir,f"FOL-UV-dist_test_{eval_id}.png"))
-        plot_mesh_vec_data(1,[K_matrix[eval_id,:],FE_UV[0::2],FE_UV[1::2]],
-                        ["K","U","V"],
-                        fig_title="conductivity and FEM solution",
-                        file_name=os.path.join(case_dir,f"FEM-KUV-dist_test_{eval_id}.png"))
+            plot_mesh_vec_data(1,[FOL_UV[0::2],FOL_UV[1::2],absolute_error[0::2],absolute_error[1::2]],
+                            ["U","V","abs_error_U","abs_error_V"],
+                            fig_title="implicit FOL solution and error",
+                            file_name=os.path.join(case_dir,f"FOL-UV-dist_test_{eval_id}.png"))
+            plot_mesh_vec_data(1,[K_matrix[eval_id,:],FE_UV[0::2],FE_UV[1::2]],
+                            ["K","U","V"],
+                            fig_title="conductivity and FEM solution",
+                            file_name=os.path.join(case_dir,f"FEM-KUV-dist_test_{eval_id}.png"))
 
-    fe_mesh.Finalize(export_dir=case_dir)
+    fe_mesh.Finalize(export_dir=case_dir, export_format='vtk')
 
     if clean_dir:
         shutil.rmtree(case_dir)   
@@ -166,7 +184,8 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 200
+    ifol_num_epochs = 2000
+    FE_solve = True
     clean_dir = False
 
     # Parse the command-line arguments

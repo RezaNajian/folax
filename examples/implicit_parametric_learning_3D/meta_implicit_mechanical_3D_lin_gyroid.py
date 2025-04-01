@@ -77,9 +77,9 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
     bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
-    characteristic_length = 8
-    depth = 2
-    latent_size_factor = 1
+    characteristic_length = 64
+    depth = 4
+    latent_size_factor = 8
 
     print(f"characteristic lenght: {characteristic_length} \n depth: {depth} \n latent size: {latent_size_factor*characteristic_length}")
     # design synthesizer & modulator NN for hypernetwork

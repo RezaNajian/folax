@@ -2,10 +2,9 @@ import sys
 import os
 import optax
 import numpy as np
-sys.path.append(os.path.join(os.getcwd(),'../..'))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '../..')))
 
-import jax
-from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DHexa
+from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.dirichlet_control import DirichletControl
 from fol.controls.voronoi_control3D import VoronoiControl3D
@@ -22,22 +21,21 @@ def main(ifol_num_epochs=10,clean_dir=False):
     if ifol_num_epochs<5000:
         fol_warning(f"ifol_num_epochs is set to {ifol_num_epochs}, recommended value for good results is 5000 !")
     # directory & save handling
-    working_directory_name = 'meta_implicit_hexa_box_3D_nonlin'
+    working_directory_name = 'meta_implicit_box_3D_lin'
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # p# create fe-based loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.04},
-                    "Uy":{"left":0.0,"right":0.02},
-                    "Uz":{"left":0.0,"right":0.02}}
+    bc_dict = {"Ux":{"left":0.0,"right":0.5},
+                    "Uy":{"left":0.0,"right":-0.3},
+                    "Uz":{"left":0.0,"right":-0.3}}
 
     # creation of the model
-    fe_mesh = create_3D_box_mesh(Nx=3,Ny=3,Nz=3,Lx=1,Ly=1,Lz=1,
-                        case_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
+    fe_mesh = Mesh("fol_io","box_3D_coarse.med","../meshes")
     fe_mesh.Initialize()
 
-    voronoi_settings = {"number_of_seeds": 25, "E_values": [0.5,1]}
+    voronoi_settings = {"number_of_seeds": 25, "E_values": [0.2,1]}
     voronoi_control = VoronoiControl3D("voronoi_control", voronoi_settings, fe_mesh)
     voronoi_control.Initialize()
 
@@ -45,9 +43,9 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     loss_settings={"dirichlet_bc_dict":bc_dict,
-                "material_dict":material_dict,
+                "material_dict":material_dict, "K_matrix": K_matrix,
                 "parametric_boundary_learning":True}
-    mechanical_loss_3d = NeoHookeMechanicalLoss3DHexa("mechanical_loss_3d",loss_settings=loss_settings,fe_mesh=fe_mesh)
+    mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=loss_settings,fe_mesh=fe_mesh)
 
     # dirichlet boundary control
     displ_control_settings = {"parametric_boundary_learning": {"Ux":["right"],
@@ -62,7 +60,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     displ_control.Initialize()
 
     # create some random bcs 
-    create_random_coefficients = True
+    create_random_coefficients = False
     if create_random_coefficients:
         number_of_random_samples = 200
         bc_matrix,bc_nodal_value_matrix = create_normal_dist_bc_samples(displ_control,
@@ -81,14 +79,14 @@ def main(ifol_num_epochs=10,clean_dir=False):
         bc_matrix = loaded_control_dict["bc_matrix"]
 
     # add intended BC to the end of samples
-    wanted_bc = np.array([0.04,0.02,0.02])
+    wanted_bc = np.array([0.5,-0.3,-0.3])
     bc_matrix = np.vstack((bc_matrix,wanted_bc))
     print(bc_matrix.shape, "is bc matrix shape")
     bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
-    characteristic_length = 4
-    depth = 2
-    latent_size_factor = 1
+    characteristic_length = 64
+    depth = 4
+    latent_size_factor = 8
 
     print(f"characteristic lenght: {characteristic_length} \n depth: {depth} \n latent size: {latent_size_factor*characteristic_length}")
     # design synthesizer & modulator NN for hypernetwork
@@ -104,7 +102,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     latent_size = latent_size_factor * characteristic_length
     modulator_nn = MLP(name="modulator_nn",
                     input_size=latent_size,
-                    use_bias=True) 
+                    use_bias=False) 
 
     hyper_network = HyperNetwork(name="hyper_nn",
                                 modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
@@ -113,18 +111,18 @@ def main(ifol_num_epochs=10,clean_dir=False):
     # create fol optax-based optimizer
     num_epochs = ifol_num_epochs
     learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-    main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
-    latent_step_optimizer = optax.chain(optax.adam(1e-4))
+    main_loop_transform = optax.chain(optax.adam(1e-6))
+    latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
     # create fol
-    fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=displ_control,
+    fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=displ_control,
                                                             loss_function=mechanical_loss_3d,
                                                             flax_neural_network=hyper_network,
                                                             main_loop_optax_optimizer=main_loop_transform,
                                                             latent_step_optax_optimizer=latent_step_optimizer,
                                                             latent_step_size=1e-2,
                                                             num_latent_iterations=3)
-    # fol.Initialize()
+    fol.Initialize()
 
 
     otf_id = -1
@@ -154,13 +152,13 @@ def main(ifol_num_epochs=10,clean_dir=False):
     fol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
     # setting FE parameters here
-    fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-10,"atol":1e-10,
+    fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu"},
-                "nonlinear_solver_settings":{"rel_tol":1e-200,"abs_tol":1e-200,
-                                            "maxiter":10,"load_incr":1}}
+                "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
+                                            "maxiter":10,"load_incr":50}}
 
 
-    # test_index = np.arange(test_start_id,test_start_id+4)
+    test_index = np.arange(test_start_id,test_start_id+4)
 
     for eval_id in [otf_id]:
         FOL_UVW = np.array(fol.Predict(bc_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
@@ -176,7 +174,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
         loss_settings.update(bc_dict)
 
 
-        mechanical_loss_3d = NeoHookeMechanicalLoss3DHexa("mechanical_loss_3d",loss_settings=loss_settings,fe_mesh=fe_mesh)
+        mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=loss_settings,fe_mesh=fe_mesh)
         mechanical_loss_3d.Initialize()
 
         linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_3d,fe_setting)
@@ -197,7 +195,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 200
+    ifol_num_epochs = 20
     clean_dir = False
 
     # Parse the command-line arguments

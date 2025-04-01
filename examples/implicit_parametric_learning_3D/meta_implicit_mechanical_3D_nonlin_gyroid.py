@@ -2,9 +2,8 @@ import sys
 import os
 import optax
 import numpy as np
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '../..')))
 
-import fol
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.dirichlet_control import DirichletControl
@@ -15,8 +14,10 @@ from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.tools.decoration_functions import *
-import pickle
+import pickle,jax
 
+jax.config.update('jax_default_matmul_precision','high')
+jax.config.update('jax_enable_x64',True)
 def main(ifol_num_epochs=10,clean_dir=False):
 
     if ifol_num_epochs<5000:
@@ -28,7 +29,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # p# create fe-based loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.00},
+    bc_dict = {"Ux":{"left":0.0,"right":0.25},
                     "Uy":{"left":0.0,"right":0.25},
                     "Uz":{"left":0.0,"right":0.25}}
 
@@ -55,7 +56,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     displ_control.Initialize()
 
     # create some random bcs 
-    create_random_coefficients = True
+    create_random_coefficients = False
     if create_random_coefficients:
         number_of_random_samples = 200
         bc_matrix,bc_nodal_value_matrix = create_normal_dist_bc_samples(displ_control,
@@ -74,14 +75,14 @@ def main(ifol_num_epochs=10,clean_dir=False):
         bc_matrix = loaded_control_dict["bc_matrix"]
 
     # add intended BC to the end of samples
-    wanted_bc = np.array([0.00,0.25,0.25])
+    wanted_bc = np.array([0.25,0.25,0.25])
     bc_matrix = np.vstack((bc_matrix,wanted_bc))
     print(bc_matrix.shape, "is bc matrix shape")
     bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
 
     characteristic_length = 64
-    depth = 2
-    latent_size_factor = 4
+    depth = 4
+    latent_size_factor = 8
 
     print(f"characteristic lenght: {characteristic_length} \n depth: {depth} \n latent size: {latent_size_factor*characteristic_length}")
     # design synthesizer & modulator NN for hypernetwork
@@ -106,8 +107,8 @@ def main(ifol_num_epochs=10,clean_dir=False):
     # create fol optax-based optimizer
     num_epochs = ifol_num_epochs
     learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-    main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
-    latent_step_optimizer = optax.chain(optax.adam(1e-4))
+    main_loop_transform = optax.chain(optax.adam(1e-6))
+    latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
     # create fol
     fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=displ_control,
@@ -150,7 +151,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
-                                            "maxiter":20,"load_incr":1}}
+                                            "maxiter":20,"load_incr":40}}
 
 
     # test_index = np.arange(test_start_id,test_start_id+4)
@@ -175,7 +176,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
         linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_3d,fe_setting)
         linear_fe_solver.Initialize()
 
-        FE_UVW = np.array(linear_fe_solver.Solve(bc_nodal_value_matrix[eval_id],np.zeros(3*fe_mesh.GetNumberOfNodes())))  
+        FE_UVW = np.array(linear_fe_solver.Solve(bc_nodal_value_matrix[eval_id],jnp.zeros(3*fe_mesh.GetNumberOfNodes())))  
         fe_mesh[f'U_FE_{eval_id}'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
         absolute_error = abs(FOL_UVW.reshape(-1,1)- FE_UVW.reshape(-1,1))

@@ -32,7 +32,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             self.nonlinear_solver_settings = UpdateDefaultDict(self.nonlinear_solver_settings,
                                                                 self.fe_solver_settings["nonlinear_solver_settings"])
     @print_with_timestamp_and_execution_time
-    def Solve(self,current_control_vars,current_dofs):
+    def Solve(self,current_control_vars,current_dofs:jnp.array):
         load_increament = self.nonlinear_solver_settings["load_incr"]
         for load_fac in range(load_increament):
             fol_info(f"loadStep; increment:{load_fac+1}")
@@ -50,8 +50,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                     
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
-                # applied_BC_dofs += delta_dofs
-                applied_BC_dofs = applied_BC_dofs.at[self.fe_loss_function.non_dirichlet_indices].add(delta_dofs[self.fe_loss_function.non_dirichlet_indices])
+                applied_BC_dofs = applied_BC_dofs.at[:].add(delta_dofs)
 
                 if delta_norm<self.nonlinear_solver_settings["rel_tol"]:
                     fol_info(f"converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
@@ -62,7 +61,6 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                 else:
                     fol_info(f"iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
 
-            # current_dofs = applied_BC_dofs
             current_dofs = current_dofs.at[self.fe_loss_function.non_dirichlet_indices].set(applied_BC_dofs[self.fe_loss_function.non_dirichlet_indices])
         return applied_BC_dofs
 

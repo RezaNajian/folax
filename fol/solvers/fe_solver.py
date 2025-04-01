@@ -35,7 +35,6 @@ class FiniteElementSolver(Solver):
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
 
-        jax.config.update("jax_enable_x64", True)
         if "linear_solver_settings" in self.fe_solver_settings.keys():
             self.linear_solver_settings = UpdateDefaultDict(self.linear_solver_settings,
                                                             self.fe_solver_settings["linear_solver_settings"])

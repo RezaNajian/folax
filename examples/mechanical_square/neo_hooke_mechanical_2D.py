@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(os.path.join(os.getcwd(),'../..'))
 import optax
 from flax import nnx
 import jax
@@ -76,8 +77,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
    # design NN for learning
     class MLP(nnx.Module):
         def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
             self.in_features = in_features
             self.out_features = out_features
 
@@ -93,7 +94,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # create fol optax-based optimizer
     chained_transform = optax.chain(optax.normalize_by_update_norm(), 
-                                    optax.adam(1e-3))
+                                    optax.adam(1e-4))
 
     # create fol
     fol = ExplicitParametricOperatorLearning(name="dis_fol",control=fourier_control,
@@ -117,7 +118,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                                                     "maxiter":5,"load_incr":4}}
         nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d,fe_setting)
         nonlin_fe_solver.Initialize()
-        FE_UV = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        FE_UV = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))  
 
         fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
@@ -136,7 +137,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    fol_num_epochs = 2000
+    fol_num_epochs = 5000
     solve_FE = False
     clean_dir = False
 

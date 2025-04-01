@@ -3,7 +3,8 @@ import unittest
 import optax
 from flax import nnx     
 import jax 
-import os
+import os,sys
+sys.path.append(os.path.join(os.getcwd(),'../..'))
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
@@ -46,8 +47,8 @@ class TestMechanicalNL2D(unittest.TestCase):
         # design NN for learning
         class MLP(nnx.Module):
             def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-                self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-                self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+                self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
+                self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
                 self.in_features = in_features
                 self.out_features = out_features
 
@@ -82,7 +83,7 @@ class TestMechanicalNL2D(unittest.TestCase):
                        working_directory=self.test_directory)
 
         UV_FOL = np.array(self.fol.Predict(self.coeffs_matrix[-1,:].reshape(-1,1).T)).reshape(-1)
-        UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1,:],np.zeros(UV_FOL.shape)))
+        UV_FEM = np.array(self.fe_solver.Solve(self.K_matrix[-1,:],jnp.zeros(UV_FOL.shape)))
         l2_error = 100 * np.linalg.norm(UV_FOL-UV_FEM,ord=2)/ np.linalg.norm(UV_FEM,ord=2)
         self.assertLessEqual(l2_error, 10)
 
