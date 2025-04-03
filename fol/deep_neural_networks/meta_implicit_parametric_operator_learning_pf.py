@@ -173,6 +173,81 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
             return compute_output(latent_code)
             
         return jnp.array(jax.vmap(predict_single_sample)(batch_X))
+  
+    @print_with_timestamp_and_execution_time
+    def Predict_all(self,batch_X:jnp.ndarray,num_steps:int):
+        """
+        Generates predictions for a batch of input data using latent loop optimization.
+
+        This method processes a batch of input features and computes predictions for each sample by:
+        1. Initializing a latent code for the input sample.
+        2. Iteratively updating the latent code using gradient descent to minimize the loss.
+        3. Using the optimized latent code to compute the neural network output.
+        4. Mapping the network's output to the full degree of freedom (DoF) vector based on the loss function.
+
+        Parameters
+        ----------
+        batch_X : jnp.ndarray
+            A batch of input features for which predictions are required.
+        num_steps : int
+            The number of time steps for which predictions are to be generated.
+
+        Returns
+        -------
+        jnp.ndarray
+            A batch of predicted outputs, where each prediction corresponds to a full DoF vector.
+
+        Notes
+        -----
+        - The latent code is initialized to zeros and optimized iteratively for each input sample.
+        - The number of iterations and step size for the latent loop optimization are determined by the 
+        `num_latent_iterations` and `latent_step` attributes, respectively.
+        - JAX's `jit` and `grad` are used for just-in-time compilation and automatic differentiation 
+        to compute gradients for latent code optimization.
+        - The predictions are processed in parallel using `jax.vmap` for efficiency.
+        - This method maps the neural network's output to the full DoF vector, including both Dirichlet 
+        and non-Dirichlet indices.
+        """
+        def predict_single_sample(sample_x: jnp.ndarray):
+            latent_code = jnp.zeros(self.flax_neural_network.in_features)
+            control_output = self.control.ComputeControlledVariables(sample_x)
+            @jax.jit
+            def loss(input_latent_code):
+                nn_output = self.flax_neural_network(
+                    input_latent_code, self.loss_function.fe_mesh.GetNodesCoordinates()
+                ).flatten()[self.loss_function.non_dirichlet_indices]
+                nn_output = jnp.clip(nn_output, -1, 1) 
+                return self.loss_function.ComputeSingleLoss(control_output, nn_output)[0]
+            loss_latent_grad_fn = jax.grad(loss)
+            
+            @jax.jit
+            def latent_update(latent_code):
+                def body_fun(state, _):
+                    grads = loss_latent_grad_fn(state)
+                    update = self.latent_step * grads / (jnp.linalg.norm(grads) + 1e-8)  
+                    return state - update, None  
+                latent_code, _ = jax.lax.scan(body_fun, latent_code, xs=None, length=self.num_latent_iterations)
+                return latent_code
+
+            latent_code = latent_update(latent_code)           
+            @jax.jit
+            def compute_output(latent_code):
+                nn_output = self.flax_neural_network(
+                    latent_code, self.loss_function.fe_mesh.GetNodesCoordinates()
+                ).flatten()[self.loss_function.non_dirichlet_indices]
+                nn_output = jnp.clip(nn_output, -1, 1)  # Clipping after final prediction
+                return self.loss_function.GetFullDofVector(sample_x, nn_output)      
+            return compute_output(latent_code)
+        
+        batch_prediction = jax.vmap(predict_single_sample)
+
+        def scan_fn(u, _):
+            u_next = batch_prediction(u)
+            return u_next, u_next
+
+        _, u_list = jax.lax.scan(scan_fn, batch_X, None, length=num_steps)
+
+        return u_list
 
     def Finalize(self):
         pass

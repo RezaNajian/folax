@@ -114,18 +114,15 @@ fol.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
           working_directory=case_dir)
 
 num_steps = 50
-FOL_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
 eval_id = 8500
-FOL_T_temp  = coeffs_matrix[eval_id,:]
-for i in range(num_steps):
-    FOL_T_temp = np.array(fol.Predict(FOL_T_temp.reshape(-1,1).T)).reshape(-1)
-    FOL_T[:,i] = FOL_T_temp 
+FOL_T = np.array(fol.Predict_all(coeffs_matrix[eval_id,:],num_steps))  
+FOL_T = np.squeeze(FOL_T,axis=1).T    
 fe_mesh['T_FOL'] = FOL_T
 # solve FE here
 fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                             "maxiter":1000,"pre-conditioner":"ilu","Dirichlet_BCs":Dirichlet_BCs},
                 "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
-                                            "maxiter":10,"load_incr":5}}
+                                            "maxiter":10,"load_incr":1}}
 nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolverPhasefield("nonlinear_fe_solver",phasefield_loss_2d,fe_setting)
 nonlinear_fe_solver.Initialize()
 FE_T = np.zeros((fe_mesh.GetNumberOfNodes(),num_steps))
