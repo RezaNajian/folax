@@ -5,6 +5,7 @@
 """
 import scipy
 import jax.numpy as jnp
+import jax
 from fol.tools.decoration_functions import *
 from fol.tools.usefull_functions import *
 from fol.loss_functions.fe_loss import FiniteElementLoss

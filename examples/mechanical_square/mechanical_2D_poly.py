@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(os.path.join(os.getcwd(),'../..'))
 import optax
 from flax import nnx
 import jax
@@ -60,8 +61,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # design NN for learning
     class MLP(nnx.Module):
         def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
             self.in_features = in_features
             self.out_features = out_features
 
@@ -97,25 +98,26 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                                     "maxiter":1000,"pre-conditioner":"ilu"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                     "maxiter":10,"load_incr":5}}
         linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
         linear_fe_solver.Initialize()
-        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
         fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-        vectors_list = [K_matrix[eval_id],FE_UV[::2],FOL_UV[::2]]
+        vectors_list = [K_matrix[eval_id],FOL_UV[::2],FE_UV[::2]]
         plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_U.png'),dir="U")
-        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_U.png'), loss_settings=material_dict)
         
-        vectors_list = [K_matrix[eval_id],FE_UV[1::2],FOL_UV[1::2]]
+        vectors_list = [K_matrix[eval_id],FOL_UV[1::2],FE_UV[1::2]]
         plot_mesh_res(vectors_list, file_name=os.path.join(case_dir,'plot_V.png'),dir="V")
-        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress_V.png'), loss_settings=material_dict)
+
+        vectors_list = [K_matrix[eval_id],FOL_UV,FE_UV]
+        plot_mesh_grad_res_mechanics(vectors_list, file_name=os.path.join(case_dir,'plot_stress.png'), loss_settings=material_dict)
         
     
     fe_mesh.Finalize(export_dir=case_dir)

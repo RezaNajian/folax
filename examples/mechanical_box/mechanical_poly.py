@@ -1,6 +1,6 @@
 import sys
 import os
-
+sys.path.append(os.path.join(os.getcwd(),'../..'))
 import numpy as np
 from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
@@ -72,7 +72,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fol_learning_rate = 0.0001
     hidden_layer = [1]
     # here we specify whther to do pr_le or on the fly solve
-    parametric_learning = True
+    parametric_learning = False
     if parametric_learning:
         # now create train and test samples
         num_train_samples = int(0.8 * coeffs_matrix.shape[0])
@@ -88,8 +88,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # design NN for learning
     class MLP(nnx.Module):
         def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.ones)
             self.in_features = in_features
             self.out_features = out_features
 
@@ -127,7 +127,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
               working_directory=case_dir)
 
     # fe settings and solvers initialize
-    fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+    fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                        "maxiter":1000,"pre-conditioner":"ilu"}}
     first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d,fe_setting)
     first_fe_solver.Initialize()

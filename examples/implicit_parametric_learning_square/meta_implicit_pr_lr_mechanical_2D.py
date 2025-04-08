@@ -142,7 +142,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
                                                     "maxiter":10,"load_incr":5}}
         linear_fe_solver = FiniteElementLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
         linear_fe_solver.Initialize()
-        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
         absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))

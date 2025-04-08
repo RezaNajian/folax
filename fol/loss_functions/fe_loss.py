@@ -94,30 +94,49 @@ class FiniteElementLoss(Loss):
             raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")
 
         self.dim = self.loss_settings["compute_dims"]
+        
+        if "K_matrix" in self.loss_settings.keys():
+            self.K_matrix = self.loss_settings["K_matrix"]
+        else:
+            self.K_matrix = jnp.ones(self.fe_mesh.GetNumberOfNodes())
 
         @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
             solution_vector = jnp.zeros(self.total_number_of_dofs)
-            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            solution_vector = solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
             return solution_vector
 
         @jit
         def ConstructFullDofVectorParametricLearning(known_dofs: jnp.array,unknown_dofs: jnp.array):
             solution_vector = jnp.zeros(self.total_number_of_dofs)
-            solution_vector = self.solution_vector.at[self.dirichlet_indices].set(known_dofs)
-            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            solution_vector = solution_vector.at[self.dirichlet_indices].set(known_dofs)
+            solution_vector = solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
             return solution_vector  
+        
+        # @jit    # Based on the comment for "ComputeJacobianMatrixAndResidualVector" jit is commented
+        def ConstructFullControlVector(control_params: jnp.array):
+            return control_params
+        
+        # @jit    # Based on the comment for "ComputeJacobianMatrixAndResidualVector" jit is commented
+        def ConstructFullControlVectorParametricLearning(*args):
+            return self.K_matrix
 
         if self.loss_settings.get("parametric_boundary_learning"):
             self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+            self.full_control_vector_function = ConstructFullControlVectorParametricLearning
         else:
             self.full_dof_vector_function = ConstructFullDofVector
+            self.full_control_vector_function = ConstructFullControlVector
 
         self.initialized = True
 
     @partial(jit, static_argnums=(0,))
     def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
         return self.full_dof_vector_function(known_dofs,unknown_dofs)
+    
+    @partial(jit, static_argnums=(0,))
+    def GetFullControlVector(self,control_params: jnp.array) -> jnp.array:
+        return self.full_control_vector_function(control_params)
 
     def Finalize(self) -> None:
         pass
@@ -180,7 +199,8 @@ class FiniteElementLoss(Loss):
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,2,))
     def ApplyDirichletBCOnDofVector(self,full_dof_vector:jnp.array,load_increment:float=1.0):
-        return full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
+        full_dof_vector = full_dof_vector.at[self.dirichlet_indices].set(load_increment*self.dirichlet_values)
+        return full_dof_vector
 
     @partial(jit, static_argnums=(0,))
     def ApplyDirichletBCOnElementResidualAndJacobian(self,
@@ -245,9 +265,10 @@ class FiniteElementLoss(Loss):
                                                       transpose_jac)
 
     @partial(jit, static_argnums=(0,))
-    def ComputeSingleLoss(self,full_control_params:jnp.array,unknown_dofs:jnp.array):
+    def ComputeSingleLoss(self,full_control_param:jnp.array,unknown_dofs:jnp.array):
+        full_control_params = self.GetFullControlVector(full_control_param)
         elems_energies = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.GetFullDofVector(full_control_params,
+                                                      self.GetFullDofVector(full_control_param,
                                                                             unknown_dofs))
         # some extra calculation for reporting and not traced
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
@@ -257,8 +278,9 @@ class FiniteElementLoss(Loss):
     
     # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False):
-        
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_var: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False):
+        total_control_vars = self.GetFullControlVector(total_control_var)
+
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))

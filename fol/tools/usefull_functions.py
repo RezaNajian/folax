@@ -9,6 +9,7 @@ import os
 import shutil
 from fol.mesh_input_output.mesh import Mesh
 import copy
+import pyvista
 
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
@@ -289,13 +290,26 @@ def create_random_fourier_samples(fourier_control,numberof_sample):
     return coeffs_matrix,K_matrix
 
 
-def create_random_voronoi_samples(voronoi_control,number_of_sample,dim=2):
+def create_normal_dist_bc_samples(displ_control,numberof_sample,center=0.0,standard_dev=1.0):
+    num_control_vars = displ_control.num_control_vars
+    bc_matrix = np.zeros((0,num_control_vars))
+    for i in range (numberof_sample):
+        control_var_vec = np.random.normal(loc=center,scale=standard_dev,size=num_control_vars)
+        bc_matrix = np.vstack((bc_matrix,control_var_vec))
+
+    bc_nodal_value_matrix = displ_control.ComputeBatchControlledVariables(bc_matrix)
+
+    return bc_matrix,bc_nodal_value_matrix
+
+def create_random_voronoi_samples(voronoi_control,number_of_samples,dim=2,random_key=None):
+    if random_key:
+        np.random.seed(random_key)
     number_seeds = voronoi_control.number_of_seeds
     rangeofValues = voronoi_control.E_values
     numberofVar = voronoi_control.num_control_vars
     coeffs_matrix = np.zeros((0,numberofVar))
     
-    for _ in range(number_of_sample):
+    for _ in range(number_of_samples):
         x_coords = np.random.rand(number_seeds)
         y_coords = np.random.rand(number_seeds)
         if dim == 3:
@@ -465,15 +479,17 @@ def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_s
     e = loss_settings["young_modulus"]
     mu = e / (2*(1+nu))
     lambdaa = nu * e / ((1+nu)*(1-2*nu))
+    c1 = e / (1 - nu**2)
 
     dx = L / (N - 1)
 
-    U_fem = vectors_list[2]
+    U_fem = vectors_list[2][::2]
+    V_fem = vectors_list[2][1::2]
     domain_map_matrix = vectors_list[0].reshape(N, N)
     dU_dx_fem = np.gradient(U_fem.reshape(N, N), dx, axis=1)
-    dU_dy_fem = np.gradient(U_fem.reshape(N, N), dx, axis=0)
-    stress_xx_fem = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fem + lambdaa * dU_dy_fem)
-    stress_yy_fem = domain_map_matrix * (lambdaa * dU_dx_fem + (lambdaa + 2*mu) * dU_dy_fem)
+    dV_dy_fem = np.gradient(V_fem.reshape(N, N), dx, axis=0)
+    stress_xx_fem = domain_map_matrix * c1 * (dU_dx_fem + nu * dV_dy_fem) # plain stress condition
+    stress_yy_fem = domain_map_matrix * c1 * (nu * dU_dx_fem + dV_dy_fem) # plain stress condition
 
     im = axs[0, 1].imshow(stress_xx_fem, cmap='plasma')
     axs[0, 1].set_xticks([])
@@ -494,11 +510,12 @@ def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_s
     cbar.ax.tick_params(length=5, width=1)
 
 
-    U_fol = vectors_list[1]
+    U_fol = vectors_list[1][::2]
+    V_fol = vectors_list[1][1::2]
     dU_dx_fol = np.gradient(U_fol.reshape(N, N), dx, axis=1)
-    dU_dy_fol = np.gradient(U_fol.reshape(N, N), dx, axis=0)
-    stress_xx_fol = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fol + lambdaa * dU_dy_fol)
-    stress_yy_fol = domain_map_matrix * (lambdaa * dU_dx_fol + (lambdaa + 2*mu) * dU_dy_fol)
+    dV_dy_fol = np.gradient(V_fol.reshape(N, N), dx, axis=0)
+    stress_xx_fol = domain_map_matrix * c1 * (dU_dx_fol + nu * dV_dy_fol) # plain stress condition
+    stress_yy_fol = domain_map_matrix * c1 * (nu * dU_dx_fol + dV_dy_fol) # plain stress condition
 
     min_v = np.min(stress_xx_fem)
     max_v = np.max(stress_xx_fem)
@@ -645,3 +662,25 @@ def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     updated_dict = copy.deepcopy(default_dict)
     updated_dict.update(filtered_update)
     return updated_dict
+
+def plot3D(fe_mesh_name, mesh_file_path, fe_vec, fol_vec, plot_name="deformed_mesh_comparison.png", scale_factor=1.0):
+    
+    # dir = os.path.join(os.path.join(os.getcwd(), mesh_file_path) , fe_mesh_name+'.vtu')
+    dir = os.path.join(os.getcwd(),mesh_file_path)
+    mesh = pyvista.read(os.path.join(dir,fe_mesh_name+'.vtu'))  # Load a VTK file
+    deformed_mesh_FE = mesh.warp_by_vector(fe_vec, factor=scale_factor)
+    deformed_mesh_FOL = mesh.warp_by_vector(fol_vec, factor=scale_factor)
+
+    deformed_mesh_FOL.translate([0, 1.5, 0], inplace=True)  # Apply translation to separate them by 1.5 units
+
+    # Create a PyVista plotter
+    plotter = pyvista.Plotter(off_screen=True)  # off_screen=True prevents opening a window
+
+    # Add both meshes
+    plotter.add_mesh(deformed_mesh_FE, scalars=fe_vec, cmap="coolwarm", show_edges=True, opacity=1.0)
+    plotter.add_mesh(deformed_mesh_FOL, scalars=fol_vec, cmap="coolwarm", show_edges=True, opacity=1.0)
+
+    # Save the screenshot
+    screenshot_path = os.path.join(dir, plot_name)
+    plotter.screenshot(screenshot_path)
+    print(f"Screenshot saved at: {screenshot_path}")
