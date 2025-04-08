@@ -2,7 +2,7 @@ import sys
 import os
 import optax
 import numpy as np
-
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '../../..')))
 from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.dirichlet_control import DirichletControl
@@ -17,7 +17,7 @@ import pickle,optax,jax
 jax.config.update('jax_default_matmul_precision','high')
 # directory & save handling
 working_directory_name = 'meta_implicit_gyroid_3D_lin_pr'
-case_dir = os.path.join('/./', working_directory_name)
+case_dir = os.path.join('.', working_directory_name)
 # create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
@@ -27,7 +27,7 @@ bc_dict = {"Ux":{"left":0.0,"right":0.0},
                 "Uz":{"left":0.0,"right":-0.05}}
 
 # creation of the model
-fe_mesh = Mesh("fol_io","gyroid_translated_coarse.med","..\meshes")
+fe_mesh = Mesh("fol_io","gyroid_translated_coarse.med","..\..\meshes")
 fe_mesh.Initialize()
 
 
