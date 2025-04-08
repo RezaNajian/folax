@@ -374,7 +374,7 @@ def plot_mesh_res(vectors_list:list, file_name:str="plot",dir:str="U"):
     axs[0, 2].set_yticks([])
     axs[0, 2].set_xticklabels([])  # Remove text on x-axis
     axs[0, 2].set_yticklabels([])  # Remove text on y-axis
-    axs[0, 2].set_title(f'Zoomed-in: $x \in [{zoomed_min/N}, {zoomed_max/N}], y \in [{zoomed_min/N}, {zoomed_max/N}]$', fontsize=fontsize)
+    axs[0, 2].set_title(f'Zoomed-in: $x \in [{zoomed_min/N:.2f}, {zoomed_max/N:.2f}], y \in [{zoomed_min/N:.2f}, {zoomed_max/N:.2f}]$', fontsize=fontsize)
     cbar = fig.colorbar(im, ax=axs[0, 2], pad=0.02, shrink=0.7)
     cbar.ax.tick_params(labelsize=fontsize)
     cbar.ax.yaxis.labelpad = 5
@@ -465,15 +465,17 @@ def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_s
     e = loss_settings["young_modulus"]
     mu = e / (2*(1+nu))
     lambdaa = nu * e / ((1+nu)*(1-2*nu))
+    c1 = e / (1 - nu**2)
 
     dx = L / (N - 1)
 
-    U_fem = vectors_list[2]
+    U_fem = vectors_list[2][::2]
+    V_fem = vectors_list[2][1::2]
     domain_map_matrix = vectors_list[0].reshape(N, N)
     dU_dx_fem = np.gradient(U_fem.reshape(N, N), dx, axis=1)
-    dU_dy_fem = np.gradient(U_fem.reshape(N, N), dx, axis=0)
-    stress_xx_fem = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fem + lambdaa * dU_dy_fem)
-    stress_yy_fem = domain_map_matrix * (lambdaa * dU_dx_fem + (lambdaa + 2*mu) * dU_dy_fem)
+    dV_dy_fem = np.gradient(V_fem.reshape(N, N), dx, axis=0)
+    stress_xx_fem = domain_map_matrix * c1 * (dU_dx_fem + nu * dV_dy_fem) # plain stress condition
+    stress_yy_fem = domain_map_matrix * c1 * (nu * dU_dx_fem + dV_dy_fem) # plain stress condition
 
     im = axs[0, 1].imshow(stress_xx_fem, cmap='plasma')
     axs[0, 1].set_xticks([])
@@ -494,11 +496,12 @@ def plot_mesh_grad_res_mechanics(vectors_list:list, file_name:str="plot", loss_s
     cbar.ax.tick_params(length=5, width=1)
 
 
-    U_fol = vectors_list[1]
+    U_fol = vectors_list[1][::2]
+    V_fol = vectors_list[1][1::2]
     dU_dx_fol = np.gradient(U_fol.reshape(N, N), dx, axis=1)
-    dU_dy_fol = np.gradient(U_fol.reshape(N, N), dx, axis=0)
-    stress_xx_fol = domain_map_matrix * ((lambdaa + 2*mu) * dU_dx_fol + lambdaa * dU_dy_fol)
-    stress_yy_fol = domain_map_matrix * (lambdaa * dU_dx_fol + (lambdaa + 2*mu) * dU_dy_fol)
+    dV_dy_fol = np.gradient(V_fol.reshape(N, N), dx, axis=0)
+    stress_xx_fol = domain_map_matrix * c1 * (dU_dx_fol + nu * dV_dy_fol) # plain stress condition
+    stress_yy_fol = domain_map_matrix * c1 * (nu * dU_dx_fol + dV_dy_fol) # plain stress condition
 
     min_v = np.min(stress_xx_fem)
     max_v = np.max(stress_xx_fem)
