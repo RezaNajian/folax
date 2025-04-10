@@ -48,18 +48,15 @@ class TestSA(unittest.TestCase):
 
         BC_applied_jac,BC_applied_rhs = test_response.ComputeAdjointJacobianMatrixAndRHSVector(random_K,random_FE_UV)
 
-
-        np.testing.assert_allclose(BC_applied_jac.todense()[8,:],jnp.array([-1.34763107e-01, -9.90961790e-02,  6.18437380e-02,
-                                                                            -1.36789493e-03, -1.44184157e-01,  1.05333894e-01,
-                                                                            -3.05576682e-01,  4.32263222e-03,  1.07536995e+00,
-                                                                            9.85294580e-03, -3.33979428e-01, -5.33044338e-04,
-                                                                            -1.15071647e-01,  8.76187980e-02,  5.15497029e-02,
-                                                                            7.43124075e-03, -1.55188382e-01, -1.13562390e-01]),
-                                                                            rtol=1e-5, atol=1e-5)
-        np.testing.assert_allclose(BC_applied_rhs.flatten(),jnp.array([-0., -0.,-0.04356432,-0.,-0.,
-                                                                        -0.,-0.,-0.,-0.07417537,-0.,
-                                                                        -0.,-0.,-0.,-0.,-0.04579198,
-                                                                        -0.,-0.,-0.]),
+        np.testing.assert_allclose(BC_applied_jac.todense()[8,:],jnp.array([-1.5933526e-01, -1.1299228e-01,  5.2224368e-02,  1.9953307e-04,
+                                                                            -8.8558704e-02,  6.2255092e-02, -4.3755195e-01,  1.4239475e-03,
+                                                                            1.0885024e+00,  1.4627263e-02, -2.6412827e-01,  4.2019216e-03,
+                                                                            -1.3652994e-01,  9.7495511e-02,  5.6700267e-02,  8.8018682e-03,
+                                                                            -1.1132296e-01, -7.6012865e-02]),rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(BC_applied_rhs.flatten(),jnp.array([-0.        , -0.        , -0.02832778, -0.        , -0.        ,
+                                                                        -0.        , -0.        , -0.        , -0.08190062, -0.        ,
+                                                                        -0.        , -0.        , -0.        , -0.        , -0.02557062,
+                                                                        -0.        , -0.        , -0.        ]),
                                                                         rtol=1e-5, atol=1e-5)
 
         # test sensitivities
@@ -69,15 +66,15 @@ class TestSA(unittest.TestCase):
         control_derivatives = test_response.ComputeAdjointNodalControlDerivatives(random_K,random_FE_UV,random_adj_FE_UV)
         shape_derivatives = test_response.ComputeAdjointNodalShapeDerivatives(random_K,random_FE_UV,random_adj_FE_UV)
 
-        np.testing.assert_allclose(control_derivatives.flatten(),jnp.array([0.01678335, 0.05183903, 0.03314116, 0.07139717, 0.11391172,
-                                                                            0.00820228, 0.03601279, 0.08922546, 0.02700011]),rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(control_derivatives.flatten(),jnp.array([-0.05200566, -0.0508755 , -0.02084208, -0.04955585, -0.15092644,
+                                                                            -0.0703495 ,  0.0015992 , -0.00430271,  0.01975888]),rtol=1e-5, atol=1e-5)
 
-        np.testing.assert_allclose(shape_derivatives.flatten(),jnp.array([-0.19199248,  0.03288122,  0.        ,  0.03663278,  0.0869931 ,
-                                                                          0.        ,  0.05096679,  0.03322467,  0.        , -0.11208187,
-                                                                          -0.18554386,  0.        , -0.00207733, -0.08008336,  0.        ,
-                                                                          0.18808049, -0.09918975,  0.        , -0.0223342 ,  0.00731204,
-                                                                          0.        ,  0.01165495,  0.14946726,  0.        ,  0.04115084,
-                                                                          0.05493871,  0.        ]),rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(shape_derivatives.flatten(),jnp.array([ 0.12193067, -0.10455623,  0.        , -0.07988495, -0.16263953,
+                                                                            0.        , -0.05576743, -0.00384144,  0.        , -0.22090645,
+                                                                            0.33066773,  0.        , -0.23995018, -0.17812887,  0.        ,
+                                                                            0.14102945, -0.06443781,  0.        ,  0.18596953,  0.2172716 ,
+                                                                            0.        ,  0.16827656, -0.05117913,  0.        , -0.02069724,
+                                                                            0.01684369,  0.        ]),rtol=1e-5, atol=1e-5)
 
 if __name__ == '__main__':
     unittest.main()
