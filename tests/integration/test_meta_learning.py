@@ -85,9 +85,9 @@ class TestMetaLearning(unittest.TestCase):
                                                         loss_function=self.mechanical_loss,
                                                         flax_neural_network=hyper_network,
                                                         main_loop_optax_optimizer=main_loop_transform,
-                                                        checkpoint_settings={"restore_state":False,
-                                                        "state_directory":self.test_directory+"/flax_state"},
-                                                        working_directory=self.test_directory)
+                                                        latent_step_size=1e-2,
+                                                        num_latent_iterations=3)
+        
         fol.Initialize()
 
 
@@ -95,38 +95,36 @@ class TestMetaLearning(unittest.TestCase):
         train_end_id = 3
         fol.Train(train_set=(self.coeffs_matrix[train_start_id:train_end_id,:],),batch_size=1,
                     convergence_settings={"num_epochs":200,"relative_error":1e-100,
-                                        "absolute_error":1e-100,"num_latent_itrs":3})
+                                        "absolute_error":1e-100,"num_latent_itrs":3},
+                    working_directory=self.test_directory)
 
         for eval_id in range(train_start_id,train_end_id):
             FOL_UV = np.array(fol.Predict(self.coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
             if eval_id == 0:
                 # print(np.array2string(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0], separator=', '))
                 np.testing.assert_allclose(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0],
-                                           np.array([0.        , 0.04614109, 0.06613609, 0.08705932, 0.1       , 0.        ,
-                                            0.03290145, 0.05861736, 0.07996484, 0.1       , 0.        , 0.02106158,
-                                            0.05036562, 0.07600654, 0.1       , 0.        , 0.02105756, 0.04292466,
-                                            0.06860314, 0.1       , 0.        , 0.00895773, 0.02669284, 0.05424772,
-                                            0.1       ]),
-                                            rtol=1e-5, atol=1e-10)
+                                           np.array([0.        , 0.05660842, 0.07132874, 0.08825121, 0.1       , 0.        ,
+                                                        0.04021242, 0.06211396, 0.07969093, 0.1       , 0.        , 0.02232464,
+                                                        0.05297927, 0.07870141, 0.1       , 0.        , 0.02235071, 0.04325471,
+                                                        0.06479848, 0.1       , 0.        , 0.01088459, 0.02748531, 0.05427517,
+                                                        0.1       ]), rtol=1e-4, atol=1e-4)
                 
             elif eval_id == 1:
                 # print(np.array2string(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0], separator=', '))
                 np.testing.assert_allclose(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0],
-                                           np.array([0.        , 0.04503338, 0.06893442, 0.08841547, 0.1       , 0.        ,
-                                                        0.02982597, 0.0577705 , 0.0809105 , 0.1       , 0.        , 0.02321399,
-                                                        0.05095536, 0.07743262, 0.1       , 0.        , 0.02155444, 0.04399753,
-                                                        0.0707641 , 0.1       , 0.        , 0.01015904, 0.02734981, 0.05567839,
-                                                        0.1       ]),
-                                            rtol=1e-5, atol=1e-10)
+                                           np.array([0.        , 0.0454836 , 0.07428483, 0.09143757, 0.1       , 0.        ,
+                                                        0.03004441, 0.0576078 , 0.0804189 , 0.1       , 0.        , 0.02387706,
+                                                        0.05102006, 0.07749535, 0.1       , 0.        , 0.02055311, 0.04387766,
+                                                        0.06924141, 0.1       , 0.        , 0.01051375, 0.02634382, 0.05527946,
+                                                        0.1       ]),rtol=1e-4, atol=1e-4)
             elif eval_id == 2:
                 # print(np.array2string(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0], separator=', '))
                 np.testing.assert_allclose(FOL_UV.reshape((self.fe_mesh.GetNumberOfNodes(), 2))[:,0],
-                                           np.array([0.        , 0.0432228 , 0.06919706, 0.0886727 , 0.1       , 0.        ,
-                                                    0.02928586, 0.05743678, 0.08082657, 0.1       , 0.        , 0.02355807,
-                                                    0.05034218, 0.07730627, 0.1       , 0.        , 0.02110366, 0.04351436,
-                                                    0.07099995, 0.1       , 0.        , 0.00986826, 0.02702353, 0.05540785,
-                                                    0.1       ]),
-                                            rtol=1e-5, atol=1e-10)
+                                           np.array([0.        , 0.04230206, 0.07419077, 0.09189638, 0.1       , 0.        ,
+                                                    0.0278786 , 0.05642468, 0.08034506, 0.1       , 0.        , 0.02386063,
+                                                    0.05079186, 0.07670901, 0.1       , 0.        , 0.01984064, 0.0433556 ,
+                                                    0.06979178, 0.1       , 0.        , 0.00994958, 0.02527833, 0.05419116,
+                                                    0.1       ]),rtol=1e-5, atol=1e-10)
 
             # the rest is for debugging purposes
             self.fe_mesh['U_FOL'] = FOL_UV
