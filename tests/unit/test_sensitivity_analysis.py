@@ -42,9 +42,12 @@ class TestSA(unittest.TestCase):
         fourier_control.Initialize()
         test_response.Initialize()
 
-        key = jax.random.PRNGKey(42)  
-        random_FE_UV = jax.random.uniform(key, shape=(2*fe_mesh.GetNumberOfNodes(),), minval=0.0, maxval=1.0) 
-        random_K = jax.random.uniform(key, shape=(fe_mesh.GetNumberOfNodes(),), minval=0.0, maxval=1.0)  
+        random_FE_UV = jnp.array([0.2628367 , 0.10945356, 0.46926022, 0.4095999 , 0.08672023, 0.48140895,
+                                  0.4428264 , 0.9602665 , 0.03818166, 0.5736197 , 0.5380293 , 0.65560925,
+                                  0.83580685, 0.7974292 , 0.98296523, 0.24858999, 0.6211263 , 0.69799936])
+        
+        random_K = jnp.array([0.6439377 , 0.32251573, 0.19349372, 0.8864933 , 0.7247435 , 0.19193006,
+                                0.34513092, 0.2523831 , 0.6319014 ])
 
         BC_applied_jac,BC_applied_rhs = test_response.ComputeAdjointJacobianMatrixAndRHSVector(random_K,random_FE_UV)
 
@@ -59,9 +62,10 @@ class TestSA(unittest.TestCase):
                                                                         -0.        , -0.        , -0.        ]),
                                                                         rtol=1e-5, atol=1e-5)
 
-        # test sensitivities
-        key = jax.random.PRNGKey(65)  
-        random_adj_FE_UV = jax.random.uniform(key, shape=(2*fe_mesh.GetNumberOfNodes(),), minval=0.0, maxval=1.0)
+        # test sensitivities 
+        random_adj_FE_UV = jnp.array([0.87936103, 0.6449497 , 0.1879133 , 0.8177328 , 0.30477262, 0.45858467,
+                                        0.5103154 , 0.37463892, 0.8313782 , 0.5277164 , 0.31288528, 0.01651657,
+                                        0.5735476 , 0.9206091 , 0.8522861 , 0.92917275, 0.38319993, 0.83216035])
 
         control_derivatives = test_response.ComputeAdjointNodalControlDerivatives(random_K,random_FE_UV,random_adj_FE_UV)
         shape_derivatives = test_response.ComputeAdjointNodalShapeDerivatives(random_K,random_FE_UV,random_adj_FE_UV)

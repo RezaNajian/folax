@@ -152,7 +152,7 @@ class DeepNetwork(ABC):
             The mean loss for the batch and a dictionary of loss statistics (min, max, avg, total).
         """
 
-        batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None))(batch_set,nn_model)
+        batch_losses,(batch_mins,batch_maxs,batch_avgs) = nnx.vmap(self.ComputeSingleLossValue,in_axes=(0, None),out_axes=0)(batch_set,nn_model)
         loss_name = self.loss_function.GetName()
         total_mean_loss = jnp.mean(batch_losses)
         return total_mean_loss, ({loss_name+"_min":jnp.min(batch_mins),
