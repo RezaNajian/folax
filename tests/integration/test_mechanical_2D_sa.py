@@ -66,7 +66,11 @@ class TestMechanical2DSensitivityAnalysis(unittest.TestCase):
         self.adj_fe_solver.Initialize()
 
         key = jax.random.PRNGKey(42)
-        self.random_K = jax.random.uniform(key, shape=(self.fe_mesh.GetNumberOfNodes(),), minval=0.0, maxval=1.0)        
+        self.random_K = np.array([0.81838834, 0.65722322, 0.44376528, 0.02480078, 0.24395847, 0.85979581,
+                                    0.45638335, 0.5481745 , 0.2588321 , 0.09001696, 0.52249897, 0.95812428,
+                                    0.01554692, 0.05347252, 0.416067  , 0.97464693, 0.65322578, 0.69762206,
+                                    0.73933816, 0.89411318, 0.41846848, 0.20929086, 0.32102525, 0.9390955 ,
+                                    0.1159023 ])
 
     def test_sensitivites(self):
         FE_UV = np.array(self.linear_fe_solver.Solve(self.random_K,np.zeros(2*self.fe_mesh.GetNumberOfNodes())))  
