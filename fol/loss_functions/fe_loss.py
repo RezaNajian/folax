@@ -69,7 +69,8 @@ class FiniteElementLoss(Loss):
         # create full solution vector
         self.solution_vector = jnp.zeros(self.total_number_of_dofs)
         # apply dirichlet bcs
-        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+        if len(self.dirichlet_indices)>0:
+            self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         # fe element
         self.fe_element = fe_element_dict[self.element_type]
@@ -96,6 +97,10 @@ class FiniteElementLoss(Loss):
         self.dim = self.loss_settings["compute_dims"]
 
         @jit
+        def ConstructFullDofVectorWithoutDirichletBCs(known_dofs: jnp.array,unknown_dofs: jnp.array):
+            return unknown_dofs
+
+        @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
             solution_vector = jnp.zeros(self.total_number_of_dofs)
             solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
@@ -108,10 +113,13 @@ class FiniteElementLoss(Loss):
             solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
             return solution_vector  
 
-        if self.loss_settings.get("parametric_boundary_learning"):
-            self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+        if len(self.dirichlet_indices)>0:
+            if self.loss_settings.get("parametric_boundary_learning"):
+                self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+            else:
+                self.full_dof_vector_function = ConstructFullDofVector
         else:
-            self.full_dof_vector_function = ConstructFullDofVector
+            self.full_dof_vector_function = ConstructFullDofVectorWithoutDirichletBCs
 
         self.initialized = True
 
