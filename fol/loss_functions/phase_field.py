@@ -20,8 +20,6 @@ class AllenCahnLoss(FiniteElementLoss):
         if "material_dict" not in self.loss_settings.keys():
             fol_error("material_dict should provided in the loss settings !")
         if self.dim == 2:
-            self.CalculateNMatrix = self.CalculateNMatrix2D
-            self.CalculateBMatrix = self.CalculateBMatrix2D
             self.rho = self.loss_settings["material_dict"]["rho"]
             self.cp =  self.loss_settings["material_dict"]["cp"]
             self.dt =  self.loss_settings["material_dict"]["dt"]
@@ -30,8 +28,6 @@ class AllenCahnLoss(FiniteElementLoss):
             if "body_foce" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
         else:
-            self.CalculateNMatrix = self.CalculateNMatrix3D
-            self.CalculateBMatrix = self.CalculateBMatrix3D
             self.rho = self.loss_settings["material_dict"]["rho"]
             self.cp =  self.loss_settings["material_dict"]["cp"]
             self.dt =  self.loss_settings["material_dict"]["dt"]
@@ -39,47 +35,6 @@ class AllenCahnLoss(FiniteElementLoss):
             self.body_force = jnp.zeros((3,1))
             if "body_foce" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
-
-    @partial(jit, static_argnums=(0,))
-    def CalculateBMatrix2D(self,DN_DX:jnp.array) -> jnp.array:
-        B = jnp.zeros((3, 2 * DN_DX.shape[0]))
-        indices = jnp.arange(DN_DX.shape[0])
-        B = B.at[0, 2 * indices].set(DN_DX[indices,0])
-        B = B.at[1, 2 * indices + 1].set(DN_DX[indices,1])
-        B = B.at[2, 2 * indices].set(DN_DX[indices,1])
-        B = B.at[2, 2 * indices + 1].set(DN_DX[indices,0])  
-        return B
-
-    @partial(jit, static_argnums=(0,))
-    def CalculateBMatrix3D(self,DN_DX:jnp.array) -> jnp.array:
-        B = jnp.zeros((6,3*DN_DX.shape[0]))
-        index = jnp.arange(DN_DX.shape[0]) * 3
-        B = B.at[0, index + 0].set(DN_DX[:,0])
-        B = B.at[1, index + 1].set(DN_DX[:,1])
-        B = B.at[2, index + 2].set(DN_DX[:,2])
-        B = B.at[3, index + 0].set(DN_DX[:,1])
-        B = B.at[3, index + 1].set(DN_DX[:,0])
-        B = B.at[4, index + 1].set(DN_DX[:,2])
-        B = B.at[4, index + 2].set(DN_DX[:,1])
-        B = B.at[5, index + 0].set(DN_DX[:,2])
-        B = B.at[5, index + 2].set(DN_DX[:,0])
-        return B
-    
-    @partial(jit, static_argnums=(0,))
-    def CalculateNMatrix2D(self,N_vec:jnp.array) -> jnp.array:
-        N_mat = jnp.zeros((2, 2 * N_vec.size))
-        indices = jnp.arange(N_vec.size)   
-        N_mat = N_mat.at[0, 2 * indices].set(N_vec)
-        N_mat = N_mat.at[1, 2 * indices + 1].set(N_vec)    
-        return N_mat
-    
-    @partial(jit, static_argnums=(0,))
-    def CalculateNMatrix3D(self,N_vec:jnp.array) -> jnp.array:
-        N_mat = jnp.zeros((3,3*N_vec.size))
-        N_mat = N_mat.at[0,0::3].set(N_vec)
-        N_mat = N_mat.at[1,1::3].set(N_vec)
-        N_mat = N_mat.at[2,2::3].set(N_vec)
-        return N_mat
     
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,phi_e_c,phi_e_n,body_force=0):
@@ -97,7 +52,7 @@ class AllenCahnLoss(FiniteElementLoss):
             phi_at_gauss_c = jnp.dot(N_vec.reshape(1,-1), phi_e_c)
             source_term = 0.25*(phi_at_gauss_n*phi_at_gauss_n - 1)**2
             Dsource_term = (phi_at_gauss_n*phi_at_gauss_n - 1)*phi_at_gauss_n
-            gp_stiffness =  B_mat.T@B_mat * detJ * gp_weight #* ke_at_gauss
+            gp_stiffness =  B_mat.T@B_mat * detJ * gp_weight
             gp_mass = jnp.outer(N_vec, N_vec) * detJ * gp_weight 
             gp_f_res = N_vec.reshape(-1,1)*Dsource_term * detJ * gp_weight
             gp_f = source_term * detJ * gp_weight
@@ -115,7 +70,6 @@ class AllenCahnLoss(FiniteElementLoss):
         dFe = jnp.sum(df_gps, axis=0)
 
         return 0.5*phi_e_n.T@Se@phi_e_n + 1/(self.epsilon**2)*Fe + Te, ((Me+self.dt*Se)@phi_e_n - (Me@phi_e_c- 1/(self.epsilon**2)*self.dt*Fe_res)), (Me+self.dt*Se - self.dt/(self.epsilon**2)*dFe)
-
 
 class AllenCahnLoss2DQuad(AllenCahnLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):

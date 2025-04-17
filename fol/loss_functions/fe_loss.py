@@ -51,7 +51,7 @@ class FiniteElementLoss(Loss):
                 dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
                 dirichlet_values.extend(dirichlet_bc_values.tolist())
         
-        self.dirichlet_indices = jnp.array(dirichlet_indices)
+        self.dirichlet_indices = jnp.array(dirichlet_indices,dtype=int)
         self.dirichlet_values = jnp.array(dirichlet_values)
         all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
         self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
@@ -69,8 +69,7 @@ class FiniteElementLoss(Loss):
         # create full solution vector
         self.solution_vector = jnp.zeros(self.total_number_of_dofs)
         # apply dirichlet bcs
-        if len(self.dirichlet_indices)>0:
-            self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         # fe element
         self.fe_element = fe_element_dict[self.element_type]
@@ -97,10 +96,6 @@ class FiniteElementLoss(Loss):
         self.dim = self.loss_settings["compute_dims"]
 
         @jit
-        def ConstructFullDofVectorWithoutDirichletBCs(known_dofs: jnp.array,unknown_dofs: jnp.array):
-            return unknown_dofs
-
-        @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
             solution_vector = jnp.zeros(self.total_number_of_dofs)
             solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
@@ -113,13 +108,10 @@ class FiniteElementLoss(Loss):
             solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
             return solution_vector  
 
-        if len(self.dirichlet_indices)>0:
-            if self.loss_settings.get("parametric_boundary_learning"):
-                self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
-            else:
-                self.full_dof_vector_function = ConstructFullDofVector
+        if self.loss_settings.get("parametric_boundary_learning"):
+            self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
         else:
-            self.full_dof_vector_function = ConstructFullDofVectorWithoutDirichletBCs
+            self.full_dof_vector_function = ConstructFullDofVector
 
         self.initialized = True
 

@@ -6,6 +6,7 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
+from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.loss_functions.phase_field import AllenCahnLoss2DTri
 from fol.controls.identity_control import IdentityControl
@@ -55,7 +56,7 @@ def generate_fixed_gaussian_basis_field(coords, num_samples=1, num_basis=25, len
 # directory & save handling
 working_directory_name = 'transient_allen_cahn_2D'
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 
@@ -130,9 +131,21 @@ ifol.Train(train_set=(sample_matrix[train_start_id:train_end_id,:],),
 # load the best model
 ifol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
-for eval_id in range(train_start_id,train_end_id):
-    iFOL_Phi = np.array(ifol.Predict(sample_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
-    fe_mesh[f'phi_{eval_id}_i'] = sample_matrix[eval_id].reshape((fe_mesh.GetNumberOfNodes(), 1))
-    fe_mesh[f'phi_{eval_id}_ip1_ifol'] = iFOL_Phi.reshape((fe_mesh.GetNumberOfNodes(), 1))
+# FE-based time loop
+fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
+                "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
+                                            "maxiter":10,"load_incr":1}}
+nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",phasefield_loss_2d,fe_setting)
+nonlin_fe_solver.Initialize()
+eval_id = 0 
+phi_fe = sample_matrix[eval_id].flatten()
+fe_mesh[f'phi_fe_{0}'] = phi_fe
+phi_ifol = sample_matrix[eval_id].flatten()
+fe_mesh[f'phi_ifol_{0}'] = phi_ifol
+for i in range(1,10):
+    phi_fe = np.array(nonlin_fe_solver.Solve(phi_fe,np.zeros(fe_mesh.GetNumberOfNodes())))
+    fe_mesh[f'phi_fe_{i}'] = phi_fe
+    phi_ifol = np.array(ifol.Predict(phi_ifol.reshape(-1,1).T)).reshape(-1)
+    fe_mesh[f'phi_ifol_{i}'] = phi_ifol
 
 fe_mesh.Finalize(export_dir=case_dir)
