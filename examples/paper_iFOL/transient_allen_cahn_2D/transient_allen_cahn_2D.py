@@ -131,21 +131,31 @@ ifol.Train(train_set=(sample_matrix[train_start_id:train_end_id,:],),
 # load the best model
 ifol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
-# FE-based time loop
+# time ineference setup
+initial_solution_id = 0 
+initial_solution = sample_matrix[initial_solution_id]
+num_time_steps = 50
+
+# predict dynamics with ifol
+phi_ifols = ifol.PredictDynamics(initial_solution,num_time_steps)
+
+# predict dynamics with FE
 fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
                 "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
                                             "maxiter":10,"load_incr":1}}
 nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",phasefield_loss_2d,fe_setting)
 nonlin_fe_solver.Initialize()
-eval_id = 0 
-phi_fe = sample_matrix[eval_id].flatten()
-fe_mesh[f'phi_fe_{0}'] = phi_fe
-phi_ifol = sample_matrix[eval_id].flatten()
-fe_mesh[f'phi_ifol_{0}'] = phi_ifol
-for i in range(1,10):
-    phi_fe = np.array(nonlin_fe_solver.Solve(phi_fe,np.zeros(fe_mesh.GetNumberOfNodes())))
-    fe_mesh[f'phi_fe_{i}'] = phi_fe
-    phi_ifol = np.array(ifol.Predict(phi_ifol.reshape(-1,1).T)).reshape(-1)
-    fe_mesh[f'phi_ifol_{i}'] = phi_ifol
+
+phi_fe_current = initial_solution.flatten()
+phi_fes = jnp.array(phi_fe_current)
+for _ in range(0,num_time_steps):
+    phi_fe_next = np.array(nonlin_fe_solver.Solve(phi_fe_current,np.zeros(fe_mesh.GetNumberOfNodes())))
+    phi_fe_current = phi_fe_next
+    phi_fes = jnp.vstack((phi_fes,phi_fe_next.flatten()))
+
+# save the solutions
+for time_index, (phi_ifol,phi_fe) in enumerate(zip(phi_ifols,phi_fes)):
+    fe_mesh[f"phi_ifol_{time_index}"] = np.array(phi_ifol).reshape((fe_mesh.GetNumberOfNodes(), 1))
+    fe_mesh[f"phi_fe_{time_index}"] = np.array(phi_fe).reshape((fe_mesh.GetNumberOfNodes(), 1))
 
 fe_mesh.Finalize(export_dir=case_dir)
