@@ -10,48 +10,8 @@ from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinea
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.loss_functions.phase_field import AllenCahnLoss2DTri
 from fol.controls.identity_control import IdentityControl
-from scipy.spatial.distance import cdist
+from allen_cahn_usefull_functions import *
 import pickle
-
-def generate_fixed_gaussian_basis_field(coords, num_samples=1, num_basis=25, length_scale=0.1, random_seed=1):
-    """
-    Generate multiple random smooth patterns using fixed Gaussian/RBF basis functions.
-
-    Parameters:
-        coords (np.ndarray): Array of shape (N, 2) representing mesh node coordinates.
-        num_samples (int): Number of random field samples to generate.
-        num_basis (int): Number of fixed RBF basis functions.
-        length_scale (float): Controls the smoothness of the function.
-        random_seed (int): Random seed for reproducibility.
-
-    Returns:
-        np.ndarray: Generated fields of shape (num_samples, N)
-    """
-    if random_seed is not None:
-        np.random.seed(random_seed)
-
-    # Normalize mesh coordinates to [0,1]
-    min_coords = np.min(coords, axis=0)
-    max_coords = np.max(coords, axis=0)
-    norm_coords = (coords - min_coords) / (max_coords - min_coords)
-
-    # Define fixed basis function centers
-    basis_centers = np.random.rand(num_basis, 2)
-    # Compute distances
-    distances = cdist(norm_coords, basis_centers)
-    basis_values = np.exp(- (distances ** 2) / (2 * length_scale ** 2))
-
-    # Generate multiple sets of coefficients
-    coefficients = np.random.randn(num_samples, num_basis)
-    # Compute all fields
-    fields = coefficients @ basis_values.T  # shape: (num_samples, N)
-
-    # Normalize each field to [-1, 1]
-    min_vals = fields.min(axis=1, keepdims=True)
-    max_vals = fields.max(axis=1, keepdims=True)
-    fields = 2 * (fields - min_vals) / (max_vals - min_vals) - 1
-
-    return fields
 
 # directory & save handling
 working_directory_name = 'transient_allen_cahn_2D'
@@ -104,7 +64,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 10
+num_epochs = 200
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(1e-5))
 
@@ -127,14 +87,13 @@ ifol.Train(train_set=(sample_matrix[train_start_id:train_end_id,:],),
                                 "absolute_error":1e-100},
           working_directory=case_dir)
 
-
 # load the best model
 ifol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
 # time ineference setup
 initial_solution_id = 0 
 initial_solution = sample_matrix[initial_solution_id]
-num_time_steps = 50
+num_time_steps = 10
 
 # predict dynamics with ifol
 phi_ifols = ifol.PredictDynamics(initial_solution,num_time_steps)
@@ -157,5 +116,28 @@ for _ in range(0,num_time_steps):
 for time_index, (phi_ifol,phi_fe) in enumerate(zip(phi_ifols,phi_fes)):
     fe_mesh[f"phi_ifol_{time_index}"] = np.array(phi_ifol).reshape((fe_mesh.GetNumberOfNodes(), 1))
     fe_mesh[f"phi_fe_{time_index}"] = np.array(phi_fe).reshape((fe_mesh.GetNumberOfNodes(), 1))
+
+absolute_error = np.abs(phi_fes-phi_ifols)
+
+time_list = [0,1,4,9]
+
+plot_triangulated(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
+                  [initial_solution],
+                  filename=os.path.join(case_dir,f"test3_init_phi.png"),value_range=(-1,1),row=True)
+plot_triangulated(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
+                  [phi_ifols[time_list[0],:],phi_ifols[time_list[1],:],
+                   phi_ifols[time_list[2],:],phi_ifols[time_list[3],:]],
+                  filename=os.path.join(case_dir,f"test3_FOL_summary.png"),value_range=(-1,1),row=True)
+plot_triangulated(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
+                  [phi_fes[time_list[0],:],phi_fes[time_list[1],:],
+                   phi_fes[time_list[2],:],phi_fes[time_list[3],:]],
+                  filename=os.path.join(case_dir,f"test3_FE_summary.png"),value_range=(-1,1),row=True)
+plot_triangulated(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
+                  [absolute_error[time_list[0],:],absolute_error[time_list[1],:],
+                   absolute_error[time_list[2],:],absolute_error[time_list[3],:]],
+                  filename=os.path.join(case_dir,f"test3_Error_summary.png"),value_range=None,row=True)
+plot_mesh_tri(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
+                            filename=os.path.join(case_dir,f'test_FE_mesh_particle.png'))
+
 
 fe_mesh.Finalize(export_dir=case_dir)
