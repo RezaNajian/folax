@@ -12,3 +12,5 @@ play_ground/
 flax_state/
 *-py-env
 py-env*
+examples/paper_iFOL/transient_allen_cahn_2D/sample_matrix.pkl
+examples/paper_iFOL/transient_nonlinear_thermal_2D/train_data_dict.pkl

@@ -36,7 +36,7 @@ identity_control = IdentityControl("ident_control",num_vars=phasefield_loss_2d.G
 identity_control.Initialize()
 
 # generate some randome spatial fields
-generate_new_samples = False
+generate_new_samples = True
 if generate_new_samples:
     sample_matrix = generate_random_smooth_patterns(fe_mesh.GetNodesCoordinates(), num_samples=10000)
     with open(f'sample_matrix.pkl', 'wb') as f:

@@ -29,7 +29,7 @@ fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh.Initialize()
 
 # create some random fields for training
-create_random_fields = False
+create_random_fields = True
 if create_random_fields:
     train_temperature_fields = generate_random_smooth_patterns(model_settings["L"],model_settings["N"],num_samples=9000)
     train_heterogeneity_field = generate_morph_pattern(model_settings["N"]).reshape(1,-1) 
