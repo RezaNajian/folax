@@ -4,7 +4,40 @@ import matplotlib.tri as tri
 from matplotlib.colors import Normalize
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 import numpy as np
+
+def generate_random_smooth_patterns(coords, num_samples=10000,smoothness_levels=[0.15, 0.2, 0.3, 0.4, 0.5]):
+    """
+    Generate mixed random smooth patterns using a Gaussian Process with varying smoothness levels.
+    Parameters:
+        mesh (meshio.Mesh): A meshio object containing the coordinate information.
+        num_samples (int): Total number of samples to generate (divided among smoothness levels).
+        smoothness_levels (list): List of length scales for different smoothness levels.
+    Returns:
+        np.ndarray: A shuffled array of normalized samples from all smoothness levels.
+    """
+    # Extract coordinate points from the mesh
+    X = coords[:, :2]  # Ensure only the first two coordinates are used if it's 3D
+    all_samples = []
+    for length_scale in smoothness_levels:
+        kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale, (1e-2, 1e2))
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1)
+        # Generate an equal number of samples per smoothness level
+        num_per_level = num_samples // len(smoothness_levels)
+        y_samples = gp.sample_y(X, n_samples=num_per_level, random_state=0)
+        # Normalize each sample
+        scaled_y_samples = np.array([
+            2 * (y_sample - np.min(y_sample)) / (np.max(y_sample) - np.min(y_sample)) - 1
+            for y_sample in y_samples.T
+        ])
+        all_samples.append(scaled_y_samples)
+    # Concatenate all samples from different smoothness levels
+    mixed_samples = np.vstack(all_samples)
+    # Shuffle the samples randomly
+    np.random.shuffle(mixed_samples)
+    return mixed_samples
 
 def generate_fixed_gaussian_basis_field(coords, num_samples=1, num_basis=25, length_scale=0.1, random_seed=1):
     """

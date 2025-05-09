@@ -57,10 +57,11 @@ class TransientThermalLoss(ThermalLoss):
             detJ = jnp.linalg.det(J)
             invJ = jnp.linalg.inv(J)
             B_mat = jnp.dot(invJ,DN_DX.T)
-            gp_stiffness = B_mat.T @ (K_at_gauss * B_mat) * detJ * gp_weight
+            gp_stiffness = B_mat.T @ B_mat*K_at_gauss * detJ * gp_weight
             gp_mass = self.material_settings["rho"] * self.material_settings["cp"]* jnp.outer(N_vec, N_vec) * detJ * gp_weight 
             gp_t = self.material_settings["rho"] * self.material_settings["cp"] * 0.5/(self.time_integration_settings["time_step"])*gp_weight  * detJ *(T_at_gauss_n-T_at_gauss_c)**2
-            gp_dR = K_at_gauss * B_mat.T @ B_mat * detJ * gp_weight
+            dk_dT = jnp.dot(N_vec, Ke.squeeze()) * self.material_settings["beta"] * self.thermal_loss_settings["c"] * T_at_gauss_n ** (self.thermal_loss_settings["c"] - 1)
+            gp_dR = (dk_dT * jnp.outer(N_vec, (B_mat@Te_n).T@B_mat) + K_at_gauss *B_mat.T @ B_mat)* detJ * gp_weight 
             return gp_stiffness,gp_mass, gp_t, gp_dR
 
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
@@ -70,9 +71,8 @@ class TransientThermalLoss(ThermalLoss):
         Se_dR = jnp.sum(dR_gps, axis=0)
         Te = jnp.sum(t_gps) 
         element_residuals = jax.lax.stop_gradient((Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c)
-        element_weighted_residual_loss  = ((Te_n.T @ element_residuals)[0,0])
-        element_energy_loss = 0.5*Te_n.T@Se@Te_n + Te
-        return element_weighted_residual_loss, (Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c, (Me+self.time_integration_settings["time_step"]*Se_dR)
+        # element_weighted_residual_loss  = ((Te_n.T @ element_residuals)[0,0])
+        return  0.5*Te_n.T@Se@Te_n + Te, (Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c, (Me+self.time_integration_settings["time_step"]*Se_dR)
 
     @partial(jit, static_argnums=(0,))
     def ComputeElementEnergy(self,

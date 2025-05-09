@@ -5,7 +5,39 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 from matplotlib.collections import PatchCollection
 
-def generate_random_smooth_patterns(L, N, num_samples=6, smoothness_levels=[0.05, 0.1]):
+def generate_random_smooth_patterns(L, N, num_samples=9000, smoothness_levels=[0.025, 0.05, 0.1, 0.2, 0.3, 0.4]):
+    """
+    Generate mixed random smooth patterns using a Gaussian Process with varying smoothness levels.
+    Parameters:
+        L (float): Length of the domain.
+        N (int): Number of grid points per dimension.
+        num_samples (int): Total number of samples to generate (divided among smoothness levels).
+        smoothness_levels (list): List of length scales for different smoothness levels.
+    Returns:
+        np.ndarray: A shuffled array of normalized samples from all smoothness levels.
+    """
+    x = np.linspace(0, L, N)
+    y = np.linspace(0, L, N)
+    X1, X2 = np.meshgrid(x, y)
+    X = np.vstack([X1.ravel(), X2.ravel()]).T
+    all_samples = []
+    for length_scale in smoothness_levels:
+        kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale, (1e-2, 1e2))
+        gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=1)
+        # Generate an equal number of samples per smoothness level
+        num_per_level = num_samples // len(smoothness_levels)
+        y_samples = gp.sample_y(X, n_samples=num_per_level, random_state=0)
+        # Normalize each sample
+        scaled_y_samples = np.array([(y_sample - np.min(y_sample)) / (np.max(y_sample) - np.min(y_sample))
+                                     for y_sample in y_samples.T])
+        all_samples.append(scaled_y_samples)
+    # Concatenate all samples from different smoothness levels
+    mixed_samples = np.vstack(all_samples)
+    # Shuffle the samples randomly
+    np.random.shuffle(mixed_samples)
+    return mixed_samples
+
+def generate_random_smooth_patterns_evaluation(L, N, num_samples=6, smoothness_levels=[0.05, 0.1]):
     """
     Generate mixed random smooth patterns using a Gaussian Process with varying smoothness levels.
 

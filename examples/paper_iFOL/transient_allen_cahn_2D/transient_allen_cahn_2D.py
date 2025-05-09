@@ -12,13 +12,14 @@ from fol.loss_functions.phase_field import AllenCahnLoss2DTri
 from fol.controls.identity_control import IdentityControl
 from allen_cahn_usefull_functions import *
 import pickle
+import jax
+jax.config.update("jax_default_matmul_precision", "highest")
 
 # directory & save handling
 working_directory_name = 'transient_allen_cahn_2D'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
-
 
 fe_mesh = Mesh("fol_io","Li_battery_particle_bumps.med",'../../meshes/')
 
@@ -35,16 +36,16 @@ identity_control = IdentityControl("ident_control",num_vars=phasefield_loss_2d.G
 identity_control.Initialize()
 
 # generate some randome spatial fields
-generate_new_samples=False
+generate_new_samples = False
 if generate_new_samples:
-    sample_matrix = generate_fixed_gaussian_basis_field(fe_mesh.GetNodesCoordinates(), num_samples=200, length_scale=0.15)
+    sample_matrix = generate_random_smooth_patterns(fe_mesh.GetNodesCoordinates(), num_samples=10000)
     with open(f'sample_matrix.pkl', 'wb') as f:
         pickle.dump({"sample_matrix":sample_matrix},f)
 else:
     with open(f'sample_matrix.pkl', 'rb') as f:
         sample_matrix = pickle.load(f)["sample_matrix"]
 
-characteristic_length = 64
+characteristic_length = 256
 synthesizer_nn = MLP(name="synthesizer_nn",
                      input_size=2,
                      output_size=1,
@@ -64,9 +65,9 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 200
-learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=num_epochs)
-main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(1e-5))
+num_epochs = 10000
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
+main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
 # create ifol
 ifol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=identity_control,
@@ -77,11 +78,10 @@ ifol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=id
                                             num_latent_iterations=3)
 ifol.Initialize()
 
-
 train_start_id = 0
-train_end_id = 10
+train_end_id = 8000
 ifol.Train(train_set=(sample_matrix[train_start_id:train_end_id,:],),
-          batch_size=1,
+          batch_size=100,
           convergence_settings={"num_epochs":num_epochs,
                                 "relative_error":1e-100,
                                 "absolute_error":1e-100},
@@ -91,15 +91,17 @@ ifol.Train(train_set=(sample_matrix[train_start_id:train_end_id,:],),
 ifol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
 # time ineference setup
+test_samples = generate_fixed_gaussian_basis_field(fe_mesh.GetNodesCoordinates(), num_samples=5, length_scale=0.15)
 initial_solution_id = 0 
-initial_solution = sample_matrix[initial_solution_id]
+initial_solution = test_samples[initial_solution_id]
 num_time_steps = 10
 
 # predict dynamics with ifol
 phi_ifols = ifol.PredictDynamics(initial_solution,num_time_steps)
 
 # predict dynamics with FE
-fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
+fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+                                                "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
                                             "maxiter":10,"load_incr":1}}
 nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",phasefield_loss_2d,fe_setting)
@@ -108,7 +110,7 @@ nonlin_fe_solver.Initialize()
 phi_fe_current = initial_solution.flatten()
 phi_fes = jnp.array(phi_fe_current)
 for _ in range(0,num_time_steps):
-    phi_fe_next = np.array(nonlin_fe_solver.Solve(phi_fe_current,np.zeros(fe_mesh.GetNumberOfNodes())))
+    phi_fe_next = np.array(nonlin_fe_solver.Solve(phi_fe_current,phi_fe_current))
     phi_fe_current = phi_fe_next
     phi_fes = jnp.vstack((phi_fes,phi_fe_next.flatten()))
 
@@ -138,6 +140,5 @@ plot_triangulated(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triang
                   filename=os.path.join(case_dir,f"test3_Error_summary.png"),value_range=None,row=True)
 plot_mesh_tri(fe_mesh.GetNodesCoordinates(),fe_mesh.GetElementsNodes("triangle"),
                             filename=os.path.join(case_dir,f'test_FE_mesh_particle.png'))
-
 
 fe_mesh.Finalize(export_dir=case_dir)

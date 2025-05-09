@@ -6,16 +6,18 @@ from fol.tools.usefull_functions import *
 from fol.tools.decoration_functions import *
 from fol.tools.logging_functions import Logger
 from fol.controls.identity_control import IdentityControl
-from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
+from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.loss_functions.transient_thermal import TransientThermalLoss2DQuad
 from thermal_usefull_functions import *
+import jax
+jax.config.update("jax_default_matmul_precision", "highest")
 
 # directory & save handling
 working_directory_name = 'meta_implicit_pl_transient_nonlinear_thermal_2D'
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
@@ -29,7 +31,7 @@ fe_mesh.Initialize()
 # create some random fields for training
 create_random_fields = False
 if create_random_fields:
-    train_temperature_fields = generate_random_smooth_patterns(model_settings["L"],model_settings["N"],num_samples=200)
+    train_temperature_fields = generate_random_smooth_patterns(model_settings["L"],model_settings["N"],num_samples=9000)
     train_heterogeneity_field = generate_morph_pattern(model_settings["N"]).reshape(1,-1) 
     train_data_dict = {"temperatures":train_temperature_fields,"heterogeneity":train_heterogeneity_field}
     with open(f'train_data_dict.pkl', 'wb') as f:
@@ -60,7 +62,7 @@ identity_control = IdentityControl("ident_control",num_vars=fe_mesh.GetNumberOfN
 identity_control.Initialize()
 
 # design synthesizer & modulator NN for hypernetwork
-characteristic_length = 64
+characteristic_length = 256
 synthesizer_nn = MLP(name="synthesizer_nn",
                      input_size=3,
                      output_size=1,
@@ -80,43 +82,43 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 200
+num_epochs = 10000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-main_loop_transform = optax.chain(optax.adam(1e-5))
-latent_step_optimizer = optax.chain(optax.adam(1e-4))
-# create ifol
-ifol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_ol",
-                                                        control=identity_control,
-                                                        loss_function=transient_thermal_loss_2d,
-                                                        flax_neural_network=hyper_network,
-                                                        main_loop_optax_optimizer=main_loop_transform,
-                                                        latent_step_optax_optimizer=latent_step_optimizer,
-                                                        latent_step_size=0.01)
+main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
 
+# create ifol
+ifol = MetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=identity_control,
+                                            loss_function=transient_thermal_loss_2d,
+                                            flax_neural_network=hyper_network,
+                                            main_loop_optax_optimizer=main_loop_transform,
+                                            latent_step_size=1e-2,
+                                            num_latent_iterations=3)
 ifol.Initialize()
 
-
 train_start_id = 0
-train_end_id = 10
+train_end_id = 6000
 
 ifol.Train(train_set=(train_temperature_fields[train_start_id:train_end_id,:],),
-            batch_size=1,
+            batch_size=120,
             convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
             plot_settings={"plot_save_rate":100},
             working_directory=case_dir)
 
 ifol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
+test_temperature_fields = generate_random_smooth_patterns_evaluation(model_settings["L"],model_settings["N"])
+
 # time ineference setup
 initial_solution_id = 0 
-initial_solution = train_temperature_fields[initial_solution_id]
+initial_solution = test_temperature_fields[initial_solution_id]
 num_time_steps = 50
 
 # predict dynamics with ifol
 T_ifols = ifol.PredictDynamics(initial_solution,num_time_steps)
 
 # predict dynamics with FE
-fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
+fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
+                                                "maxiter":1000,"pre-conditioner":"ilu"},
                 "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
                                             "maxiter":10,"load_incr":1}}
 nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",transient_thermal_loss_2d,fe_setting)
@@ -125,7 +127,7 @@ nonlin_fe_solver.Initialize()
 T_fe_current = initial_solution.flatten()
 T_fes = jnp.array(T_fe_current)
 for _ in range(0,num_time_steps):
-    T_fe_next = np.array(nonlin_fe_solver.Solve(T_fe_current,np.zeros(fe_mesh.GetNumberOfNodes())))
+    T_fe_next = np.array(nonlin_fe_solver.Solve(T_fe_current,T_fe_current))
     T_fe_current = T_fe_next
     T_fes = jnp.vstack((T_fes,T_fe_next.flatten()))
 
@@ -140,16 +142,15 @@ fe_mesh["k0"] = np.array(train_heterogeneity_field.flatten()).reshape((fe_mesh.G
 absolute_error = np.abs(T_ifols- T_fes)
 time_list = [0,1,4,9,19,24,49]
 
-plot_mesh_vec_data_thermal_row(1,[train_temperature_fields[initial_solution_id,:]],
+plot_mesh_vec_data_thermal_row(1,[test_temperature_fields[initial_solution_id,:]],
                    [""],
                    fig_title="",cmap = "jet",
                    file_name=os.path.join(case_dir,"initial_condition.png"))
 
 plot_mesh_quad(fe_mesh.GetNodesCoordinates()[:,:-1],
                fe_mesh.GetElementsNodes("quad"),
-               background=train_heterogeneity_field[::-1], 
+               background=train_heterogeneity_field.reshape((model_settings["N"],model_settings["N"]))[::-1], 
                filename=os.path.join(case_dir,"FE_mesh_hetero_info.png"),show=False)
-
 
 plot_mesh_vec_data_thermal_row(1,[T_ifols[time_list[0],:],T_ifols[time_list[1],:],
                                   T_ifols[time_list[2],:],T_ifols[time_list[3],:],
