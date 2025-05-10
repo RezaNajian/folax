@@ -12,4 +12,5 @@ play_ground/
 flax_state/
 *-py-env
 .venv/
+venv/
 requirements.txt
