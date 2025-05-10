@@ -1,0 +1,12 @@
+flax==0.10.2
+gmsh==4.13.1
+jax==0.4.34
+jaxlib==0.4.34
+matplotlib==3.10.0
+meshio==5.3.5
+numpy==2.2.2
+optax==0.2.4
+orbax-checkpoint==0.11.0
+scipy==1.15.1
+tqdm==4.67.1
+
