@@ -4,14 +4,14 @@ import optax
 import numpy as np
 from fol.loss_functions.regression_loss import RegressionLoss
 from fol.controls.identity_control import IdentityControl
-from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
+from data_driven_meta_implicit_parametric_operator_learning import DataDrivenMetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.data_input_output.zarr_io import ZarrIO
 
 # directory & save handling
-working_directory_name = 'meta_alpha_meta_implicit_decoder_conductivity_fields'
+working_directory_name = 'data_driven_meta_implicit_operator_learning'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -67,16 +67,13 @@ hyper_network = HyperNetwork(name="hyper_nn",
 num_epochs = 5000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
 main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))
-main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(1e-5))
-latent_step_optimizer = optax.chain(optax.normalize_by_update_norm(),optax.adam(1e-5))
 
 # create fol
-fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=identity_control,
+fol = DataDrivenMetaImplicitParametricOperatorLearning(name="meta_implicit_ol",control=identity_control,
                                                 loss_function=reg_loss,
                                                 flax_neural_network=hyper_network,
                                                 main_loop_optax_optimizer=main_loop_transform,
                                                 latent_step_size=1e-2,
-                                                latent_step_optax_optimizer=latent_step_optimizer,
                                                 num_latent_iterations=3)
 
 fol.Initialize()
@@ -86,8 +83,8 @@ train_end_id = 20
 test_start_id = 3 * train_end_id
 test_end_id = 4 * train_end_id
 
-fol.Train(train_set=(data_sets["K"][train_start_id:train_end_id,:],),
-          test_set=(data_sets["K"][test_start_id:test_end_id,:],),
+fol.Train(train_set=(data_sets["K"][train_start_id:train_end_id,:],data_sets["T_FEM"][train_start_id:train_end_id,:]),
+          test_set=(data_sets["K"][test_start_id:test_end_id,:],data_sets["T_FEM"][test_start_id:test_end_id,:]),
           test_frequency=10,batch_size=1,
           convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
           train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
@@ -97,11 +94,12 @@ fol.Train(train_set=(data_sets["K"][train_start_id:train_end_id,:],),
 fol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
 for eval_id in list(np.arange(train_start_id,test_end_id)):
-    predicted = np.array(fol.Predict(data_sets["K"][eval_id,:].reshape(-1,1).T)).reshape(-1)
-    ground_truth = data_sets["K"][eval_id]
-    abs_err = abs(predicted-data_sets["K"][eval_id])
-    plot_mesh_vec_data(1,[predicted,ground_truth,abs_err],
-                        ["predicted","ground_truth","abs_error"],
+    T_iFOL = np.array(fol.Predict(data_sets["K"][eval_id,:].reshape(-1,1).T)).reshape(-1)
+    T_FEM = data_sets["T_FEM"][eval_id]
+    K = data_sets["K"][eval_id]
+    abs_err = abs(T_iFOL-T_FEM)
+    plot_mesh_vec_data(1,[K,T_FEM,T_iFOL,abs_err],
+                        ["conductivity","T_FEM","T_iFOL","abs_error"],
                         fig_title="",
                         file_name=os.path.join(case_dir,f"test_{eval_id}.png"))
 

@@ -12,3 +12,4 @@ play_ground/
 flax_state/
 *-py-env
 *py-env
+*.zarr
