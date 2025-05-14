@@ -13,3 +13,4 @@ flax_state/
 *-py-env
 *py-env
 *.zarr
+py-env*
