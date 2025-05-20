@@ -65,53 +65,29 @@ class FiniteElementResponse(Response):
         func_str = f"lambda {', '.join(variables_list)}: {self.response_formula}"
         self.jit_response_function = jax.jit(eval(func_str, {"jnp": jnp}))
 
-        if self.fe_loss.dim == 2:
-            self.CalculateNMatrix = self.CalculateNMatrix2D    
-        else:
-            self.CalculateNMatrix = self.CalculateNMatrix3D
-
         self.initialized = True
 
     @partial(jit, static_argnums=(0,))
-    def CalculateNMatrix2D(self,N_vec:jnp.array) -> jnp.array:
+    def CalculateNMatrix(self,N_vec:jnp.array) -> jnp.array:
         """
-        Computes the shape function matrix (N) for 2D finite elements.
+        Computes the shape function matrix (N) for finite elements.
 
-        This function generates a 2x(2*N) shape function matrix, where N is the number of shape functions.
+        This function generates a num_dofsx(num_dofs*N) shape function matrix, where N is the number of shape functions.
 
         Args:
             N_vec (jnp.array): The vector of shape function values.
 
         Returns:
-            jnp.array: The computed 2D shape function matrix.
+            jnp.array: The computed shape function matrix.
         """
 
-        N_mat = jnp.zeros((2, 2 * N_vec.size))
-        indices = jnp.arange(N_vec.size)   
-        N_mat = N_mat.at[0, 2 * indices].set(N_vec)
-        N_mat = N_mat.at[1, 2 * indices + 1].set(N_vec)    
+        num_dofs = self.fe_loss.number_dofs_per_node
+        N_mat = jnp.zeros((num_dofs,  num_dofs * N_vec.size))
+        indices = jnp.arange(num_dofs)[:, None] 
+        cols = jnp.arange(N_vec.size) * num_dofs 
+        N_mat = N_mat.at[indices, cols + indices].set(N_vec)
         return N_mat
     
-    @partial(jit, static_argnums=(0,))
-    def CalculateNMatrix3D(self,N_vec:jnp.array) -> jnp.array:
-        """
-        Computes the shape function matrix (N) for 3D finite elements.
-
-        This function generates a 3x(3*N) shape function matrix, where N is the number of shape functions.
-
-        Args:
-            N_vec (jnp.array): The vector of shape function values.
-
-        Returns:
-            jnp.array: The computed 3D shape function matrix.
-        """
-
-        N_mat = jnp.zeros((3,3*N_vec.size))
-        N_mat = N_mat.at[0,0::3].set(N_vec)
-        N_mat = N_mat.at[1,1::3].set(N_vec)
-        N_mat = N_mat.at[2,2::3].set(N_vec)
-        return N_mat        
-
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValue(self,xyze,de,uvwe):
         """
@@ -555,7 +531,7 @@ class FiniteElementResponse(Response):
                                               fd_step_size:float=1e-4,
                                               fd_mode="FWD"):
         # solve for the unperturbed controls
-        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
 
         if fd_mode=="FWD" or fd_mode=="CD":
             unpert_res_val = self.ComputeValue(nodal_control_values,unpert_dofs)
@@ -569,7 +545,7 @@ class FiniteElementResponse(Response):
             # per forward
             nodal_control_values = nodal_control_values.at[control_idx].add(fd_step_size)
             # calculate fw
-            fw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+            fw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
             fw_res_val = self.ComputeValue(nodal_control_values,fw_dofs)
             if fd_mode=="FWD":
                 FD_sens = (fw_res_val-unpert_res_val)/fd_step_size
@@ -580,7 +556,7 @@ class FiniteElementResponse(Response):
             # now backward if CD
             if fd_mode=="CD":
                 nodal_control_values = nodal_control_values.at[control_idx].add(-fd_step_size)
-                bw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+                bw_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
                 bw_res_val = self.ComputeValue(nodal_control_values,bw_dofs)
                 FD_sens = (fw_res_val-bw_res_val)/(2*fd_step_size)
                 # remove pert
@@ -598,7 +574,7 @@ class FiniteElementResponse(Response):
                                             fd_step_size:float=1e-4,
                                             fd_mode="FWD"):
         # solve for the unperturbed controls
-        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+        unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
 
         if fd_mode=="FWD" or fd_mode=="CD":
             unpert_res_val = self.ComputeValue(nodal_control_values,unpert_dofs)
@@ -609,14 +585,14 @@ class FiniteElementResponse(Response):
 
         def pert_and_compute(node_idx,component):
             self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(fd_step_size)
-            fw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+            fw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
             fw_pert_res_val = self.ComputeValue(nodal_control_values,fw_pert_dofs)
             if fd_mode=="FWD":
                 self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(-fd_step_size)
                 return (fw_pert_res_val-unpert_res_val)/fd_step_size
             elif fd_mode=="CD":
                 self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(-2*fd_step_size)
-                bw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.dim*self.fe_loss.fe_mesh.GetNumberOfNodes()))
+                bw_pert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
                 bw_pert_res_val = self.ComputeValue(nodal_control_values,bw_pert_dofs)
                 self.fe_loss.fe_mesh.nodes_coordinates = self.fe_loss.fe_mesh.nodes_coordinates.at[node_idx,component].add(fd_step_size)
                 return (fw_pert_res_val-bw_pert_res_val)/(2*fd_step_size)
