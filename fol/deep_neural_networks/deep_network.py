@@ -12,6 +12,7 @@ import jax.numpy as jnp
 from functools import partial
 from flax import nnx
 import jax
+from jax.sharding import Mesh, PartitionSpec, NamedSharding
 import orbax.checkpoint as orbax
 from optax import GradientTransformation
 import orbax.checkpoint as ocp
@@ -52,6 +53,7 @@ class DeepNetwork(ABC):
     default_test_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"flax_test_state"}
     default_save_nnx_state_settings = {"save_final_state":True,"final_state_directory":"flax_final_state",
                                        "interval_state_checkpointing":False,"interval_state_checkpointing_frequency":0,"interval_state_checkpointing_directory":"."}
+    default_data_model_sharding_settings = {"sharding":False,"num_data_devices":1,"num_nnx_model_devices":1}
 
     def __init__(self,
                  name:str,
@@ -186,6 +188,7 @@ class DeepNetwork(ABC):
               train_checkpoint_settings:dict={},
               test_checkpoint_settings:dict={},
               save_nnx_state_settings:dict={},
+              data_model_sharding_settings:dict={},
               working_directory='.'):
 
         convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
@@ -218,6 +221,9 @@ class DeepNetwork(ABC):
         save_nnx_state_settings = UpdateDefaultDict(default_save_nnx_state_settings,save_nnx_state_settings)
         fol_info(f"save nnx state settings:{save_nnx_state_settings}")
 
+        sharding_settings = UpdateDefaultDict(self.default_data_model_sharding_settings,data_model_sharding_settings)
+        fol_info(f"sharding settings:{sharding_settings}")
+
         # restore state if needed 
         if restore_nnx_state_settings['restore']:
             self.RestoreState(restore_nnx_state_settings["state_directory"])
@@ -228,89 +234,140 @@ class DeepNetwork(ABC):
             fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")   
             batch_size = adjusted_batch_size  
 
-        train_history_dict = {"total_loss":[]}
-        test_history_dict = {"total_loss":[]}
-        pbar = trange(convergence_settings["num_epochs"])
-        converged = False
-        rng, _ = jax.random.split(jax.random.PRNGKey(0))
-        state = (self.flax_neural_network, self.nnx_optimizer)
+        # sharding & data-model parallelization
+        if sharding_settings["sharding"]:
+            num_data_devices = sharding_settings["num_data_devices"]
+            num_model_devices = sharding_settings["num_nnx_model_devices"]
+            if num_data_devices * num_model_devices != jax.local_device_count():
+                fol_error(f"number of available devices (i.e., {jax.local_device_count()}) does not match with the mutiplication of number of data and model devices (i.e., {(num_data_devices,num_model_devices)}) !")
 
-        # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b 
-        # and discussions in https://github.com/google/flax/issues/4045
-        train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs))    
-       
-        for epoch in pbar:
-            # update least values in case of restore
-            if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
-                train_checkpoint_settings["least_loss"] = self.TestStep(state,train_set)
-            if test_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
-                test_checkpoint_settings["least_loss"] = self.TestStep(state,test_set)            
+            if len(train_set[0]) % num_data_devices != 0:
+                fol_error(f"size/shape of train_set (i.e., {train_set[0].shape}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
 
-            # parallel batching and train step
-            rng, sub = jax.random.split(rng)
-            order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)
-            _, losses = train_multiple_steps_with_idxs(state, train_set, order)
-            train_history_dict["total_loss"].append(losses.mean())
-            
-            # test step
-            if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
-                test_history_dict["total_loss"].append(self.TestStep(state,test_set))
-            
-            # print step   
-            if len(test_set[0])>0:
-                print_dict = {"train_loss":train_history_dict["total_loss"][-1],
-                              "test_loss":test_history_dict["total_loss"][-1]}
-            else:
-                print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
+            if len(test_set)>0:
+                if len(test_set[0]) % num_data_devices != 0:
+                    fol_error(f"size/shape of test_set (i.e., {test_set[0].shape}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
 
-            pbar.set_postfix(print_dict)
+            sharding_mesh = jax.sharding.Mesh(devices=np.array(jax.devices()).reshape(num_data_devices, num_model_devices),
+                                                axis_names=('data', 'model'))
 
-            # check converged
-            converged = self.CheckConvergence(train_history_dict,convergence_settings)
+            nnx_model_sharding = jax.NamedSharding(sharding_mesh, jax.sharding.PartitionSpec('model'))
+            data_sharding = jax.NamedSharding(sharding_mesh, jax.sharding.PartitionSpec('data'))
 
-            # plot the histories
-            if (epoch>0 and epoch %plot_settings["save_frequency"] == 0) or converged:
-                self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
+            # data sharding
+            train_set = jax.device_put(train_set, data_sharding)
+                
+            if len(test_set)>0:
+                test_set = jax.device_put(test_set, data_sharding)
 
-            # train checkpointing
-            if train_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
-                (epoch)%train_checkpoint_settings["frequency"] == 0 and \
-                train_history_dict["total_loss"][-1] < train_checkpoint_settings["least_loss"]:
+            # nnx model sharding
+            with sharding_mesh:
+                state = nnx.state(self.flax_neural_network)   
+                pspecs = nnx.get_partition_spec(state)
+                sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
+                nnx.update(self.flax_neural_network, sharded_state) 
+
+            fol_info("neural network is sharded as ")
+            jax.debug.visualize_array_sharding(self.flax_neural_network.synthesizer_nn.nn_params[0][0])
+            fol_info("train set is sharded as ")
+            jax.debug.visualize_array_sharding(train_set[0])
+            if len(test_set)>0:
+                fol_info("test set is sharded as ")
+                jax.debug.visualize_array_sharding(test_set[0])                
+
+        def train_loop():
+
+            train_history_dict = {"total_loss":[]}
+            test_history_dict = {"total_loss":[]}
+            pbar = trange(convergence_settings["num_epochs"])
+            converged = False
+            rng, _ = jax.random.split(jax.random.PRNGKey(0))
+
+            state = (self.flax_neural_network, self.nnx_optimizer)
+
+            # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b 
+            # and discussions in https://github.com/google/flax/issues/4045
+            train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs))    
+
+            for epoch in pbar:
+                # update least values in case of restore
+                if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
+                    train_checkpoint_settings["least_loss"] = self.TestStep(state,train_set)
+                if test_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
+                    test_checkpoint_settings["least_loss"] = self.TestStep(state,test_set)            
+
+                # parallel batching and train step
+                rng, sub = jax.random.split(rng)
+                order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)
+                _, losses = train_multiple_steps_with_idxs(state, train_set, order)
+                train_history_dict["total_loss"].append(losses.mean())
+                
+                # test step
+                if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
+                    test_history_dict["total_loss"].append(self.TestStep(state,test_set))
+                
+                # print step   
+                if len(test_set[0])>0:
+                    print_dict = {"train_loss":train_history_dict["total_loss"][-1],
+                                "test_loss":test_history_dict["total_loss"][-1]}
+                else:
+                    print_dict = {"train_loss":train_history_dict["total_loss"][-1]}
+
+                pbar.set_postfix(print_dict)
+
+                # check converged
+                converged = self.CheckConvergence(train_history_dict,convergence_settings)
+
+                # plot the histories
+                if (epoch>0 and epoch %plot_settings["save_frequency"] == 0) or converged:
+                    self.PlotHistoryDict(plot_settings,train_history_dict,test_history_dict)
+
+                # train checkpointing
+                if train_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
+                    (epoch)%train_checkpoint_settings["frequency"] == 0 and \
+                    train_history_dict["total_loss"][-1] < train_checkpoint_settings["least_loss"]:
+                    fol_info(f"train total_loss improved from {train_checkpoint_settings['least_loss']} to {train_history_dict['total_loss'][-1]}")
+                    train_checkpoint_settings["least_loss"] = train_history_dict["total_loss"][-1]
+                    self.SaveCheckPoint("train",train_checkpoint_settings["state_directory"])
+
+                # test checkpointing
+                if test_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
+                    (epoch)%test_checkpoint_settings["frequency"] == 0 and \
+                    test_history_dict["total_loss"][-1] < test_checkpoint_settings["least_loss"]:
+                    fol_info(f"test total_loss improved from {test_checkpoint_settings['least_loss']} to {test_history_dict['total_loss'][-1]}")
+                    test_checkpoint_settings["least_loss"] = test_history_dict["total_loss"][-1]
+                    self.SaveCheckPoint("test",test_checkpoint_settings["state_directory"])
+
+                # interval checkpointing
+                if save_nnx_state_settings["interval_state_checkpointing"] and epoch>0 and \
+                (epoch)%save_nnx_state_settings["interval_state_checkpointing_frequency"] == 0:
+                    self.SaveCheckPoint(f"interval {epoch}",save_nnx_state_settings["interval_state_checkpointing_directory"]+"/flax_train_state_epoch_"+str(epoch))
+
+                if epoch<convergence_settings["num_epochs"]-1 and converged:
+                    break          
+
+            if train_checkpoint_settings["least_loss_checkpointing"] and \
+                train_history_dict["total_loss"][-1] < train_checkpoint_settings['least_loss']:
                 fol_info(f"train total_loss improved from {train_checkpoint_settings['least_loss']} to {train_history_dict['total_loss'][-1]}")
-                train_checkpoint_settings["least_loss"] = train_history_dict["total_loss"][-1]
                 self.SaveCheckPoint("train",train_checkpoint_settings["state_directory"])
 
-            # test checkpointing
-            if test_checkpoint_settings["least_loss_checkpointing"] and epoch>0 and \
-                (epoch)%test_checkpoint_settings["frequency"] == 0 and \
-                test_history_dict["total_loss"][-1] < test_checkpoint_settings["least_loss"]:
+            if test_checkpoint_settings["least_loss_checkpointing"] and \
+                test_history_dict["total_loss"][-1] < test_checkpoint_settings['least_loss']:
                 fol_info(f"test total_loss improved from {test_checkpoint_settings['least_loss']} to {test_history_dict['total_loss'][-1]}")
-                test_checkpoint_settings["least_loss"] = test_history_dict["total_loss"][-1]
                 self.SaveCheckPoint("test",test_checkpoint_settings["state_directory"])
 
-            # interval checkpointing
-            if save_nnx_state_settings["interval_state_checkpointing"] and epoch>0 and \
-            (epoch)%save_nnx_state_settings["interval_state_checkpointing_frequency"] == 0:
-                self.SaveCheckPoint(f"interval {epoch}",save_nnx_state_settings["interval_state_checkpointing_directory"]+"/flax_train_state_epoch_"+str(epoch))
+            if save_nnx_state_settings["save_final_state"]:
+                self.SaveCheckPoint("final",save_nnx_state_settings["final_state_directory"])
 
-            if epoch<convergence_settings["num_epochs"]-1 and converged:
-                break          
+            self.checkpointer.close()  # Close resources properly
 
-        if train_checkpoint_settings["least_loss_checkpointing"] and \
-            train_history_dict["total_loss"][-1] < train_checkpoint_settings['least_loss']:
-            fol_info(f"train total_loss improved from {train_checkpoint_settings['least_loss']} to {train_history_dict['total_loss'][-1]}")
-            self.SaveCheckPoint("train",train_checkpoint_settings["state_directory"])
 
-        if test_checkpoint_settings["least_loss_checkpointing"] and \
-            test_history_dict["total_loss"][-1] < test_checkpoint_settings['least_loss']:
-            fol_info(f"test total_loss improved from {test_checkpoint_settings['least_loss']} to {test_history_dict['total_loss'][-1]}")
-            self.SaveCheckPoint("test",test_checkpoint_settings["state_directory"])
-
-        if save_nnx_state_settings["save_final_state"]:
-            self.SaveCheckPoint("final",save_nnx_state_settings["final_state_directory"])
-
-        self.checkpointer.close()  # Close resources properly
-
+        if sharding_settings["sharding"]:
+            with sharding_mesh:
+                train_loop()
+        else:
+            train_loop()
+            
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
         """
         Checks whether the training process has converged.
