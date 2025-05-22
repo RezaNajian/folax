@@ -5,7 +5,7 @@ from flax import nnx
 import jax 
 import os
 import numpy as np
-from fol.loss_functions.mechanical import MechanicalLoss3DTetra
+from fol.loss_functions.mechanical import MechanicalLoss3DHexa
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.controls.voronoi_control3D import VoronoiControl3D
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
@@ -19,14 +19,14 @@ class TestMechanical3D(unittest.TestCase):
 
     def setUp(self):
         # problem setup
-        test_name = 'test_mechanical_3D_tetra_poly_lin'
+        test_name = 'test_mechanical_3D_hexa_poly_lin'
         self.test_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_name)
         create_clean_directory(self.test_directory)
-        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
+        self.fe_mesh = create_3D_box_mesh(Nx=4,Ny=4,Nz=4,Lx=1.,Ly=1.,Lz=1.,case_dir=self.test_directory)
         dirichlet_bc_dict = {"Ux":{"left":0.0},
                 "Uy":{"left":0.0,"right":-0.05},
                 "Uz":{"left":0.0,"right":-0.05}}
-        self.mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":dirichlet_bc_dict,
+        self.mechanical_loss_3d = MechanicalLoss3DHexa("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":dirichlet_bc_dict,
                                                                                             "material_dict":{"young_modulus":1,"poisson_ratio":0.3}},
                                                                                             fe_mesh=self.fe_mesh)
         fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
