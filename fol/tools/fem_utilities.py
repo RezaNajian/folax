@@ -293,24 +293,15 @@ class MaterialModel:
         """
         Calculate fourth identity matrix
         """
-        # I = jnp.zeros((dim, dim, dim, dim))
-        # I = jnp.einsum('ik,jl->ijkl',jnp.eye(dim),jnp.eye(dim))
-        I4 = jnp.zeros((dim, dim, dim, dim))
-        for i in range(dim):
-            for j in range(dim):
-                I4 = I4.at[i, j, i, j].set(1)
+        eye = jnp.eye(dim)
+        I4 = jnp.einsum('ik,jl->ijkl', eye, eye)
         return I4
     
     def diad_special(self, A, B, dim):
         """
-        Calculate a specific tensor diad: Cijkl = (1/2)*(Aik * Bjl + Ail * Bjk)
+        Calculate a specific tensor diad: Cijkl = (1/2)*(A[i,k] * B[j,l] + A[i,l] * B[j,k])
         """
-        P = jnp.zeros((dim, dim, dim, dim))
-        for i in range(dim):
-            for j in range(dim):
-                for k in range(dim):
-                    for l in range(dim):
-                        P = P.at[i,j,k,l].add(0.5* (A[i,k]*B[j,l] + A[i,l]*B[j,k]))
+        P = 0.5* (jnp.einsum('ik,jl->ijkl',A,B) + jnp.einsum('il,jk->ijkl',A,B))
         return P
     
     def TensorToVoigt(self, tensor):

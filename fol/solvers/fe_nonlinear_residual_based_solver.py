@@ -32,7 +32,8 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             self.nonlinear_solver_settings = UpdateDefaultDict(self.nonlinear_solver_settings,
                                                                 self.fe_solver_settings["nonlinear_solver_settings"])
     @print_with_timestamp_and_execution_time
-    def Solve(self,current_control_vars,current_dofs):
+    def Solve(self,current_control_vars,current_dofs_np:np.array):
+        current_dofs = jnp.array(current_dofs_np)
         load_increament = self.nonlinear_solver_settings["load_incr"]
         for load_fac in range(load_increament):
             fol_info(f"loadStep; increment:{load_fac+1}")

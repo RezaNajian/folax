@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '../../..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..','..')))
 import optax
 import numpy as np
 
@@ -11,7 +11,7 @@ from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import 
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
-from fol.tools.usefull_functions import *
+from mechanical2D_usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 from fol.tools.decoration_functions import *
@@ -19,7 +19,7 @@ import pickle
 import jax
 
 jax.config.update('jax_default_matmul_precision','high')
-jax.config.update('jax_enable_x64', True)
+# jax.config.update('jax_enable_x64', True)
 def main(ifol_num_epochs=10,clean_dir=False):
 
     if ifol_num_epochs<5000:

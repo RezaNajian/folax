@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..')))
 import numpy as np
-from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
+from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DHexa
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
@@ -16,21 +16,21 @@ import jax
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = "box_3D_tetra_nonlin"
+    working_directory_name = "box_3D_hexa_nonlin"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # create mesh_io
-    fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
+    fe_mesh = create_3D_box_mesh(Nx=21,Ny=21,Nz=21,Lx=1.,Ly=1.,Lz=1.,case_dir=case_dir)
 
     # creation of fe model and loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.5},
-                "Uy":{"left":0.0},
-                "Uz":{"left":0.0}}
+    bc_dict = {"Ux":{"left":0.0},
+                "Uy":{"left":0.0,"right":-0.35},
+                "Uz":{"left":0.0,"right":-0.35}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
 
-    mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+    mechanical_loss_3d = NeoHookeMechanicalLoss3DHexa("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
                                                                                    "material_dict":material_dict},
                                                                                    fe_mesh=fe_mesh)
 
@@ -114,8 +114,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # solve FE here
     if solve_FE:
         fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
-                      "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                    "maxiter":5,"load_incr":10}}
+                      "nonlinear_solver_settings":{"rel_tol":1e-6,"abs_tol":1e-6,
+                                                    "maxiter":5,"load_incr":40}}
         nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_3d,fe_setting)
         nonlin_fe_solver.Initialize()
         FE_UVW = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(3*fe_mesh.GetNumberOfNodes())))  
@@ -129,7 +129,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
-    solve_FE = True
+    solve_FE = False
     clean_dir = False
 
     # Parse the command-line arguments
