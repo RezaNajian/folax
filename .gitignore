@@ -11,6 +11,8 @@ build/
 play_ground/
 flax_state/
 *-py-env
-.venv/
-venv/
-requirements.txt
+*py-env
+*.zarr
+py-env*
+.venv
+*.txt
