@@ -29,7 +29,8 @@ class ThermalLoss(FiniteElementLoss):
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,te,body_force=0):
         @jit
-        def compute_at_gauss_point(gp_point,gp_weight):
+        def compute_at_gauss_point(gp_point,gp_weight,te):
+            te = jax.lax.stop_gradient(te)
             N = self.fe_element.ShapeFunctionsValues(gp_point)
             conductivity_at_gauss = jnp.dot(N, de.squeeze()) * (1 + 
                                     self.thermal_loss_settings["beta"]*(jnp.dot(N,te.squeeze()))**self.thermal_loss_settings["c"])
@@ -40,10 +41,13 @@ class ThermalLoss(FiniteElementLoss):
             gp_f = gp_weight * detJ * body_force *  N.reshape(-1,1) 
             return gp_stiffness,gp_f
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
-        k_gps,f_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0))(gp_points,gp_weights)
+        k_gps,f_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0,None))(gp_points,gp_weights,te)
         Se = jnp.sum(k_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
-        element_residuals = jax.lax.stop_gradient(Se @ te - Fe)
+        def compute_elem_res(Se,te ,Fe):
+            te = jax.lax.stop_gradient(te)
+            return (Se @ te - Fe)
+        element_residuals = compute_elem_res(Se,te ,Fe)
         return  ((te.T @ element_residuals)[0,0]), (Se @ te - Fe), Se
 
 class ThermalLoss3DTetra(ThermalLoss):

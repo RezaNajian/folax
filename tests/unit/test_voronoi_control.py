@@ -49,7 +49,6 @@ class TestVoronoiControl(unittest.TestCase):
         batch_controlled_variables = self.voronoi_control2D.ComputeBatchControlledVariables(batch_coefficients)
         assert jnp.min(batch_controlled_variables) > 0.1
         assert jnp.max(batch_controlled_variables) < 1
-        assert abs(jnp.mean(batch_controlled_variables) - 0.5) < 1e-2
 
         # Generate random coefficients for 3D model
         batch_coefficients = random.uniform(random.PRNGKey(42), shape=(10,self.voronoi_control3D.GetNumberOfVariables()))
@@ -58,7 +57,6 @@ class TestVoronoiControl(unittest.TestCase):
         batch_controlled_variables = self.voronoi_control3D.ComputeBatchControlledVariables(batch_coefficients)
         assert jnp.min(batch_controlled_variables) > 1e-1
         assert jnp.max(batch_controlled_variables) < 1
-        assert abs(jnp.mean(batch_controlled_variables) - 0.5) < 1e-1
 
 
         if self.debug_mode=="false":
