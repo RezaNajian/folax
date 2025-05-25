@@ -15,4 +15,4 @@ flax_state/
 *.zarr
 py-env*
 .venv
-*.txt
+requirements.txt

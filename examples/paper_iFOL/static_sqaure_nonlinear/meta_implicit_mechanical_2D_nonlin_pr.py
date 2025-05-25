@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..','..')))
+
 import optax
 import numpy as np
 
@@ -11,6 +11,7 @@ from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import 
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
+from fol.tools.usefull_functions import *
 from mechanical2D_usefull_functions import *
 from fol.tools.logging_functions import Logger
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
@@ -28,7 +29,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     # directory & save handling
     working_directory_name = 'meta_implicit_mechanical_2D'
     case_dir = os.path.join('.', working_directory_name)
-    # create_clean_directory(working_directory_name)
+    create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # problem setup
@@ -105,10 +106,9 @@ def main(ifol_num_epochs=10,clean_dir=False):
                                 coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
     # create fol optax-based optimizer
-    num_epochs = ifol_num_epochs
     #learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-    main_loop_transform = optax.chain(optax.adam(1e-5))
-    latent_step_optimizer = optax.chain(optax.adam(1e-4))
+    main_loop_transform = optax.chain(optax.adam(1e-6))
+    latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
     # create fol
     fol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=fourier_control,
@@ -130,16 +130,16 @@ def main(ifol_num_epochs=10,clean_dir=False):
     test_start_id = 8000
     test_end_id = 10000
 
-    train_set = train_set_pr    # OTF or Parametric 
-    # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    # fol.Train(train_set=(train_set,),
-    #            test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-    #            test_frequency=100,
-    #            batch_size=350,
-    #            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-    #            plot_settings={"plot_save_rate":100},
-    #            train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-    #            working_directory=case_dir)
+    train_set = train_set_otf   # OTF or Parametric 
+    #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
+    fol.Train(train_set=(train_set,),
+                test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
+                test_frequency=100,
+                batch_size=350,
+                convergence_settings={"num_epochs":ifol_num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                plot_settings={"plot_save_rate":100},
+                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                working_directory=case_dir)
 
 
     # load teh best model

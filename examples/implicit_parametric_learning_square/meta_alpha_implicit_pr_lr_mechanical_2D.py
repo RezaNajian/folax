@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(),'..\..')))
+
 import optax
 import numpy as np
 from fol.loss_functions.mechanical import MechanicalLoss2DQuad
