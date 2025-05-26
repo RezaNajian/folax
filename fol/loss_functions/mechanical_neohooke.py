@@ -127,25 +127,17 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         num_nodes = DN_DX_T.shape[1]
         gp_geo_stiffness = jnp.zeros((2*num_nodes,2*num_nodes))
 
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,0:2].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,2:4].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,4:6].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,6:8].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,3])))
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(2) * val  # Returns a (2, 2) block
 
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,0:2].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,2:4].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,4:6].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,6:8].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,3])))
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 2, 2)
 
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,0:2].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,2:4].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,4:6].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,6:8].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,3])))
+        # Rearrange blocks into full (8, 8) matrix
+        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])
 
-        gp_geo_stiffness = gp_geo_stiffness.at[6:8,0:2].set(jnp.eye(2) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:8,2:4].set(jnp.eye(2) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:8,4:6].set(jnp.eye(2) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:8,6:8].set(jnp.eye(2) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,3])))
         return gp_geo_stiffness
     
     @partial(jit, static_argnums=(0,))
@@ -167,17 +159,16 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         num_nodes = DN_DX_T.shape[1]
         gp_geo_stiffness = jnp.zeros((2*num_nodes,2*num_nodes))
 
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,0:2].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,2:4].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:2,4:6].set(jnp.eye(2) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,2])))
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(2) * val  # Returns a (2, 2) block
 
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,0:2].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,2:4].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[2:4,4:6].set(jnp.eye(2) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,2])))
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (3, 3, 2, 2)
 
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,0:2].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,2:4].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[4:6,4:6].set(jnp.eye(2) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,2])))
+        # Rearrange blocks into full (8, 8) matrix
+        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])
 
         return gp_geo_stiffness
     
@@ -204,25 +195,17 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         num_nodes = DN_DX_T.shape[1]
         gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
 
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,0:3].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,3:6].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,6:9].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,9:12].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,3])))
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(3) * val  # Returns a (3, 3) block
 
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,0:3].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,3:6].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,6:9].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,9:12].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,3])))
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 3, 3)
 
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,0:3].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,3:6].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,6:9].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,9:12].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,3])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,0:3].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,3:6].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,6:9].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,9:12].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,3])))
+        # Rearrange blocks into full (12, 12) matrix
+        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])  
+        
         return gp_geo_stiffness
     
     @partial(jit, static_argnums=(0,))
@@ -248,77 +231,17 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         num_nodes = DN_DX_T.shape[1]
         gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
 
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,0:3].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,3:6].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,6:9].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,9:12].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,12:15].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,15:18].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,18:21].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[0:3,21:24].set(jnp.eye(3) * (DN_DX_T[:,0].T @ (S_mat @ DN_DX_T[:,7])))
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(3) * val  # Returns a (3, 3) block
 
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,0:3].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,3:6].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,6:9].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,9:12].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,12:15].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,15:18].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,18:21].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[3:6,21:24].set(jnp.eye(3) * (DN_DX_T[:,1].T @ (S_mat @ DN_DX_T[:,7])))
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (8, 8, 3, 3)
 
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,0:3].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,3:6].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,6:9].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,9:12].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,12:15].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,15:18].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,18:21].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[6:9,21:24].set(jnp.eye(3) * (DN_DX_T[:,2].T @ (S_mat @ DN_DX_T[:,7])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,0:3].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,3:6].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,6:9].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,9:12].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,12:15].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,15:18].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,18:21].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[9:12,21:24].set(jnp.eye(3) * (DN_DX_T[:,3].T @ (S_mat @ DN_DX_T[:,7])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,0:3].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,3:6].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,6:9].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,9:12].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,12:15].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,15:18].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,18:21].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[12:15,21:24].set(jnp.eye(3) * (DN_DX_T[:,4].T @ (S_mat @ DN_DX_T[:,7])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,0:3].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,3:6].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,6:9].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,9:12].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,12:15].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,15:18].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,18:21].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[15:18,21:24].set(jnp.eye(3) * (DN_DX_T[:,5].T @ (S_mat @ DN_DX_T[:,7])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,0:3].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,3:6].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,6:9].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,9:12].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,12:15].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,15:18].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,18:21].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[18:21,21:24].set(jnp.eye(3) * (DN_DX_T[:,6].T @ (S_mat @ DN_DX_T[:,7])))
-
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,0:3].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,0])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,3:6].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,1])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,6:9].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,2])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,9:12].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,3])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,12:15].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,4])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,15:18].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,5])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,18:21].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,6])))
-        gp_geo_stiffness = gp_geo_stiffness.at[21:24,21:24].set(jnp.eye(3) * (DN_DX_T[:,7].T @ (S_mat @ DN_DX_T[:,7])))
+        # Rearrange blocks into full (24, 24) matrix
+        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])  
+        
         return gp_geo_stiffness
     
     @partial(jit, static_argnums=(0,))
