@@ -107,7 +107,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
     # create fol optax-based optimizer
     #learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-    main_loop_transform = optax.chain(optax.adam(1e-6))
+    main_loop_transform = optax.chain(optax.adam(1e-5))
     latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
     # create fol
@@ -186,7 +186,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 10000
+    ifol_num_epochs = 1000
     clean_dir = False
 
     # Parse the command-line arguments

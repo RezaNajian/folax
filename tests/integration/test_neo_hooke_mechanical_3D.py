@@ -92,7 +92,6 @@ class TestNeoHookeMechanical3D(unittest.TestCase):
         U_FEM = np.array(nonlinear_fe_solver.Solve(K_matrix,np.zeros(U_FOL.shape)))
         l2_error = 100 * np.linalg.norm(U_FOL-U_FEM,ord=2)/ np.linalg.norm(U_FEM,ord=2)
         self.assertLessEqual(l2_error, 10)
-        print(l2_error)
 
         if self.debug_mode=="false":
             shutil.rmtree(self.test_hexa_directory)
@@ -156,7 +155,6 @@ class TestNeoHookeMechanical3D(unittest.TestCase):
         U_FEM = np.array(nonlinear_fe_solver.Solve(K_matrix,np.zeros(U_FOL.shape)))
         l2_error = 100 * np.linalg.norm(U_FOL-U_FEM,ord=2)/ np.linalg.norm(U_FEM,ord=2)
         self.assertLessEqual(l2_error, 10)
-        print(l2_error)
 
         if self.debug_mode=="false":
             shutil.rmtree(self.test_tetra_directory)
