@@ -136,7 +136,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 2, 2)
 
         # Rearrange blocks into full (8, 8) matrix
-        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(2*num_nodes, 2*num_nodes)
 
         return gp_geo_stiffness
     
@@ -168,7 +169,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (3, 3, 2, 2)
 
         # Rearrange blocks into full (8, 8) matrix
-        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(2*num_nodes, 2*num_nodes)
 
         return gp_geo_stiffness
     
@@ -204,7 +206,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 3, 3)
 
         # Rearrange blocks into full (12, 12) matrix
-        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])  
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(3*num_nodes, 3*num_nodes)
         
         return gp_geo_stiffness
     
@@ -240,7 +243,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (8, 8, 3, 3)
 
         # Rearrange blocks into full (24, 24) matrix
-        gp_geo_stiffness = jnp.block([[blocks[i, j] for j in range(num_nodes)] for i in range(num_nodes)])  
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(3*num_nodes, 3*num_nodes)
         
         return gp_geo_stiffness
     
