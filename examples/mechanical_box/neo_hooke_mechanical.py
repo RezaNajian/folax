@@ -25,9 +25,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
 
     # creation of fe model and loss function
-    bc_dict = {"Ux":{"left":0.0},
-                "Uy":{"left":0.0,"right":-0.05},
-                "Uz":{"left":0.0,"right":-0.05}}
+    bc_dict = {"Ux":{"left":0.0,"right":0.5},
+                "Uy":{"left":0.0},
+                "Uz":{"left":0.0}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
 
     mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
@@ -115,10 +115,10 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     if solve_FE:
         fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
                       "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                    "maxiter":5,"load_incr":4}}
+                                                    "maxiter":5,"load_incr":10}}
         nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_3d,fe_setting)
         nonlin_fe_solver.Initialize()
-        FE_UVW = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(3*fe_mesh.GetNumberOfNodes())))  
+        FE_UVW = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(3*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     fe_mesh.Finalize(export_dir=case_dir)
@@ -129,7 +129,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 if __name__ == "__main__":
     # Initialize default values
     fol_num_epochs = 2000
-    solve_FE = False
+    solve_FE = True
     clean_dir = False
 
     # Parse the command-line arguments
