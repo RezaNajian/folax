@@ -154,7 +154,7 @@ class TestMechanical3D(unittest.TestCase):
         self.assertLessEqual(l2_error, 10)
 
         if self.debug_mode=="false":
-            shutil.rmtree(self.test_tetra_directory)
+            shutil.rmtree(self.test_hexa_directory)
         else:
             fe_mesh['K'] = np.array(K_matrix)
             fe_mesh['U_FOL'] = np.array(U_FOL).reshape((fe_mesh.GetNumberOfNodes(),3))
