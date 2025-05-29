@@ -14,3 +14,5 @@ flax_state/
 *py-env
 *.zarr
 py-env*
+.venv
+requirements.txt

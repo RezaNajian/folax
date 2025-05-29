@@ -21,19 +21,30 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             fol_error("material_dict should provided in the loss settings !")
         self.e = self.loss_settings["material_dict"]["young_modulus"]
         self.v = self.loss_settings["material_dict"]["poisson_ratio"]  
-        self.material_model = NeoHookianModel()
+        
         if self.dim == 2:
+            self.material_model = NeoHookianModel2D()
             self.CalculateNMatrix = self.CalculateNMatrix2D
             self.CalculateKinematics = self.CalculateKinematics2D
+            if self.element_type == "quad":
+                self.CalculateGeometricStiffness = self.CalculateQuadGeometricStiffness2D
+            elif self.element_type == "triangle":
+                self.CalculateGeometricStiffness = self.CalculateTriangleGeometricStiffness2D
             self.body_force = jnp.zeros((2,1))
             if "body_foce" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
-        else:
+        
+        if self.dim == 3:
+            self.material_model = NeoHookianModel()
             self.CalculateNMatrix = self.CalculateNMatrix3D
-            self.CalculateKinematics = self.CalculateKinematics3D    
+            self.CalculateKinematics = self.CalculateKinematics3D   
+            if self.element_type == "tetra":
+                self.CalculateGeometricStiffness = self.CalculateTetraGeometricStiffness3D
+            elif self.element_type == "hexahedron":
+                 self.CalculateGeometricStiffness = self.CalculateHexaGeometricStiffness3D
             self.body_force = jnp.zeros((3,1))
-            if "body_foce" in self.loss_settings:
-                self.body_force = jnp.array(self.loss_settings["body_foce"])        
+        if "body_foce" in self.loss_settings:
+                self.body_force = jnp.array(self.loss_settings["body_foce"])     
 
     @partial(jit, static_argnums=(0,))
     def CalculateKinematics2D(self,DN_DX_T:jnp.array,uve:jnp.array) -> jnp.array:
@@ -98,6 +109,146 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         return N_mat
    
     @partial(jit, static_argnums=(0,))
+    def CalculateQuadGeometricStiffness2D(self,DN_DX_T:jnp.array,S:jnp.array) -> jnp.array:
+        """
+        Compute the geometric stiffness matrix for a quadratic element.
+        Args:
+            DN_DX_T: (2, num_nodes), shape function derivatives w.r.t spatial coordinates at Gauss point
+            S: (3,1), stress vector in Voigt notation at Gauss point
+        Returns:
+            gp_geo_stiffness: (2*num_nodes, 2*num_nodes), geometric stiffness matrix
+        """
+        S_mat = jnp.zeros((2,2))
+        S_mat = S_mat.at[0,0].set(S[0,0])
+        S_mat = S_mat.at[0,1].set(S[2,0])
+        S_mat = S_mat.at[1,0].set(S[2,0])
+        S_mat = S_mat.at[1,1].set(S[1,0])
+
+        num_nodes = DN_DX_T.shape[1]
+        gp_geo_stiffness = jnp.zeros((2*num_nodes,2*num_nodes))
+
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(2) * val  # Returns a (2, 2) block
+
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 2, 2)
+
+        # Rearrange blocks into full (8, 8) matrix
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(2*num_nodes, 2*num_nodes)
+
+        return gp_geo_stiffness
+    
+    @partial(jit, static_argnums=(0,))
+    def CalculateTriangleGeometricStiffness2D(self,DN_DX_T:jnp.array,S:jnp.array) -> jnp.array:
+        """
+        Compute the geometric stiffness matrix for a triangle element.
+        Args:
+            DN_DX_T: (2, num_nodes), shape function derivatives w.r.t spatial coordinates at Gauss point
+            S: (3,1), stress vector in Voigt notation at Gauss point
+        Returns:
+            gp_geo_stiffness: (2*num_nodes, 2*num_nodes), geometric stiffness matrix
+        """
+        S_mat = jnp.zeros((2,2))
+        S_mat = S_mat.at[0,0].set(S[0,0])
+        S_mat = S_mat.at[0,1].set(S[2,0])
+        S_mat = S_mat.at[1,0].set(S[2,0])
+        S_mat = S_mat.at[1,1].set(S[1,0])
+
+        num_nodes = DN_DX_T.shape[1]
+        gp_geo_stiffness = jnp.zeros((2*num_nodes,2*num_nodes))
+
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(2) * val  # Returns a (2, 2) block
+
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (3, 3, 2, 2)
+
+        # Rearrange blocks into full (8, 8) matrix
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(2*num_nodes, 2*num_nodes)
+
+        return gp_geo_stiffness
+    
+    @partial(jit, static_argnums=(0,))
+    def CalculateTetraGeometricStiffness3D(self,DN_DX_T:jnp.array,S:jnp.array) -> jnp.array:
+        """
+        Compute the geometric stiffness matrix for a tetra element.
+        Args:
+            DN_DX_T: (3, num_nodes), shape function derivatives w.r.t spatial coordinates at Gauss point
+            S: (6,1), stress vector in Voigt notation at Gauss point
+        Returns:
+            gp_geo_stiffness: (3*num_nodes, 3*num_nodes), geometric stiffness matrix
+        """
+        S_mat = jnp.zeros((3,3))
+        S_mat = S_mat.at[0,0].set(S[0,0])
+        S_mat = S_mat.at[0,1].set(S[3,0])
+        S_mat = S_mat.at[0,2].set(S[4,0])
+        S_mat = S_mat.at[1,0].set(S[3,0])
+        S_mat = S_mat.at[1,1].set(S[1,0])
+        S_mat = S_mat.at[1,2].set(S[5,0])
+        S_mat = S_mat.at[2,0].set(S[4,0])
+        S_mat = S_mat.at[2,1].set(S[5,0])
+        S_mat = S_mat.at[2,2].set(S[2,0])
+        num_nodes = DN_DX_T.shape[1]
+        gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
+
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(3) * val  # Returns a (3, 3) block
+
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (4, 4, 3, 3)
+
+        # Rearrange blocks into full (12, 12) matrix
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(3*num_nodes, 3*num_nodes)
+        
+        return gp_geo_stiffness
+    
+    @partial(jit, static_argnums=(0,))
+    def CalculateHexaGeometricStiffness3D(self,DN_DX_T:jnp.array,S:jnp.array) -> jnp.array:
+        """
+        Compute the geometric stiffness matrix for a hexahedral element.
+        Args:
+            DN_DX_T: (3, num_nodes), shape function derivatives w.r.t spatial coordinates at Gauss point
+            S: (6,1), stress vector in Voigt notation at Gauss point
+        Returns:
+            gp_geo_stiffness: (3*num_nodes, 3*num_nodes), geometric stiffness matrix
+        """
+        S_mat = jnp.zeros((3,3))
+        S_mat = S_mat.at[0,0].set(S[0,0])
+        S_mat = S_mat.at[0,1].set(S[3,0])
+        S_mat = S_mat.at[0,2].set(S[4,0])
+        S_mat = S_mat.at[1,0].set(S[3,0])
+        S_mat = S_mat.at[1,1].set(S[1,0])
+        S_mat = S_mat.at[1,2].set(S[5,0])
+        S_mat = S_mat.at[2,0].set(S[4,0])
+        S_mat = S_mat.at[2,1].set(S[5,0])
+        S_mat = S_mat.at[2,2].set(S[2,0])
+        num_nodes = DN_DX_T.shape[1]
+        gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
+
+        def geo_stiffness_entry(i, j, DN_DX_T, S_mat):
+            val = DN_DX_T[:, i].T @ (S_mat @ DN_DX_T[:, j])
+            return jnp.eye(3) * val  # Returns a (3, 3) block
+
+        # Vectorize over i and j
+        vmap_j = jax.vmap(lambda j: jax.vmap(lambda i: geo_stiffness_entry(i, j, DN_DX_T, S_mat))(jnp.arange(num_nodes)), in_axes=0)
+        blocks = vmap_j(jnp.arange(num_nodes))  # Shape: (8, 8, 3, 3)
+
+        # Rearrange blocks into full (24, 24) matrix
+        # Vectorized reshape instead of jnp.block
+        gp_geo_stiffness = blocks.transpose(0, 2, 1, 3).reshape(3*num_nodes, 3*num_nodes)
+        
+        return gp_geo_stiffness
+    
+    @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,uvwe):
         @jit
         def compute_at_gauss_point(gp_point,gp_weight):
@@ -114,12 +265,15 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
 
             H,F,B = self.CalculateKinematics(DN_DX_T,uvwe)
             xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            gp_geo_stiffness = self.CalculateGeometricStiffness(DN_DX_T,S)
+            
             
             gp_stiffness = gp_weight * detJ * (B.T @ C @ B)
+            gp_geo_stiffness = gp_weight * detJ * gp_geo_stiffness  # will be added to gp_stiffness
             gp_f = gp_weight * detJ * N_mat.T @ self.body_force
             gp_fint = gp_weight * detJ * jnp.dot(B.T,S)
             gp_energy = gp_weight * detJ * xsi
-            return gp_energy,gp_stiffness,gp_f,gp_fint
+            return gp_energy,gp_stiffness + gp_geo_stiffness,gp_f,gp_fint
 
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
         E_gps,k_gps,f_gps,fint_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0))(gp_points,gp_weights)
@@ -148,3 +302,11 @@ class NeoHookeMechanicalLoss3DTetra(NeoHookeMechanicalLoss):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
+
+class NeoHookeMechanicalLoss3DHexa(NeoHookeMechanicalLoss):
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        if not "num_gp" in loss_settings.keys():
+            loss_settings["num_gp"] = 2
+        super().__init__(name,{**loss_settings,"compute_dims":3,
+                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "element_type":"hexahedron"},fe_mesh)
