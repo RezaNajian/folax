@@ -6,19 +6,28 @@ import warnings
 
 def print_with_timestamp_and_execution_time(func):
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(*args, **kwargs):
         start_time = time.time()
-        result = func(self, *args, **kwargs)
+        result = func(*args, **kwargs)
         end_time = time.time()
         execution_time = end_time - start_time
         
         now = datetime.now()
         current_time = now.strftime("%Y-%m-%d %H:%M:%S")
-        if callable(getattr(self, "GetName", None)):
-            print(f"{current_time} - Info : {self.GetName()}.{func.__name__} - finished in {execution_time:.4f} seconds")
-        else:
-            class_name = self.__class__.__name__
-            print(f"{current_time} - Info : {class_name}.{func.__name__} - finished in {execution_time:.4f} seconds")
+
+        # Try to identify if it's a method (first arg is 'self' with method context)
+        if args:
+            first_arg = args[0]
+            if inspect.ismethod(func) or hasattr(first_arg, "__class__"):
+                if callable(getattr(first_arg, "GetName", None)):
+                    name = f"{first_arg.GetName()}.{func.__name__}"
+                else:
+                    name = f"{first_arg.__class__.__name__}.{func.__name__}"
+                print(f"{current_time} - Info : {name} - finished in {execution_time:.4f} seconds")
+                return result
+
+        # Fallback: standalone function
+        print(f"{current_time} - Info : {func.__name__} - finished in {execution_time:.4f} seconds")
         return result
     return wrapper
 
