@@ -13,27 +13,24 @@ class TestMechanical3D(unittest.TestCase):
     def _request_debug_mode(self,request):
         self.debug_mode = request.config.getoption('--debug-mode')
 
-    def setUp(self):
-        # problem setup
-        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
-        self.dirichlet_bc_dict = {"Ux":{"left":0.0},
-                "Uy":{"left":0.0,"right":-0.05},
-                "Uz":{"left":0.0,"right":-0.05}}
-
-        self.fe_mesh.Initialize()
-
     def test_tetra(self):
 
-        mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
-                                                                                       "material_dict":{"young_modulus":1,"poisson_ratio":0.3},
-                                                                                       "body_foce":jnp.array([[1],[2],[3]])},
-                                                                                        fe_mesh=self.fe_mesh)
-        mechanical_loss_3d.Initialize()
-        
         tet_points_coordinates = jnp.array([[0.1, 0.1, 0.1],
                                             [0.28739360416666665, 0.27808503701741405, 0.05672979583333333],
                                             [0.0, 1.0, 0.0],
                                             [0.0, 1.0, 0.1]])
+
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(tet_points_coordinates))
+        fe_mesh.nodes_coordinates = tet_points_coordinates
+        fe_mesh.elements_nodes = {"tetra":fe_mesh.node_ids.reshape(1,-1)}
+
+        mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":{"Ux":{},"Uy":{},"Uz":{}},
+                                                                                       "material_dict":{"young_modulus":1,"poisson_ratio":0.3},
+                                                                                       "body_foce":jnp.array([[1],[2],[3]])},
+                                                                                        fe_mesh=fe_mesh)
+        mechanical_loss_3d.Initialize()
+        
         en, residuals, stiffness = mechanical_loss_3d.ComputeElement(tet_points_coordinates,
                                                                         jnp.ones((4)),
                                                                         jnp.ones((12,1)))
@@ -75,10 +72,15 @@ class TestMechanical3D(unittest.TestCase):
                                             [0.00000,  1.00000,  1.00000],
                                             [0.00000,  1.00000,  0.00000]])
         
-        mechanical_loss_3d = MechanicalLoss3DHexa("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(hex_points_coordinates))
+        fe_mesh.nodes_coordinates = hex_points_coordinates
+        fe_mesh.elements_nodes = {"hexahedron":fe_mesh.node_ids.reshape(1,-1)}
+        
+        mechanical_loss_3d = MechanicalLoss3DHexa("mechanical_loss_3d",loss_settings={"dirichlet_bc_dict":{"Ux":{},"Uy":{},"Uz":{}},
                                                   "material_dict":{"young_modulus":1,"poisson_ratio":0.3},
                                                   "body_foce":jnp.array([[1],[2],[3]])},
-                                                   fe_mesh=self.fe_mesh)
+                                                   fe_mesh=fe_mesh)
         mechanical_loss_3d.Initialize()
 
         en, residuals, stiffness = mechanical_loss_3d.ComputeElement(hex_points_coordinates,
@@ -98,14 +100,16 @@ class TestMechanical3D(unittest.TestCase):
                                             [0.75,1.00,0.00],
                                             [0.00,0.00,0.00]])
 
-        self.dirichlet_bc_dict = {"Ux":{"left":0.0},
-                "Uy":{"left":0.0,"right":-0.05}}
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(quad_points_coordinates))
+        fe_mesh.nodes_coordinates = quad_points_coordinates
+        fe_mesh.elements_nodes = {"quad":fe_mesh.node_ids.reshape(1,-1)}
 
         mechanical_loss_3d = MechanicalLoss2DQuad("mechanical_loss_2d",
-                                                  loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+                                                  loss_settings={"dirichlet_bc_dict":{"Ux":{},"Uy":{},"Uz":{}},
                                                                  "material_dict":{"young_modulus":1, "poisson_ratio":0.3},
                                                                  "body_foce":jnp.array([[1],[2]])},
-                                                                 fe_mesh=self.fe_mesh)
+                                                                 fe_mesh=fe_mesh)
         mechanical_loss_3d.Initialize()
 
         en, residuals, stiffness = mechanical_loss_3d.ComputeElement(quad_points_coordinates,

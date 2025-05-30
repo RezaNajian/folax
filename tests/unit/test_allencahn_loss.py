@@ -16,13 +16,6 @@ class TestAllenCahn(unittest.TestCase):
     def _request_debug_mode(self,request):
         self.debug_mode = request.config.getoption('--debug-mode')
 
-    def setUp(self):
-        # problem setup
-        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
-        self.dirichlet_bc_dict = {"Phi":{"left":1.0,"right":-1.0}}
-
-        self.fe_mesh.Initialize()
-
     def test_hexa(self):
         hex_points_coordinates = jnp.array([[0.24900,  0.34200,  0.19200],
                                             [0.32000,  0.18600,  0.64300],
@@ -33,9 +26,14 @@ class TestAllenCahn(unittest.TestCase):
                                             [0.00000,  1.00000,  1.00000],
                                             [0.00000,  1.00000,  0.00000]])
         
-        allencahn_loss_3d = AllenCahnLoss3DHexa("allencahn_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(hex_points_coordinates))
+        fe_mesh.nodes_coordinates = hex_points_coordinates
+        fe_mesh.elements_nodes = {"hexahedron":fe_mesh.node_ids.reshape(1,-1)}
+
+        allencahn_loss_3d = AllenCahnLoss3DHexa("allencahn_loss_3d",loss_settings={"dirichlet_bc_dict":{"Phi":{}},
                                                   "material_dict":{"rho":1.0,"cp":1.0,"dt":0.001,"epsilon":0.2}},
-                                                   fe_mesh=self.fe_mesh)
+                                                   fe_mesh=fe_mesh)
         allencahn_loss_3d.Initialize()
 
         en, residuals, stiffness = allencahn_loss_3d.ComputeElement(hex_points_coordinates,
@@ -50,19 +48,22 @@ class TestAllenCahn(unittest.TestCase):
         
     def test_tri(self):
                 
-        quad_points_coordinates = jnp.array([[1.00,0.00,0.00],
+        tri_points_coordinates = jnp.array([[1.00,0.00,0.00],
                                             [0.50,0.50,0.00],
                                             [0.00,0.00,0.00]])
 
-        self.dirichlet_bc_dict = {"Phi":{"left":1.0,"right":-1.0}}
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(tri_points_coordinates))
+        fe_mesh.nodes_coordinates = tri_points_coordinates
+        fe_mesh.elements_nodes = {"triangle":fe_mesh.node_ids.reshape(1,-1)}
 
         allencahn_loss_3d = AllenCahnLoss2DTri("allencahn_loss_2d",
-                                                  loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+                                                  loss_settings={"dirichlet_bc_dict":{"Phi":{}},
                                                                  "material_dict":{"rho":1.0,"cp":1.0,"dt":0.001,"epsilon":0.2}},
-                                                                 fe_mesh=self.fe_mesh)
+                                                                 fe_mesh=fe_mesh)
         allencahn_loss_3d.Initialize()
 
-        en, residuals, stiffness = allencahn_loss_3d.ComputeElement(quad_points_coordinates,
+        en, residuals, stiffness = allencahn_loss_3d.ComputeElement(tri_points_coordinates,
                                                                      jnp.ones((3)),
                                                                      jnp.zeros((3,1)))
         
@@ -80,12 +81,15 @@ class TestAllenCahn(unittest.TestCase):
                                             [0.00,1.00,0.00],
                                             [0.00,0.00,0.00]])
 
-        self.dirichlet_bc_dict = {"Phi":{"left":1.0,"right":-1.0}}
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(quad_points_coordinates))
+        fe_mesh.nodes_coordinates = quad_points_coordinates
+        fe_mesh.elements_nodes = {"quad":fe_mesh.node_ids.reshape(1,-1)}
 
         allencahn_loss_3d = AllenCahnLoss2DQuad("allencahn_loss_2d",
-                                                  loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+                                                  loss_settings={"dirichlet_bc_dict":{"Phi":{}},
                                                                  "material_dict":{"rho":1.0,"cp":1.0,"dt":0.001,"epsilon":0.2}},
-                                                                 fe_mesh=self.fe_mesh)
+                                                                 fe_mesh=fe_mesh)
         allencahn_loss_3d.Initialize()
 
         en, residuals, stiffness = allencahn_loss_3d.ComputeElement(quad_points_coordinates,

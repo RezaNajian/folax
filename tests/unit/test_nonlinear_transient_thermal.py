@@ -19,24 +19,29 @@ class TestNonlinearTransientThermal(unittest.TestCase):
 
     def setUp(self):
         # problem setup
-        self.fe_mesh = Mesh("box_io","box_3D_coarse.med",os.path.join(os.path.dirname(os.path.abspath(__file__)),"../meshes"))
-        self.dirichlet_bc_dict = {"T":{"left":1.0,"right":0.0}}
-        self.material_dict = {"rho":1.0,"cp":1.0,"k0":np.ones(1213),"beta":1.5,"c":1.0}
+        self.dirichlet_bc_dict = {"T":{}}
+        self.material_dict = {"rho":1.0,"cp":1.0,"beta":1.5,"c":1.0}
         self.time_integration_dict = {"method":"implicit-euler","time_step":0.005}
 
-        self.fe_mesh.Initialize()
-
     def test_tetra(self):
-        thermal_loss_3d = TransientThermalLoss3DTetra("transient_thermal_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
-                                                                            "material_dict":self.material_dict,
-                                                                            "time_integration_dict":self.time_integration_dict},
-                                                                            fe_mesh=self.fe_mesh)
-        thermal_loss_3d.Initialize()
-        
+
         tet_points_coordinates = jnp.array([[0.1, 0.1, 0.1],
                                             [0.28739360416666665, 0.27808503701741405, 0.05672979583333333],
                                             [0.0, 1.0, 0.0],
                                             [0.0, 1.0, 0.1]])
+        
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(tet_points_coordinates))
+        fe_mesh.nodes_coordinates = tet_points_coordinates
+        fe_mesh.elements_nodes = {"tetra":fe_mesh.node_ids.reshape(1,-1)}      
+
+        thermal_loss_3d = TransientThermalLoss3DTetra("transient_thermal_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
+                                                                            "material_dict":self.material_dict,
+                                                                            "time_integration_dict":self.time_integration_dict},
+                                                                            fe_mesh=fe_mesh)
+        thermal_loss_3d.Initialize()
+        
+
         en, residuals, stiffness = thermal_loss_3d.ComputeElement(tet_points_coordinates,
                                                                         jnp.ones((4)),
                                                                         jnp.zeros((4,1)),
@@ -60,11 +65,16 @@ class TestNonlinearTransientThermal(unittest.TestCase):
                                             [0.00000,  0.00000,  1.00000],
                                             [0.00000,  1.00000,  1.00000],
                                             [0.00000,  1.00000,  0.00000]])
-        
+
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(hex_points_coordinates))
+        fe_mesh.nodes_coordinates = hex_points_coordinates
+        fe_mesh.elements_nodes = {"hexahedron":fe_mesh.node_ids.reshape(1,-1)}  
+
         transient_thermal_3d = TransientThermalLoss3DHexa("transient_thermal_loss_3d",loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
                                                                             "material_dict":self.material_dict,
                                                                             "time_integration_dict":self.time_integration_dict},
-                                                                            fe_mesh=self.fe_mesh)
+                                                                            fe_mesh=fe_mesh)
         transient_thermal_3d.Initialize()
 
         en, residuals, stiffness = transient_thermal_3d.ComputeElement(hex_points_coordinates,
@@ -87,18 +97,23 @@ class TestNonlinearTransientThermal(unittest.TestCase):
         
     def test_tri(self):
                 
-        quad_points_coordinates = jnp.array([[1.00,0.00,0.00],
+        tri_points_coordinates = jnp.array([[1.00,0.00,0.00],
                                             [0.50,0.50,0.00],
                                             [0.00,0.00,0.00]])
+        
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(tri_points_coordinates))
+        fe_mesh.nodes_coordinates = tri_points_coordinates
+        fe_mesh.elements_nodes = {"triangle":fe_mesh.node_ids.reshape(1,-1)}  
 
         transient_thermal_3d = TransientThermalLoss2DTri("transient_thermal_2d",
                                                   loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
-                                                                            "material_dict":self.material_dict,
-                                                                            "time_integration_dict":self.time_integration_dict},
-                                                                 fe_mesh=self.fe_mesh)
+                                                                 "material_dict":self.material_dict,
+                                                                 "time_integration_dict":self.time_integration_dict},
+                                                                  fe_mesh=fe_mesh)
         transient_thermal_3d.Initialize()
 
-        en, residuals, stiffness = transient_thermal_3d.ComputeElement(quad_points_coordinates,
+        en, residuals, stiffness = transient_thermal_3d.ComputeElement(tri_points_coordinates,
                                                                      jnp.ones((3)),
                                                                      jnp.zeros((3,1)),
                                                                      jnp.ones((3,1)))
@@ -117,12 +132,18 @@ class TestNonlinearTransientThermal(unittest.TestCase):
                                             [1.00,1.00,0.00],
                                             [0.00,1.00,0.00],
                                             [0.00,0.00,0.00]])
+        
+        fe_mesh = Mesh("",".")
+        fe_mesh.node_ids = jnp.arange(len(quad_points_coordinates))
+        fe_mesh.nodes_coordinates = quad_points_coordinates
+        fe_mesh.elements_nodes = {"quad":fe_mesh.node_ids.reshape(1,-1)}  
+
 
         transient_thermal_2d = TransientThermalLoss2DQuad("transient_thermal_2d",
                                                   loss_settings={"dirichlet_bc_dict":self.dirichlet_bc_dict,
-                                                                            "material_dict":self.material_dict,
-                                                                            "time_integration_dict":self.time_integration_dict},
-                                                                 fe_mesh=self.fe_mesh)
+                                                                 "material_dict":self.material_dict,
+                                                                 "time_integration_dict":self.time_integration_dict},
+                                                                 fe_mesh=fe_mesh)
         transient_thermal_2d.Initialize()
                 
         en, residuals, stiffness = transient_thermal_2d.ComputeElement(quad_points_coordinates,
