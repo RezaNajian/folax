@@ -1,0 +1,306 @@
+"""
+ Authors: Reza Najian Asl, https://github.com/RezaNajian
+ Date: April, 2024
+ License: FOL/LICENSE
+"""
+from  .loss import Loss
+import jax
+import jax.numpy as jnp
+import warnings
+from jax import jit,grad
+from functools import partial
+from abc import abstractmethod
+from fol.tools.decoration_functions import *
+from jax.experimental import sparse
+from fol.mesh_input_output.mesh import Mesh
+from fol.tools.fem_utilities import *
+from fol.geometries import fe_element_dict
+
+class FiniteElementLoss(Loss):
+    """FE-based losse
+
+    This is the base class for the loss functions require FE formulation.
+
+    """
+    def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
+        super().__init__(name)
+        self.loss_settings = loss_settings
+        self.dofs = self.loss_settings["ordered_dofs"]
+        self.first_dofs = self.loss_settings["first_dofs"]
+        self.second_dofs = self.loss_settings["second_dofs"]
+        self.element_type = self.loss_settings["element_type"]
+        self.fe_mesh = fe_mesh
+        if "dirichlet_bc_dict" not in self.loss_settings.keys():
+            fol_error("dirichlet_bc_dict should provided in the loss settings !")
+
+    def __CreateDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
+        number_dofs_per_node = len(dofs_list)
+        dirichlet_indices = []
+        dirichlet_values = [] 
+        dirichlet_dofs_boundary_dict = {}       
+        full_dof_indices_dict = {}
+        for dof_index,dof in enumerate(dofs_list):
+            dirichlet_dofs_boundary_dict[dof] = {}
+            full_dof_indices_dict[dof] = jnp.arange(self.fe_mesh.GetNumberOfNodes()) * number_dofs_per_node + dof_index
+            for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
+                boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
+                dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
+
+                boundary_start_index = len(dirichlet_indices)
+                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
+
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
+                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
+                dirichlet_values.extend(dirichlet_bc_values.tolist())
+        
+        self.dirichlet_indices = jnp.array(dirichlet_indices)
+        self.dirichlet_values = jnp.array(dirichlet_values)
+        all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
+        self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
+        self.first_dofs_indices = jnp.sort(jnp.concatenate([full_dof_indices_dict[dof] for dof in self.first_dofs]))
+        self.second_dofs_indices = jnp.sort(jnp.concatenate([full_dof_indices_dict[dof] for dof in self.second_dofs]))
+
+    def __CreateDofsDictFE(self, first_dofs_list:list, second_dofs_list:list, dirichlet_bc_dict:dict):
+        number_first_dofs_per_node = len(first_dofs_list)
+        number_second_dofs_per_node = len(second_dofs_list)
+        number_dofs_per_node = number_first_dofs_per_node + number_second_dofs_per_node
+        dirichlet_indices = []
+        dirichlet_values = [] 
+        dirichlet_dofs_boundary_dict = {}       
+        full_dof_indices_dict = {}
+        for dof_index,dof in enumerate(first_dofs_list):
+            dirichlet_dofs_boundary_dict[dof] = {}
+            full_dof_indices_dict[dof] = jnp.arange(self.fe_mesh.GetNumberOfNodes()) * number_first_dofs_per_node + dof_index
+            for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
+                boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
+                dirichlet_bc_indices = number_first_dofs_per_node*boundary_node_ids + dof_index
+
+                boundary_start_index = len(dirichlet_indices)
+                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
+
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
+                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
+                dirichlet_values.extend(dirichlet_bc_values.tolist())
+        
+        for dof_index,dof in enumerate(second_dofs_list):  
+            dirichlet_dofs_boundary_dict[dof] = {}
+            full_dof_indices_dict[dof] = number_first_dofs_per_node*self.fe_mesh.GetNumberOfNodes() + \
+                                         jnp.arange(self.fe_mesh.GetNumberOfNodes()) * number_second_dofs_per_node \
+                                         + dof_index 
+            for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
+                boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
+                dirichlet_bc_indices = number_first_dofs_per_node*self.fe_mesh.GetNumberOfNodes() +\
+                                       number_second_dofs_per_node*boundary_node_ids + dof_index  \
+
+                boundary_start_index = len(dirichlet_indices)
+                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
+                boundary_end_index = len(dirichlet_indices)
+
+                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
+
+                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
+                dirichlet_values.extend(dirichlet_bc_values.tolist())
+        self.dirichlet_indicesFE = jnp.array(dirichlet_indices)
+        self.dirichlet_valuesFE = jnp.array(dirichlet_values)
+        all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
+        self.non_dirichlet_indicesFE = jnp.setdiff1d(all_indices, self.dirichlet_indices)
+        self.first_dofs_indicesFE = jnp.sort(jnp.concatenate([full_dof_indices_dict[dof] for dof in self.first_dofs]))
+        self.second_dofs_indicesFE = jnp.sort(jnp.concatenate([full_dof_indices_dict[dof] for dof in self.second_dofs]))
+
+
+    def Initialize(self,reinitialize=False) -> None:
+
+        if self.initialized and not reinitialize:
+            return
+
+        self.number_dofs_per_node = len(self.dofs)
+        self.number_first_dofs_per_node = len(self.first_dofs)
+        self.number_second_dofs_per_node = len(self.second_dofs)
+        self.total_number_of_dofs = len(self.dofs) * self.fe_mesh.GetNumberOfNodes()
+        self.total_number_of_first_dofs = len(self.first_dofs) * self.fe_mesh.GetNumberOfNodes()
+        self.total_number_of_second_dofs = len(self.second_dofs) * self.fe_mesh.GetNumberOfNodes()
+        self.number_nodes_per_element = self.fe_mesh.GetElementsNodes(self.element_type).shape[1]
+        self.__CreateDofsDict(self.dofs,self.loss_settings["dirichlet_bc_dict"])
+        self.__CreateDofsDictFE(self.first_dofs,self.second_dofs,self.loss_settings["dirichlet_bc_dict"])
+        self.number_of_unknown_dofs = self.non_dirichlet_indices.size
+
+        # create full solution vector
+        self.solution_vector = jnp.zeros(self.total_number_of_dofs)
+        # apply dirichlet bcs
+        if self.dirichlet_indices.size == 0:
+            pass
+        else:
+            self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+
+        # fe element
+        self.fe_element = fe_element_dict[self.element_type]
+
+        # now prepare gauss integration
+        if "num_gp" in self.loss_settings.keys():
+            self.num_gp = self.loss_settings["num_gp"]
+            if self.num_gp == 1:
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
+            elif self.num_gp == 2:
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_2")
+            elif self.num_gp == 3:
+                self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_3")
+            else:
+                raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+            if self.element_type == 'tetra':
+                if self.num_gp == 1:
+                    self.g_points,self.g_weights = GaussQuadratureTetra().one_point_GQ
+                elif self.num_gp == 4:
+                    self.g_points,self.g_weights = GaussQuadratureTetra().four_point_GQ
+                else:
+                    raise ValueError(f" number gauss points {self.num_gp} is not supported ! ")
+
+        else:
+            self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
+            self.loss_settings["num_gp"] = 1
+            self.num_gp = 1
+
+        if not "compute_dims" in self.loss_settings.keys():
+            raise ValueError(f"compute_dims must be provided in the loss settings of {self.GetName()}! ")
+
+        self.dim = self.loss_settings["compute_dims"]
+
+        @jit
+        def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
+            solution_vector = jnp.zeros(self.total_number_of_dofs)
+            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            return solution_vector
+
+        @jit
+        def ConstructFullDofVectorParametricLearning(known_dofs: jnp.array,unknown_dofs: jnp.array):
+            solution_vector = jnp.zeros(self.total_number_of_dofs)
+            solution_vector = self.solution_vector.at[self.dirichlet_indices].set(known_dofs)
+            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            return solution_vector  
+
+        if self.loss_settings.get("parametric_boundary_learning"):
+            self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+        else:
+            self.full_dof_vector_function = ConstructFullDofVector
+
+        self.initialized = True
+
+    @partial(jit, static_argnums=(0,))
+    def GetFullDofVector(self,known_dofs: jnp.array,unknown_dofs: jnp.array) -> jnp.array:
+        return self.full_dof_vector_function(known_dofs,unknown_dofs)
+
+    def Finalize(self) -> None:
+        pass
+
+    def GetNumberOfUnknowns(self):
+        return self.number_of_unknown_dofs
+    
+    def GetTotalNumberOfDOFs(self):
+        return self.total_number_of_dofs
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
+        nodes_ids_1 = nodes_ids*self.number_first_dofs_per_node
+        nodes_ids_1 += jnp.arange(self.number_first_dofs_per_node).reshape(-1,1)
+        indices_dof_1 = nodes_ids_1.T.flatten()
+
+        nodes_ids_2 = self.fe_mesh.GetNumberOfNodes()*self.number_first_dofs_per_node+nodes_ids*self.number_second_dofs_per_node
+        nodes_ids_2 += jnp.arange(self.number_second_dofs_per_node).reshape(-1,1)
+        indices_dof_2 = nodes_ids_2.T.flatten()
+        indices_dof = jnp.concatenate((indices_dof_1,indices_dof_2),axis=0)
+        rows,cols = jnp.meshgrid(indices_dof,indices_dof,indexing='ij')#rows and columns
+        indices = jnp.vstack((rows.ravel(),cols.ravel())).T #indices in global stiffness matrix
+        return indices
+
+    @print_with_timestamp_and_execution_time
+    @partial(jit, static_argnums=(0,2,))
+    def ApplyDirichletBCOnDofVector(self,full_dof_vector:jnp.array,load_increment:float=1.0):
+        return full_dof_vector.at[self.dirichlet_indicesFE].set(load_increment*self.dirichlet_valuesFE)
+
+    @partial(jit, static_argnums=(0,))
+    def ApplyDirichletBCOnElementResidualAndJacobian(self,
+                                                     elem_res:jnp.array,
+                                                     elem_jac:jnp.array,
+                                                     elem_BC_vec:jnp.array,
+                                                     elem_mask_BC_vec:jnp.array):
+
+        BC_matrix = jnp.zeros((elem_jac.shape))
+        BC_matrix = jnp.fill_diagonal(BC_matrix, elem_BC_vec, inplace=False)
+
+        mask_BC_matrix = jnp.zeros((elem_jac.shape))
+        mask_BC_matrix = jnp.fill_diagonal(mask_BC_matrix, elem_mask_BC_vec, inplace=False)
+
+        masked_diag_entries = jnp.diag(mask_BC_matrix @ elem_jac @ mask_BC_matrix)
+        mask_BC_matrix = jnp.zeros((elem_jac.shape))
+        mask_BC_matrix = jnp.fill_diagonal(mask_BC_matrix, masked_diag_entries, inplace=False)
+
+        return   BC_matrix @ elem_res, BC_matrix @ elem_jac + mask_BC_matrix
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeSingleLoss(self,full_control_params:jnp.array,unknown_dofs:jnp.array):
+        elems_energies_tuple = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
+                                                      self.GetFullDofVector(full_control_params,unknown_dofs)[self.first_dofs_indices],
+                                                      self.GetFullDofVector(full_control_params,unknown_dofs)[self.second_dofs_indices])
+        elems_energies_1 = jnp.sum(elems_energies_tuple[0])
+        elems_energies_2 = jnp.sum(elems_energies_tuple[1])  
+        elems_energies = (elems_energies_1+ elems_energies_2)**2
+        # some extra calculation for reporting and not traced
+        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
+        max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
+        min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
+        phy1_elem_energy = jax.lax.stop_gradient((elems_energies_1))
+        phy2_elem_energy = jax.lax.stop_gradient((elems_energies_2))
+        return elems_energies,(min_elem_energy,max_elem_energy,avg_elem_energy,phy1_elem_energy,phy2_elem_energy)
+
+    # NOTE: this function should not be jitted since it is tested and gets much slower
+    @print_with_timestamp_and_execution_time
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array, transpose_jacobian:bool=False):
+        
+        BC_vector = jnp.ones((self.total_number_of_dofs))
+        BC_vector = BC_vector.at[self.dirichlet_indicesFE].set(0)
+        mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
+        mask_BC_vector = mask_BC_vector.at[self.dirichlet_indicesFE].set(1)
+        BC_vector_first_dofs  = BC_vector[self.first_dofs_indicesFE]
+        BC_vector_second_dofs = BC_vector[self.second_dofs_indicesFE]
+        mask_BC_vector_first_dofs  = mask_BC_vector[self.first_dofs_indicesFE]
+        mask_BC_vector_second_dofs = mask_BC_vector[self.second_dofs_indicesFE]
+
+        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None,None,None,None,None)) \
+                                                            (self.fe_mesh.GetElementsIds(self.element_type),
+                                                             self.fe_mesh.GetElementsNodes(self.element_type),
+                                                             self.fe_mesh.GetNodesCoordinates(),
+                                                             total_control_vars,
+                                                             total_primal_vars[self.first_dofs_indicesFE],
+                                                             total_primal_vars[self.second_dofs_indicesFE],
+                                                             BC_vector_first_dofs,
+                                                             BC_vector_second_dofs,
+                                                             mask_BC_vector_first_dofs,
+                                                             mask_BC_vector_second_dofs,
+                                                             transpose_jacobian)
+
+        # first compute the global residual vector
+        residuals_vector = jnp.zeros((self.total_number_of_dofs))
+        element_residuals_1 = jnp.squeeze(elements_residuals[:,:self.number_nodes_per_element*self.number_first_dofs_per_node])
+        element_residuals_2 = jnp.squeeze(elements_residuals[:,self.number_nodes_per_element*self.number_first_dofs_per_node:])
+        for dof_idx in range(self.number_first_dofs_per_node):
+            residuals_vector = residuals_vector.at[self.number_first_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].\
+                               add(element_residuals_1[:,dof_idx::self.number_first_dofs_per_node])
+
+        for dof_idx in range(self.number_second_dofs_per_node):
+            residuals_vector = residuals_vector.at[self.number_first_dofs_per_node*self.fe_mesh.GetNumberOfNodes() + \
+                                                   self.number_second_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].\
+                                                   add(element_residuals_2[:,dof_idx::self.number_second_dofs_per_node])
+
+        # second compute the global jacobian matrix  
+        jacobian_data = jnp.ravel(elements_stiffness)
+        jacobian_indices = jax.vmap(self.ComputeElementJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
+        jacobian_indices = jacobian_indices.reshape(-1,2)
+        
+        sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
+
+        # sol_vector = jnp.concatenate((total_primal_vars[self.first_dofs_indices],total_primal_vars[self.second_dofs_indices]),axis=0)
+        
+        return sparse_jacobian, residuals_vector

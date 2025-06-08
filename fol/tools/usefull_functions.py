@@ -704,17 +704,35 @@ def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
 
     left_boundary_node_ids = []
     right_boundary_node_ids = []
-    none_boundary_node_ids = []
+    top_boundary_node_ids = []
+    bottom_boundary_node_ids = []
+    front_boundary_node_ids = []
+    back_boundary_node_ids = []
+    # none_boundary_node_ids = []
     for node_id,node_corrds in enumerate(settings.points):
         if np.isclose(node_corrds[0], 0., atol=1e-5):
             left_boundary_node_ids.append(node_id)
         elif np.isclose(node_corrds[0], Lx, atol=1e-5):
             right_boundary_node_ids.append(node_id)
-        else:
-            none_boundary_node_ids.append(node_id)
+
+    for node_id,node_corrds in enumerate(settings.points):
+        if np.isclose(node_corrds[1], 0., atol=1e-5):
+            bottom_boundary_node_ids.append(node_id)
+        elif np.isclose(node_corrds[1], Ly, atol=1e-5):
+            top_boundary_node_ids.append(node_id)
+
+    for node_id,node_corrds in enumerate(settings.points):
+        if np.isclose(node_corrds[2], 0., atol=1e-5):
+            front_boundary_node_ids.append(node_id)
+        elif np.isclose(node_corrds[2], Lz, atol=1e-5):
+            back_boundary_node_ids.append(node_id)
 
     left_boundary_node_ids = jnp.array(left_boundary_node_ids)
     right_boundary_node_ids = jnp.array(right_boundary_node_ids)
+    bottom_boundary_node_ids = jnp.array(bottom_boundary_node_ids)
+    top_boundary_node_ids = jnp.array(top_boundary_node_ids)
+    front_boundary_node_ids = jnp.array(front_boundary_node_ids)
+    back_boundary_node_ids = jnp.array(back_boundary_node_ids)
 
     fe_mesh.node_ids = jnp.arange(Y.shape[-1])
     fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
@@ -722,7 +740,11 @@ def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
     fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
 
     fe_mesh.node_sets = {"left":left_boundary_node_ids,
-                         "right":right_boundary_node_ids}
+                         "right":right_boundary_node_ids,
+                         "top":top_boundary_node_ids,
+                         "bottom":bottom_boundary_node_ids,
+                         "front":front_boundary_node_ids,
+                         "back":back_boundary_node_ids}
     
     fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
 
@@ -764,12 +786,18 @@ def create_2D_square_mesh(L,N):
 
     fe_mesh.elements_nodes = {"quad":elements_nodes}
 
-    # Identify boundary nodes on the left and right edges
-    left_boundary_nodes = jnp.arange(0, ny * nx, nx)  # Nodes on the left boundary
-    right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Nodes on the right boundary
+    # Identify boundary nodes
+    left_boundary_nodes = jnp.arange(0, ny * nx, nx)   # Left edge
+    right_boundary_nodes = jnp.arange(nx - 1, ny * nx, nx)  # Right edge
+    bottom_boundary_nodes = jnp.arange(0, nx)           # Bottom edge (first row)
+    top_boundary_nodes = jnp.arange(nx * (ny - 1), nx * ny)  # Top edge (last row)
 
-    fe_mesh.node_sets = {"left":left_boundary_nodes,
-                         "right":right_boundary_nodes}
+    fe_mesh.node_sets = {
+        "left": left_boundary_nodes,
+        "right": right_boundary_nodes,
+        "bottom": bottom_boundary_nodes,
+        "top": top_boundary_nodes
+    }
     
     fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
 

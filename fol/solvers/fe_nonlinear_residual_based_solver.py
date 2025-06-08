@@ -59,7 +59,55 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                     fol_info(f"iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
             current_dofs = applied_BC_dofs
         return applied_BC_dofs
+    
+    @print_with_timestamp_and_execution_time
+    def SolveMulti(self,current_control_vars:jnp.array,
+                   current_dofs:jnp.array):
+        load_increament = self.nonlinear_solver_settings["load_incr"]
+        for load_fac in range(load_increament):
+            fol_info(f"loadStep; increment:{load_fac+1}")
+            applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs)
+            for i in range(self.nonlinear_solver_settings["maxiter"]):
+                BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                                            current_control_vars,
+                                            applied_BC_dofs)
+                res_norm = jnp.linalg.norm(BC_applied_r.flatten(),ord=2)
+                norm_max = jnp.max(jnp.abs(BC_applied_r))
+                fol_info(f"max residual component:{norm_max}")
+                norm_min = jnp.min(jnp.abs(BC_applied_r))
+                fol_info(f"min residual component:{norm_min}")
 
+                threshold = 1e-5
+                num_large_res = jnp.sum(jnp.abs(BC_applied_r)>threshold)
+                fol_info(f"num large residual component:{num_large_res}")
+
+                if res_norm<self.nonlinear_solver_settings["abs_tol"]:
+                    fol_info(f"converged; iterations:{i+1},residuals_norm:{res_norm}")
+                    break
+                    
+                delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,applied_BC_dofs)
+                delta_norm = jnp.linalg.norm(delta_dofs.flatten(),ord=2)
+                delta_max = jnp.max(jnp.abs(delta_dofs))
+                fol_info(f"max delta component:{delta_max}")
+                delta_min = jnp.min(jnp.abs(delta_dofs))
+                fol_info(f"min delta component:{delta_min}")
+                norm_max = jnp.max(jnp.abs(BC_applied_r))
+                threshold = 1e-5
+                num_large = jnp.sum(jnp.abs(delta_dofs)>threshold)
+                fol_info(f"num large delta component:{num_large}")
+
+                applied_BC_dofs += delta_dofs
+
+                if delta_norm<self.nonlinear_solver_settings["rel_tol"]:
+                    fol_info(f"converged; iterations:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
+                    break
+                elif i+1==self.nonlinear_solver_settings["maxiter"]:
+                    fol_info(f"maximum num iterations:{i+1} acheived,delta_norm:{delta_norm},residuals_norm:{res_norm}")
+                    break
+                else:
+                    fol_info(f"iteration:{i+1},delta_norm:{delta_norm},residuals_norm:{res_norm}")
+            current_dofs = applied_BC_dofs
+        return applied_BC_dofs
 
 
 

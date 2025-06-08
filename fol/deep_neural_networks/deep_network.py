@@ -46,7 +46,7 @@ class DeepNetwork(ABC):
     """
     default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
                                     "relative_error":1e-8,"absolute_error":1e-8}
-    default_plot_settings = {"plot_list":["total_loss"],"plot_frequency":1,"save_frequency":100,"save_directory":"."}
+    default_plot_settings = {"plot_list":["total_loss","phy1_loss","phy2_loss"],"plot_frequency":1,"save_frequency":100,"save_directory":".","multiphysics":True}
     default_restore_nnx_state_settings = {"restore":False,"state_directory":"flax_state"}
     default_train_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"flax_train_state"}
     default_test_checkpoint_settings = {"least_loss_checkpointing":False,"least_loss":np.inf,"frequency":100,"state_directory":"flax_test_state"}
@@ -152,13 +152,22 @@ class DeepNetwork(ABC):
             The mean loss for the batch and a dictionary of loss statistics (min, max, avg, total).
         """
 
-        batch_losses,(batch_mins,batch_maxs,batch_avgs) = jax.vmap(self.ComputeSingleLossValue,(0,None))(batch_set,nn_model)
+        batch_losses,batch_losses_data= nnx.vmap(self.ComputeSingleLossValue,in_axes=(0, None),out_axes=0)(batch_set,nn_model)
         loss_name = self.loss_function.GetName()
         total_mean_loss = jnp.mean(batch_losses)
-        return total_mean_loss, ({loss_name+"_min":jnp.min(batch_mins),
-                                         loss_name+"_max":jnp.max(batch_maxs),
-                                         loss_name+"_avg":jnp.mean(batch_avgs),
+        if self.default_plot_settings["multiphysics"]:
+            loss_data = ({loss_name+"_min":jnp.min(batch_losses_data[0]),
+                                         loss_name+"_max":jnp.max(batch_losses_data[1]),
+                                         loss_name+"_avg":jnp.mean(batch_losses_data[2]),
+                                         "phy1_loss":jnp.mean(batch_losses_data[3]),
+                                         "phy2_loss":jnp.mean(batch_losses_data[4]),
                                          "total_loss":total_mean_loss})
+        else:
+            loss_data = ({loss_name+"_min":jnp.min(batch_losses_data[0]),
+                                         loss_name+"_max":jnp.max(batch_losses_data[1]),
+                                         loss_name+"_avg":jnp.mean(batch_losses_data[2]),
+                                         "total_loss":total_mean_loss})
+        return total_mean_loss, loss_data
 
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, state, data):
@@ -166,14 +175,20 @@ class DeepNetwork(ABC):
         (_,batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
                                                                     (data,nn)
         opt.update(batch_grads)
-        return batch_dict["total_loss"]
+        if self.default_plot_settings["multiphysics"]:
+            return batch_dict["total_loss"], batch_dict["phy1_loss"], batch_dict["phy2_loss"]
+        else:
+            return batch_dict["total_loss"]
     
     @partial(nnx.jit, static_argnums=(0,))
     def TestStep(self, state, data):
         nn,_ = state
         (_,batch_dict) = self.ComputeBatchLossValue(data,nn)
-        return batch_dict["total_loss"]
-
+        if self.default_plot_settings["multiphysics"]:
+            return batch_dict["total_loss"], batch_dict["phy1_loss"], batch_dict["phy2_loss"]
+        else:
+            return batch_dict["total_loss"]
+    
     @print_with_timestamp_and_execution_time
     def Train(self, 
               train_set:Tuple[jnp.ndarray, jnp.ndarray], 
@@ -228,8 +243,13 @@ class DeepNetwork(ABC):
             fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")   
             batch_size = adjusted_batch_size  
 
-        train_history_dict = {"total_loss":[]}
-        test_history_dict = {"total_loss":[]}
+        if self.default_plot_settings["multiphysics"]:
+            train_history_dict = {"total_loss":[],"phy1_loss":[],"phy2_loss":[]}
+            test_history_dict = {"total_loss":[],"phy1_loss":[],"phy2_loss":[]}
+        else:
+            train_history_dict = {"total_loss":[]}
+            test_history_dict = {"total_loss":[]}
+
         pbar = trange(convergence_settings["num_epochs"])
         converged = False
         rng, _ = jax.random.split(jax.random.PRNGKey(0))
@@ -250,11 +270,18 @@ class DeepNetwork(ABC):
             rng, sub = jax.random.split(rng)
             order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)
             _, losses = train_multiple_steps_with_idxs(state, train_set, order)
-            train_history_dict["total_loss"].append(losses.mean())
-            
+            train_history_dict["total_loss"].append(losses[0].mean())
+            if self.default_plot_settings["multiphysics"]:
+                train_history_dict["phy1_loss"].append(losses[1].mean())
+                train_history_dict["phy2_loss"].append(losses[2].mean())
             # test step
             if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
-                test_history_dict["total_loss"].append(self.TestStep(state,test_set))
+                if self.default_plot_settings["multiphysics"]:
+                    test_history_dict["total_loss"].append(self.TestStep(state,test_set)[0])
+                    test_history_dict["phy1_loss"].append(self.TestStep(state,test_set)[1])
+                    test_history_dict["phy2_loss"].append(self.TestStep(state,test_set)[2])
+                else:
+                    test_history_dict["total_loss"].append(self.TestStep(state,test_set))
             
             # print step   
             if len(test_set[0])>0:
