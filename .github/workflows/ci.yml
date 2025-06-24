@@ -28,7 +28,6 @@ jobs:
         sudo apt install libopenmpi-dev
         sudo apt-get install libglu1-mesa
         python3 setup.py sdist
-        pip install pyvista
         pip install -e .
     - name: Test with pytest
       run: |
