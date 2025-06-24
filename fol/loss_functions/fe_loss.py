@@ -123,6 +123,12 @@ class FiniteElementLoss(Loss):
         else:
             fol_info(f"element batch size is {self.adjusted_batch_size}")
 
+        # set scalar-valued loss function exponent
+        if "loss_function_exponent" in self.loss_settings:
+            self.loss_function_exponent = self.loss_settings["loss_function_exponent"]
+        else:
+            self.loss_function_exponent = 1.0
+
         self.initialized = True
 
     @partial(jit, static_argnums=(0,))
@@ -137,6 +143,9 @@ class FiniteElementLoss(Loss):
     
     def GetTotalNumberOfDOFs(self):
         return self.total_number_of_dofs
+    
+    def GetDOFs(self):
+        return self.dofs
 
     @abstractmethod
     def ComputeElement(self,
@@ -263,7 +272,7 @@ class FiniteElementLoss(Loss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
+        return jnp.sum(elems_energies)**self.loss_function_exponent,(min_elem_energy,max_elem_energy,avg_elem_energy)
     
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
