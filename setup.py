@@ -17,7 +17,7 @@ setup(
         'h5py',
         'pytest',
         'zarr',
-        'dask'
+        'dask',
         'pyvista'
     ],
     author='FOL team',
