@@ -18,6 +18,7 @@ setup(
         'pytest',
         'zarr',
         'dask'
+        'pyvista'
     ],
     author='FOL team',
     author_email='r.najian@hotmail.com',
