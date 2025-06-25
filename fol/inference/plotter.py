@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: June, 2025
+ License: FOL/LICENSE
+"""
 import os
 import re
 import numpy as np
