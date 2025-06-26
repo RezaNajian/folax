@@ -1,6 +1,6 @@
 import sys
 import os
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 import optax
 import numpy as np
 
@@ -46,21 +46,21 @@ def main(ifol_num_epochs=10,clean_dir=False):
             "Uy":{"left":model_settings["Uy_left"],"right":model_settings["Uy_right"]}}
 
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
-                                "beta":20,"min":1e-1,"max":1}
+                                "beta":1,"min":1e-1,"max":1}
     fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
     fourier_control.Initialize()
 
     # create some random coefficients & K for training
-    create_random_coefficients = False
+    create_random_coefficients = True
     if create_random_coefficients:
         number_of_random_samples = 10
-        coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control,number_of_random_samples)
+        coeffs_matrix,K_matrix = create_random_fourier_samples(fourier_control,number_of_random_samples,random_seed_key=42)
         export_dict = model_settings.copy()
         export_dict["coeffs_matrix"] = coeffs_matrix
         export_dict["x_freqs"] = fourier_control.x_freqs
         export_dict["y_freqs"] = fourier_control.y_freqs
         export_dict["z_freqs"] = fourier_control.z_freqs
-        with open(f'fourier_control_dict_N_21.pkl', 'wb') as f:
+        with open(f'fourier_control_dict_beta_{fourier_control_settings["beta"]}.pkl', 'wb') as f:
             pickle.dump(export_dict,f)
     else:
         with open(f'fourier_control_dict_N_21.pkl', 'rb') as f:
@@ -70,13 +70,13 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-    export_Ks = False
+    export_Ks = True
     if export_Ks:
         for i in range(K_matrix.shape[0]):
             fe_mesh[f'K_{i}'] = np.array(K_matrix[i,:])
         fe_mesh.Finalize(export_dir=case_dir)
         exit()
-
+    exit()
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     loss_settings={"dirichlet_bc_dict":bc_dict,
                 "material_dict":material_dict}

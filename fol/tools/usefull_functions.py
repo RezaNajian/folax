@@ -269,7 +269,8 @@ def create_2D_square_mesh(L,N):
 
     return fe_mesh
 
-def create_random_fourier_samples(fourier_control,numberof_sample):
+def create_random_fourier_samples(fourier_control,numberof_sample,random_seed_key):
+    np.random.seed(random_seed_key)
     N = int(fourier_control.GetNumberOfControlledVariables()**0.5)
     num_coeffs = fourier_control.GetNumberOfVariables()
     coeffs_matrix = np.zeros((0,num_coeffs))
