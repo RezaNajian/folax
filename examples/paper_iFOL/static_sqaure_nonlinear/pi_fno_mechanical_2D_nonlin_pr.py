@@ -18,7 +18,7 @@ from flax import nnx
 import jax
 
 jax.config.update('jax_default_matmul_precision','high')
-jax.config.update('jax_enable_x64', True)
+# jax.config.update('jax_enable_x64', True)
 
 # directory & save handling
 working_directory_name = 'pi_fno_mechanical_2D'
@@ -27,9 +27,9 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":41,
-                    "Ux_left":0.0,"Ux_right":0.5,
-                    "Uy_left":0.0,"Uy_right":0.5}
+model_settings = {"L":1,"N":42,
+                  "Ux_left":0.0,"Ux_right":0.5,
+                  "Uy_left":0.0,"Uy_right":0.5}
 
 # creation of the model
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
@@ -80,13 +80,12 @@ def merge_state(dst: nnx.State, src: nnx.State):
             dst[k] = v
 
 fno_model = bridge.ToNNX(FourierNeuralOperator2D(modes1=12,
-                                             modes2=12,
-                                             width=32,
-                                             depth=4,
-                                             channels_last_proj=128,
-                                             padding=45,
-                                             out_channels=2,
-                                             output_scale=0.1),rngs=nnx.Rngs(0)).lazy_init(K_matrix[0:1].reshape(1,model_settings["N"],model_settings["N"],1)) 
+                                                modes2=12,
+                                                width=32,
+                                                depth=4,
+                                                channels_last_proj=128,
+                                                out_channels=2,
+                                                output_scale=0.001),rngs=nnx.Rngs(0)).lazy_init(K_matrix[0:1].reshape(1,model_settings["N"],model_settings["N"],1)) 
 
 # replace RNG key by a dummy to allow checkpoint restoration later
 graph_def, state = nnx.split(fno_model)
@@ -94,8 +93,14 @@ rngs_key = jax.tree.map(jax.random.key_data, state.filter(nnx.RngKey))
 merge_state(state, rngs_key)
 fno_model = nnx.merge(graph_def, state)
 
-num_epochs = 1000
-optimizer = optax.chain(optax.adam(1e-4))
+# get total number of fno params
+params = nnx.state(fno_model, nnx.Param)
+total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
+print(f"total number of fno network param:{total_params}")
+
+num_epochs = 10000
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-5, transition_steps=num_epochs)
+optimizer = optax.chain(optax.adam(1e-6))
 
 # create fol
 pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="pi_fno_pr_learning",
@@ -107,48 +112,20 @@ pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="pi_f
 pi_fno_pr_learning.Initialize()
 
 train_start_id = 0
-train_end_id = 1
-train_set_pr = coeffs_matrix[train_start_id:train_end_id,:]     # for parametric training
+train_end_id = 8000
+test_start_id = 8000
+test_end_id = 10000
 #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-pi_fno_pr_learning.Train(train_set=(train_set_pr,),
-                        batch_size=1,
+pi_fno_pr_learning.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
+                        test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
+                        test_frequency=100,
+                        batch_size=350,
                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
                         plot_settings={"plot_save_rate":100},
-                        train_checkpoint_settings={"least_loss_checkpointing":False,"frequency":10},
+                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
                         working_directory=case_dir)
-
 
 # load teh best model
 pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
-fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
-                                                "maxiter":1000,"pre-conditioner":"ilu"},
-                    "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                "maxiter":20,"load_incr":40}}
-
-for test in np.arange(train_start_id,train_end_id):
-    eval_id = test
-    FOL_UV = np.array(pi_fno_pr_learning.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
-    fe_mesh[f'U_FOL_{eval_id}'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
-    fe_mesh[f'K_{eval_id}'] = K_matrix[eval_id].reshape((fe_mesh.GetNumberOfNodes(), 1))
-
-    ## solve FE here
-    linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
-    linear_fe_solver.Initialize()
-    FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id].flatten(),jnp.zeros(2*fe_mesh.GetNumberOfNodes())))
-    fe_mesh[f'U_FE_{eval_id}'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
-
-    absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-    fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
-
-    # plot U
-    vectors_list = [K_matrix[eval_id].flatten(),FOL_UV[::2],FE_UV[::2]]
-    plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_U_{eval_id}.png',dir="U")
-
-    # plot V
-    vectors_list = [K_matrix[eval_id].flatten(),FOL_UV[1::2],FE_UV[1::2]]
-    plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_V_{eval_id}.png',dir="V")
-
-
-fe_mesh.Finalize(export_dir=case_dir, export_format='vtk')
 
