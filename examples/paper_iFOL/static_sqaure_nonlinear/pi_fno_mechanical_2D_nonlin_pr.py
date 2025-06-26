@@ -72,6 +72,13 @@ mechanical_loss_2d = NeoHookeMechanicalLoss2DQuad("mechanical_loss_2d",loss_sett
                                                                             fe_mesh=fe_mesh)
 mechanical_loss_2d.Initialize()
 
+def merge_state(dst: nnx.State, src: nnx.State):
+    for k, v in src.items():
+        if isinstance(v, nnx.State):
+            merge_state(dst[k], v)
+        else:
+            dst[k] = v
+
 fno_model = bridge.ToNNX(FourierNeuralOperator2D(modes1=12,
                                              modes2=12,
                                              width=32,
@@ -80,6 +87,12 @@ fno_model = bridge.ToNNX(FourierNeuralOperator2D(modes1=12,
                                              padding=45,
                                              out_channels=2,
                                              output_scale=0.1),rngs=nnx.Rngs(0)).lazy_init(K_matrix[0:1].reshape(1,model_settings["N"],model_settings["N"],1)) 
+
+# replace RNG key by a dummy to allow checkpoint restoration later
+graph_def, state = nnx.split(fno_model)
+rngs_key = jax.tree.map(jax.random.key_data, state.filter(nnx.RngKey))
+merge_state(state, rngs_key)
+fno_model = nnx.merge(graph_def, state)
 
 num_epochs = 1000
 optimizer = optax.chain(optax.adam(1e-4))
@@ -106,7 +119,7 @@ pi_fno_pr_learning.Train(train_set=(train_set_pr,),
 
 
 # load teh best model
-# pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
+pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
 fe_setting = {"linear_solver_settings":{"solver":"JAX-direct","tol":1e-6,"atol":1e-6,
                                                 "maxiter":1000,"pre-conditioner":"ilu"},

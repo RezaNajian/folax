@@ -72,6 +72,5 @@ class PhysicsInformedFourierParametricOperatorLearning(FourierParametricOperator
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         control_output = self.control.ComputeControlledVariables(x_set[0])
         mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes()**0.5)
-        control_output = control_output.reshape(1,mesh_size,mesh_size,1)
-        nn_output = nn_model(control_output).flatten()[self.loss_function.non_dirichlet_indices]
-        return self.loss_function.ComputeSingleLoss(x_set[0],nn_output)
+        nn_output = nn_model(control_output.reshape(1,mesh_size,mesh_size,1)).flatten()[self.loss_function.non_dirichlet_indices]
+        return self.loss_function.ComputeSingleLoss(control_output.flatten(),nn_output)
