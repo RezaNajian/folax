@@ -67,4 +67,4 @@ class PhysicsInformedDeepONetParametricOperatorLearning(DeepONetParametricOperat
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         control_output = self.control.ComputeControlledVariables(x_set[0])
         nn_output = nn_model(control_output,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-        return self.loss_function.ComputeSingleLoss(x_set[0],nn_output)
+        return self.loss_function.ComputeSingleLoss(control_output.flatten(),nn_output)
