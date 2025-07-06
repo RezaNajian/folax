@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import optax
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
@@ -19,7 +20,7 @@ from flax import nnx
 from flax.nnx import bridge
 
 jax.config.update('jax_default_matmul_precision','high')
-jax.config.update('jax_enable_x64', True)
+# jax.config.update('jax_enable_x64', True)
 
 # directory & save handling
 working_directory_name = 'dd_fno_mechanical_2D'
@@ -28,7 +29,7 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":41,
+model_settings = {"L":1,"N":42,
                     "Ux_left":0.0,"Ux_right":0.5,
                     "Uy_left":0.0,"Uy_right":0.5}
 
@@ -75,18 +76,30 @@ mechanical_loss_2d.Initialize()
 reg_loss = RegressionLoss("reg_loss",loss_settings={"nodal_unknows":["Ux","Uy"]},fe_mesh=fe_mesh)
 reg_loss.Initialize()
 
-fno_model = bridge.ToNNX(FourierNeuralOperator2D(modes1=12,
-                                             modes2=12,
-                                             width=32,
-                                             depth=4,
-                                             channels_last_proj=128,
-                                             padding=45,
-                                             out_channels=2,
-                                             output_scale=1.0),rngs=nnx.Rngs(0)).lazy_init(K_matrix[0:1].reshape(1,model_settings["N"],model_settings["N"],1)) 
+def merge_state(dst: nnx.State, src: nnx.State):
+    for k, v in src.items():
+        if isinstance(v, nnx.State):
+            merge_state(dst[k], v)
+        else:
+            dst[k] = v
 
-num_epochs = 1000
+fno_model = bridge.ToNNX(FourierNeuralOperator2D(modes1=12,
+                                                modes2=12,
+                                                width=32,
+                                                depth=4,
+                                                channels_last_proj=128,
+                                                out_channels=2,
+                                                output_scale=1.0),rngs=nnx.Rngs(0)).lazy_init(K_matrix[0:1].reshape(1,model_settings["N"],model_settings["N"],1))
+
+# replace RNG key by a dummy to allow checkpoint restoration later
+graph_def, state = nnx.split(fno_model)
+rngs_key = jax.tree.map(jax.random.key_data, state.filter(nnx.RngKey))
+merge_state(state, rngs_key)
+fno_model = nnx.merge(graph_def, state)
+
+num_epochs = 20000
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=num_epochs)
-optimizer = optax.chain(optax.adam(1e-4))
+optimizer = optax.chain(optax.adam(1e-5))
 
 # create fol
 dd_fno_pr_learning = DataDrivenFourierParametricOperatorLearning(name="dd_fno_pr_learning",
@@ -100,7 +113,7 @@ dd_fno_pr_learning.Initialize()
 
 train_start_id = 0
 train_end_id = 10
-solve_FE = False
+solve_FE = True
 if solve_FE:
     input_matrix = np.empty((0,10))
     output_matrix = np.empty((0,2*fe_mesh.GetNumberOfNodes()))
@@ -131,8 +144,8 @@ dd_fno_pr_learning.Train(train_set=(train_data_dict["input_matrix"],train_data_d
                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
                         working_directory=case_dir)
 
-# # load the best model
-# dd_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
+# load the best model
+dd_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
 # deeponet sols
 FNO_UVs = np.array(dd_fno_pr_learning.Predict(train_data_dict["input_matrix"]))
