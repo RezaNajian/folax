@@ -1,6 +1,6 @@
 import sys
 import os
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 import optax
 import numpy as np
 
@@ -29,7 +29,7 @@ def main(ifol_num_epochs=10,clean_dir=False):
     # directory & save handling
     working_directory_name = 'meta_implicit_mechanical_2D'
     case_dir = os.path.join('.', working_directory_name)
-    create_clean_directory(working_directory_name)
+    # create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # problem setup
@@ -132,14 +132,14 @@ def main(ifol_num_epochs=10,clean_dir=False):
 
     train_set = train_set_otf   # OTF or Parametric 
     #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    fol.Train(train_set=(train_set,),
-                test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-                test_frequency=100,
-                batch_size=350,
-                convergence_settings={"num_epochs":ifol_num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                plot_settings={"plot_save_rate":100},
-                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-                working_directory=case_dir)
+    # fol.Train(train_set=(train_set,),
+    #             test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
+    #             test_frequency=100,
+    #             batch_size=350,
+    #             convergence_settings={"num_epochs":ifol_num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+    #             plot_settings={"plot_save_rate":100},
+    #             train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+    #             working_directory=case_dir)
 
 
     # load teh best model
@@ -152,33 +152,69 @@ def main(ifol_num_epochs=10,clean_dir=False):
     
     # train_test = [0,100,220,330,440,550,660,770,880,900,920,990]
     # for test in train_test:
-    for test in [otf_id]:
-        eval_id = test
-        FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
-        fe_mesh[f'U_FOL_{eval_id}'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
-        fe_mesh[f'K_{eval_id}'] = K_matrix[eval_id].reshape((fe_mesh.GetNumberOfNodes(), 1))
+    # for test in [otf_id]:
+    #     eval_id = test
+    #     FOL_UV = np.array(fol.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
+    #     fe_mesh[f'U_FOL_{eval_id}'] = FOL_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+    #     fe_mesh[f'K_{eval_id}'] = K_matrix[eval_id].reshape((fe_mesh.GetNumberOfNodes(), 1))
 
 
-        ## solve FE here
-        linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
-        linear_fe_solver.Initialize()
-        FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))
-        fe_mesh[f'U_FE_{eval_id}'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
+    #     ## solve FE here
+    #     linear_fe_solver = FiniteElementNonLinearResidualBasedSolver("linear_fe_solver",mechanical_loss_2d,fe_setting)
+    #     linear_fe_solver.Initialize()
+    #     FE_UV = np.array(linear_fe_solver.Solve(K_matrix[eval_id],jnp.zeros(2*fe_mesh.GetNumberOfNodes())))
+    #     fe_mesh[f'U_FE_{eval_id}'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-        absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
-        fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
+    #     absolute_error = abs(FOL_UV.reshape(-1,1)- FE_UV.reshape(-1,1))
+    #     fe_mesh['abs_error'] = absolute_error.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
 
-        # plot U
-        vectors_list = [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2]]
-        plot_mesh_res(vectors_list, file_name=f'{case_dir}\plot_U_{eval_id}.png',dir="U")
+    #     # plot U
+    #     vectors_list = [K_matrix[eval_id,:],FOL_UV[::2],FE_UV[::2]]
+    #     plot_mesh_res(vectors_list, file_name=f'{case_dir}\plot_U_{eval_id}.png',dir="U")
 	
-        # plot V
-        vectors_list = [K_matrix[eval_id,:],FOL_UV[1::2],FE_UV[1::2]]
-        plot_mesh_res(vectors_list, file_name=f'{case_dir}\plot_V_{eval_id}.png',dir="V")
+    #     # plot V
+    #     vectors_list = [K_matrix[eval_id,:],FOL_UV[1::2],FE_UV[1::2]]
+    #     plot_mesh_res(vectors_list, file_name=f'{case_dir}\plot_V_{eval_id}.png',dir="V")
 
 
-    fe_mesh.Finalize(export_dir=case_dir, export_format='vtk')
+    # fe_mesh.Finalize(export_dir=case_dir, export_format='vtk')
+
+    with open(f'train_data_dict_10K.pkl', 'rb') as f:
+        train_data_dict = pickle.load(f)
+
+    iFOL_UVs = np.array(fol.Predict(train_data_dict["input_matrix"][8000:8050,:]))
+    import matplotlib.pyplot
+    plt.imshow(iFOL_UVs[0,::2].reshape(41,41))
+    # plt.savefig("ifol2.png")
+    plt.show()
+    plt.imshow(iFOL_UVs[49,::2].reshape(41,41))
+    # plt.savefig("ifol2.png")
+    plt.show()
+
+    plt.imshow(train_data_dict["output_matrix"][8000,::2].reshape(41,41))
+    # plt.savefig("ifol2.png")
+    plt.show()
+    plt.imshow(train_data_dict["output_matrix"][8049,::2].reshape(41,41))
+    # plt.savefig("ifol2.png")
+    plt.show()
+
+    
+
+    # mean absolute errors for test data
+    idx = np.ix_(range(8000,8050))
+    idx_ifol = np.ix_(range(50))
+    FEM_UV,iFOL_UV = train_data_dict["output_matrix"][idx],iFOL_UVs[idx_ifol]
+    absolute_error_test = np.abs(iFOL_UV- FEM_UV)
+    test_mae_err_for_samples = np.sum(absolute_error_test,axis=1) / absolute_error_test.shape[-1]
+    test_mae_err_total = np.mean(test_mae_err_for_samples)
+    print("mean absolute error for test set: ",test_mae_err_total)
+
+    # max absolute errors
+    test_max_err_for_samples = np.max(absolute_error_test,axis=1)
+    test_max_err_total = np.mean(test_max_err_for_samples)
+    print("max absolute error for test set: ",test_max_err_total)
+
 
     if clean_dir:
         shutil.rmtree(case_dir)   

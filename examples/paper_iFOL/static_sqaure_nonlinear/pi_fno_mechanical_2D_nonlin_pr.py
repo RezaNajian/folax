@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 import optax
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
@@ -23,7 +24,7 @@ jax.config.update('jax_default_matmul_precision','high')
 # directory & save handling
 working_directory_name = 'pi_fno_mechanical_2D'
 case_dir = os.path.join('.', working_directory_name)
-create_clean_directory(working_directory_name)
+# create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
@@ -57,7 +58,7 @@ if create_random_coefficients:
     with open(f'fourier_control_dict.pkl', 'wb') as f:
         pickle.dump(export_dict,f)
 else:
-    with open(f'fourier_control_dict.pkl', 'rb') as f:
+    with open(f'fourier_control_dict_N_21.pkl', 'rb') as f:
         loaded_dict = pickle.load(f)
     
     coeffs_matrix = loaded_dict["coeffs_matrix"]
@@ -116,16 +117,50 @@ train_end_id = 8000
 test_start_id = 8000
 test_end_id = 10000
 #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-pi_fno_pr_learning.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
-                        test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
-                        test_frequency=100,
-                        batch_size=350,
-                        convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                        plot_settings={"plot_save_rate":100},
-                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
-                        working_directory=case_dir)
+# pi_fno_pr_learning.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
+#                         test_set=(coeffs_matrix[test_start_id:test_end_id,:],),
+#                         test_frequency=100,
+#                         batch_size=350,
+#                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+#                         plot_settings={"plot_save_rate":100},
+#                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+#                         working_directory=case_dir)
 
 # load teh best model
 pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
+with open(f'train_data_dict_n8050_N_42.pkl', 'rb') as f:
+    train_data_dict = pickle.load(f)
+
+FNO_UVs = np.array(pi_fno_pr_learning.Predict(train_data_dict["input_matrix"]))
+import matplotlib.pyplot
+plt.imshow(FNO_UVs[0,::2].reshape(42,42))
+# plt.savefig("ifol2.png")
+plt.show()
+plt.imshow(FNO_UVs[49,::2].reshape(42,42))
+# plt.savefig("ifol2.png")
+plt.show()
+
+plt.imshow(train_data_dict["output_matrix"][0,::2].reshape(42,42))
+# plt.savefig("ifol2.png")
+plt.show()
+plt.imshow(train_data_dict["output_matrix"][49,::2].reshape(42,42))
+# plt.savefig("ifol2.png")
+plt.show()
+
+
+############# mean absolute errors for test data ############
+# mean absolute errors for test data
+idx = np.ix_(range(50))
+idx_ifol = np.ix_(range(50))
+FEM_UV,FNO_UV = train_data_dict["output_matrix"][idx],FNO_UVs[idx_ifol]
+absolute_error_test = np.abs(FNO_UV- FEM_UV)
+test_mae_err_for_samples = np.sum(absolute_error_test,axis=1) / absolute_error_test.shape[-1]
+test_mae_err_total = np.mean(test_mae_err_for_samples)
+print("mean absolute error for test set: ",test_mae_err_total)
+
+# max absolute errors
+test_max_err_for_samples = np.max(absolute_error_test,axis=1)
+test_max_err_total = np.mean(test_max_err_for_samples)
+print("max absolute error for test set: ",test_max_err_total)
 

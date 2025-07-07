@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..','..')))
 import optax
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
@@ -22,7 +23,7 @@ jax.config.update('jax_enable_x64', True)
 # directory & save handling
 working_directory_name = 'dd_deep_onet_mechanical_2D'
 case_dir = os.path.join('.', working_directory_name)
-create_clean_directory(working_directory_name)
+# create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
@@ -56,7 +57,7 @@ if create_random_coefficients:
     with open(f'fourier_control_dict.pkl', 'wb') as f:
         pickle.dump(export_dict,f)
 else:
-    with open(f'fourier_control_dict.pkl', 'rb') as f:
+    with open(f'fourier_control_dict_N_21.pkl', 'rb') as f:
         loaded_dict = pickle.load(f)
     
     coeffs_matrix = loaded_dict["coeffs_matrix"]
@@ -134,31 +135,70 @@ if solve_FE:
     with open(f'train_data_dict.pkl', 'wb') as f:
         pickle.dump(train_data_dict,f)
 else:
-    with open(f'train_data_dict.pkl', 'rb') as f:
+    with open(f'train_data_dict_10K.pkl', 'rb') as f:
         train_data_dict = pickle.load(f)
 
-deeponet_learning.Train(train_set=(train_data_dict["input_matrix"],train_data_dict["output_matrix"]),
-                        batch_size=1,
-                        convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                        plot_settings={"plot_save_rate":100},
-                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
-                        working_directory=case_dir)
+# deeponet_learning.Train(train_set=(train_data_dict["input_matrix"],train_data_dict["output_matrix"]),
+#                         batch_size=1,
+#                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+#                         plot_settings={"plot_save_rate":100},
+#                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+#                         working_directory=case_dir)
 
 # load the best model
 deeponet_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
 # deeponet sols
-DON_UVs = np.array(deeponet_learning.Predict(train_data_dict["input_matrix"]))
+# DON_UVs = np.array(deeponet_learning.Predict(train_data_dict["input_matrix"]))
 
 # k matrix
-K_matrix = fourier_control.ComputeBatchControlledVariables(train_data_dict["input_matrix"])
+# K_matrix = fourier_control.ComputeBatchControlledVariables(train_data_dict["input_matrix"])
 
-for idx in range(K_matrix.shape[0]):
-    K,FEM_UV,DON_UV = K_matrix[idx],train_data_dict["output_matrix"][idx],DON_UVs[idx]
-    # plot U
-    vectors_list = [K,DON_UV[::2],FEM_UV[::2]]
-    plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_U_{idx}.png',dir="U")
-    # plot V
-    vectors_list = [K,DON_UV[1::2],FEM_UV[1::2]]
-    plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_V_{idx}.png',dir="V")
+# for idx in range(K_matrix.shape[0]):
+#     K,FEM_UV,DON_UV = K_matrix[idx],train_data_dict["output_matrix"][idx],DON_UVs[idx]
+#     # plot U
+#     vectors_list = [K,DON_UV[::2],FEM_UV[::2]]
+#     plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_U_{idx}.png',dir="U")
+#     # plot V
+#     vectors_list = [K,DON_UV[1::2],FEM_UV[1::2]]
+#     plot_mesh_res(vectors_list, file_name=case_dir+f'/plot_V_{idx}.png',dir="V")
+
+
+
+
+with open(f'train_data_dict_10K.pkl', 'rb') as f:
+    train_data_dict = pickle.load(f)
+
+DON_UVs = np.array(deeponet_learning.Predict(train_data_dict["input_matrix"][8000:8050,:]))
+import matplotlib.pyplot
+plt.imshow(DON_UVs[0,::2].reshape(41,41))
+# plt.savefig("ifol2.png")
+plt.show()
+plt.imshow(DON_UVs[49,::2].reshape(41,41))
+# plt.savefig("ifol2.png")
+plt.show()
+
+plt.imshow(train_data_dict["output_matrix"][8000,::2].reshape(41,41))
+# plt.savefig("ifol2.png")
+plt.show()
+plt.imshow(train_data_dict["output_matrix"][8049,::2].reshape(41,41))
+# plt.savefig("ifol2.png")
+plt.show()
+
+
+############# mean absolute errors for test data ############
+# mean absolute errors for test data
+idx = np.ix_(range(8000,8050))
+idx_ifol = np.ix_(range(50))
+FEM_UV,DON_UV = train_data_dict["output_matrix"][idx],DON_UVs[idx_ifol]
+absolute_error_test = np.abs(DON_UV- FEM_UV)
+test_mae_err_for_samples = np.sum(absolute_error_test,axis=1) / absolute_error_test.shape[-1]
+test_mae_err_total = np.mean(test_mae_err_for_samples)
+print("mean absolute error for test set: ",test_mae_err_total)
+
+# max absolute errors
+test_max_err_for_samples = np.max(absolute_error_test,axis=1)
+test_max_err_total = np.mean(test_max_err_for_samples)
+print("max absolute error for test set: ",test_max_err_total)
+
 
