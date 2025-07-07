@@ -584,3 +584,30 @@ def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     updated_dict = copy.deepcopy(default_dict)
     updated_dict.update(filtered_update)
     return updated_dict
+
+
+
+def create_gyroid(fe_mesh:Mesh, tpms_settings: dict):
+
+    phi_x = tpms_settings["phi_x"]
+    phi_y = tpms_settings["phi_y"]
+    phi_z = tpms_settings["phi_z"]
+    const = tpms_settings["constant"]
+    threshold = tpms_settings["threshold"]
+
+    x = fe_mesh.GetNodesX()
+    y = fe_mesh.GetNodesY()
+    z = fe_mesh.GetNodesZ()
+
+    fx, fy, fz = tpms_settings["coefficients"]
+
+    cos_pix = jnp.cos(fx * jnp.pi * x + phi_x)
+    sin_pix = jnp.sin(fx * jnp.pi * x + phi_x)
+    cos_piy = jnp.cos(fy * jnp.pi * y + phi_y)
+    sin_piy = jnp.sin(fy * jnp.pi * y + phi_y)
+    cos_piz = jnp.cos(fz * jnp.pi * z + phi_z)
+    sin_piz = jnp.sin(fz * jnp.pi * z + phi_z)
+
+    K = cos_piy * sin_pix + cos_piz * sin_piy + cos_pix * sin_piz - const
+
+    return jnp.where((K < threshold) & (K > -threshold), 1., 0.1)  # Optionally, use jnp.where(K > 0, 1, 0) for hard binary
