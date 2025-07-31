@@ -34,25 +34,23 @@ class FiniteElementLoss(Loss):
     def __CreateDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
         number_dofs_per_node = len(dofs_list)
         dirichlet_indices = []
-        dirichlet_values = [] 
-        dirichlet_dofs_boundary_dict = {}       
+        dirichlet_values = []     
         for dof_index,dof in enumerate(dofs_list):
-            dirichlet_dofs_boundary_dict[dof] = {}
             for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
                 boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
                 dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
+                dirichlet_indices.append(dirichlet_bc_indices)
 
-                boundary_start_index = len(dirichlet_indices)
-                dirichlet_indices.extend(dirichlet_bc_indices.tolist())
-                boundary_end_index = len(dirichlet_indices)
-
-                dirichlet_dofs_boundary_dict[dof][boundary_name] = jnp.arange(boundary_start_index,boundary_end_index)
-
-                dirichlet_bc_values = boundary_value * jnp.ones(dirichlet_bc_indices.size)
-                dirichlet_values.extend(dirichlet_bc_values.tolist())
+                dirichlet_bc_values = boundary_value * jnp.ones_like(dirichlet_bc_indices)
+                dirichlet_values.append(dirichlet_bc_values)
         
-        self.dirichlet_indices = jnp.array(dirichlet_indices,dtype=int)
-        self.dirichlet_values = jnp.array(dirichlet_values)
+        if len(dirichlet_indices) != 0:
+            self.dirichlet_indices = jnp.concatenate(dirichlet_indices)
+            self.dirichlet_values = jnp.concatenate(dirichlet_values)
+        else:
+            self.dirichlet_indices = jnp.array([])
+            self.dirichlet_values = jnp.array([])
+
         all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
         self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
 
@@ -69,7 +67,8 @@ class FiniteElementLoss(Loss):
         # create full solution vector
         self.solution_vector = jnp.zeros(self.total_number_of_dofs)
         # apply dirichlet bcs
-        self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
+        if self.dirichlet_indices.size > 0:
+            self.solution_vector = self.solution_vector.at[self.dirichlet_indices].set(self.dirichlet_values)
 
         # fe element
         self.fe_element = fe_element_dict[self.element_type]
@@ -113,6 +112,23 @@ class FiniteElementLoss(Loss):
         else:
             self.full_dof_vector_function = ConstructFullDofVector
 
+        # element batching
+        num_cuts = 20
+        num_elements = self.fe_mesh.GetNumberOfElements(self.element_type)
+        element_batch_size = num_elements if num_elements < num_cuts else int(jnp.floor(num_elements / num_cuts))
+        self.adjusted_batch_size = next(i for i in range(element_batch_size, 0, -1) if num_elements % i == 0)
+        self.num_element_batches = int(num_elements/self.adjusted_batch_size)
+        if self.adjusted_batch_size != element_batch_size:
+            fol_info(f"for the proper batching of elements, the batch size is changed from {element_batch_size} to {self.adjusted_batch_size}")  
+        else:
+            fol_info(f"element batch size is {self.adjusted_batch_size}")
+
+        # set scalar-valued loss function exponent
+        if "loss_function_exponent" in self.loss_settings:
+            self.loss_function_exponent = self.loss_settings["loss_function_exponent"]
+        else:
+            self.loss_function_exponent = 1.0
+
         self.initialized = True
 
     @partial(jit, static_argnums=(0,))
@@ -127,6 +143,9 @@ class FiniteElementLoss(Loss):
     
     def GetTotalNumberOfDOFs(self):
         return self.total_number_of_dofs
+    
+    def GetDOFs(self):
+        return self.dofs
 
     @abstractmethod
     def ComputeElement(self,
@@ -253,37 +272,60 @@ class FiniteElementLoss(Loss):
         avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
         max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
         min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        return jnp.sum(elems_energies),(min_elem_energy,max_elem_energy,avg_elem_energy)
+        return jnp.sum(elems_energies)**self.loss_function_exponent,(min_elem_energy,max_elem_energy,avg_elem_energy)
     
-    # NOTE: this function should not be jitted since it is tested and gets much slower
     @print_with_timestamp_and_execution_time
-    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False):
+    @partial(jit, static_argnums=(0,))
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False,new_implementation:bool=False):
         
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
         mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
-        
-        elements_residuals, elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None,None)) \
-                                                            (self.fe_mesh.GetElementsIds(self.element_type),
-                                                             self.fe_mesh.GetElementsNodes(self.element_type),
-                                                             self.fe_mesh.GetNodesCoordinates(),
-                                                             total_control_vars,
-                                                             total_primal_vars,
-                                                             BC_vector,
-                                                             mask_BC_vector,
-                                                             transpose_jacobian)
 
-        # first compute the global residual vector
+        num_nodes_per_elem = len(self.fe_mesh.GetElementsNodes(self.element_type)[0])
+        element_matrix_size = self.number_dofs_per_node * num_nodes_per_elem
+        elements_jacobian_flat = jnp.zeros(self.fe_mesh.GetNumberOfElements(self.element_type)*element_matrix_size*element_matrix_size)
+
+        template_element_indices = jnp.arange(0,self.adjusted_batch_size)
+        template_elem_res_indices = jnp.arange(0,element_matrix_size,self.number_dofs_per_node)
+        template_elem_jac_indices = jnp.arange(0,self.adjusted_batch_size*element_matrix_size*element_matrix_size)
+
         residuals_vector = jnp.zeros((self.total_number_of_dofs))
-        for dof_idx in range(self.number_dofs_per_node):
-            residuals_vector = residuals_vector.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].add(jnp.squeeze(elements_residuals[:,dof_idx::self.number_dofs_per_node]))
+        @jax.jit
+        def fill_arrays(batch_index,batch_arrays):
+            glob_res_vec,elem_jac_vec = batch_arrays
+
+            batch_element_indices = (batch_index * self.adjusted_batch_size) + template_element_indices
+            batch_elem_jac_indices = (batch_index * self.adjusted_batch_size * element_matrix_size**2) + template_elem_jac_indices
+
+            batch_elements_residuals, batch_elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None,None)) \
+                                                                (batch_element_indices,
+                                                                self.fe_mesh.GetElementsNodes(self.element_type),
+                                                                self.fe_mesh.GetNodesCoordinates(),
+                                                                total_control_vars,
+                                                                total_primal_vars,
+                                                                BC_vector,
+                                                                mask_BC_vector,
+                                                                transpose_jacobian)  
+
+            elem_jac_vec = elem_jac_vec.at[batch_elem_jac_indices].set(batch_elements_stiffness.ravel())
+
+            @jax.jit
+            def fill_res_vec(dof_idx,glob_res_vec):                 
+                glob_res_vec = glob_res_vec.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)[batch_element_indices]+dof_idx].add(jnp.squeeze(batch_elements_residuals[:,template_elem_res_indices+dof_idx]))
+                return glob_res_vec
+
+            glob_res_vec = jax.lax.fori_loop(0, self.number_dofs_per_node, fill_res_vec, (glob_res_vec))
+
+            return (glob_res_vec,elem_jac_vec)
+
+        residuals_vector, elements_jacobian_flat = jax.lax.fori_loop(0, self.num_element_batches, fill_arrays, (residuals_vector, elements_jacobian_flat))
 
         # second compute the global jacobian matrix  
-        jacobian_data = jnp.ravel(elements_stiffness)
         jacobian_indices = jax.vmap(self.ComputeElementJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
         jacobian_indices = jacobian_indices.reshape(-1,2)
         
-        sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
-        
+        sparse_jacobian = sparse.BCOO((elements_jacobian_flat,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
+
         return sparse_jacobian, residuals_vector

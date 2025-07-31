@@ -190,26 +190,14 @@ def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
     fe_mesh = Mesh("box_io","box.")
 
     settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
-    X = settings.points[:,0]
-    Y = settings.points[:,1]
-    Z = settings.points[:,2]
+    fe_mesh.node_ids = jnp.arange(len(settings.points))
+    fe_mesh.nodes_coordinates = jnp.array(settings.points)
 
-    left_boundary_node_ids = []
-    right_boundary_node_ids = []
-    none_boundary_node_ids = []
-    for node_id,node_corrds in enumerate(settings.points):
-        if np.isclose(node_corrds[0], 0., atol=1e-5):
-            left_boundary_node_ids.append(node_id)
-        elif np.isclose(node_corrds[0], Lx, atol=1e-5):
-            right_boundary_node_ids.append(node_id)
-        else:
-            none_boundary_node_ids.append(node_id)
+    left_mask = jnp.isclose(fe_mesh.nodes_coordinates[:,0], 0.0, atol=1e-5)
+    right_mask = jnp.isclose(fe_mesh.nodes_coordinates[:,0], Lx, atol=1e-5)
 
-    left_boundary_node_ids = jnp.array(left_boundary_node_ids)
-    right_boundary_node_ids = jnp.array(right_boundary_node_ids)
-
-    fe_mesh.node_ids = jnp.arange(Y.shape[-1])
-    fe_mesh.nodes_coordinates = jnp.stack((X,Y,Z), axis=1)
+    left_boundary_node_ids = fe_mesh.node_ids[left_mask]
+    right_boundary_node_ids = fe_mesh.node_ids[right_mask]
 
     fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
 
