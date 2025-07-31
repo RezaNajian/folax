@@ -6,9 +6,10 @@ from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.identity_control import IdentityControl
-from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
+from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
+from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 import optax
 from flax import nnx
@@ -46,41 +47,68 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh.Finalize(export_dir=case_dir)
    
     # now we need to create, initialize and train fol
-    # design NN for learning
-    class MLP(nnx.Module):
-        def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
-            self.in_features = in_features
-            self.out_features = out_features
+    # design synthesizer & modulator NN for hypernetwork
+    # characteristic_length = model_settings["N"]
+    characteristic_length = 64
+    synthesizer_nn = MLP(name="synthesizer_nn",
+                        input_size=3,
+                        output_size=3,
+                        hidden_layers=[characteristic_length] * 4,
+                        activation_settings={"type":"sin",
+                                            "prediction_gain":30,
+                                            "initialization_gain":1.0},
+                        skip_connections_settings={"active":False,"frequency":1})
 
-        def __call__(self, x: jax.Array) -> jax.Array:
-            x = self.dense1(x)
-            x = jax.nn.tanh(x)
-            x = self.dense2(x)
-            return x
+    latent_size = 8 * characteristic_length
+    modulator_nn = MLP(name="modulator_nn",
+                    input_size=latent_size,
+                    use_bias=False) 
 
-    fol_net = MLP(identity_control.GetNumberOfVariables(),1, 
-                  mechanical_loss_3d.GetNumberOfUnknowns(), 
-                  rngs=nnx.Rngs(0))
+    hyper_network = HyperNetwork(name="hyper_nn",
+                                modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
+                                coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
     # create fol optax-based optimizer
-    chained_transform = optax.chain(optax.normalize_by_update_norm(), 
-                                    optax.adam(1e-3))
-    
-    fol = ExplicitParametricOperatorLearning(name="dis_fol",control=identity_control,
-                                             loss_function=mechanical_loss_3d,
-                                             flax_neural_network=fol_net,
-                                             optax_optimizer=chained_transform)
-    fol.Initialize()
+    #learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
+    main_loop_transform = optax.chain(optax.adam(1e-5))
+    latent_step_optimizer = optax.chain(optax.adam(1e-5))
 
-    # single sample training for eval_id
-    fol.Train(train_set=(K_matrix.reshape(-1,1).T,),
-              convergence_settings={"num_epochs":fol_num_epochs,
-                                    "relative_error":1e-10},
-              working_directory=case_dir)
+    # create fol
+    ifol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=identity_control,
+                                                            loss_function=mechanical_loss_3d,
+                                                            flax_neural_network=hyper_network,
+                                                            main_loop_optax_optimizer=main_loop_transform,
+                                                            latent_step_optax_optimizer=latent_step_optimizer,
+                                                            latent_step_size=1e-2,
+                                                            num_latent_iterations=3)
+    ifol.Initialize()
 
-    FOL_UVW = np.array(fol.Predict(K_matrix.reshape(-1,1).T)).reshape(-1)
+    otf_id = 0
+    train_set_otf = K_matrix.reshape(-1,1).T     # for On The Fly training
+
+    train_start_id = 0
+    train_end_id = 8000
+    train_set_pr = K_matrix     # for parametric training
+
+    test_start_id = 8000
+    test_end_id = 10000
+
+    train_set = train_set_otf   # OTF or Parametric 
+    #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
+    ifol.Train(train_set=(K_matrix,),
+                test_set=(K_matrix,),
+                test_frequency=100,
+                batch_size=350,
+                convergence_settings={"num_epochs":ifol_num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                plot_settings={"plot_save_rate":100},
+                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                working_directory=case_dir)
+
+
+    # load teh best model
+    ifol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
+
+    FOL_UVW = np.array(ifol.Predict(K_matrix.reshape(-1,1).T)).reshape(-1)
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
     fe_mesh["K"] = K_matrix.reshape((fe_mesh.GetNumberOfNodes(),1))
 
@@ -101,7 +129,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
 if __name__ == "__main__":
     # Initialize default values
-    fol_num_epochs = 2000
+    ifol_num_epochs = 2000
     solve_FE = True
     clean_dir = False
 
@@ -135,4 +163,4 @@ if __name__ == "__main__":
             sys.exit(1)
 
     # Call the main function with the parsed values
-    main(fol_num_epochs, solve_FE,clean_dir)
+    main(ifol_num_epochs, solve_FE,clean_dir)
