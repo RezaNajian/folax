@@ -42,6 +42,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                 BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
+                # jax.debug.print("the Tangent matrix condtion number: {x}", x=jnp.linalg.cond(BC_applied_jac))
                 if jnp.isnan(res_norm):
                     fol_info("Residual norm is NaN, check inputs!")
                     raise(ValueError("res_norm contains nan values!"))

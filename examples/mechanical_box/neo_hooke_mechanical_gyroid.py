@@ -9,6 +9,7 @@ from fol.controls.identity_control import IdentityControl
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
+from .mechanical3d_utilities import *
 import pickle
 import optax
 from flax import nnx

@@ -39,14 +39,14 @@ class FiniteElementSolver(Solver):
                                                             self.fe_solver_settings["linear_solver_settings"])
 
         linear_solver = self.linear_solver_settings["solver"]
-        available_linear_solver = ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres",
+        available_linear_solver = ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres","PETSc-preonly",
                                    "JAX-direct","JAX-bicgstab"]
 
         if linear_solver=="JAX-direct":
             self.LinearSolve = self.JaxDirectLinearSolver
         elif linear_solver=="JAX-bicgstab":
             self.LinearSolve = self.JaxBicgstabLinearSolver
-        elif linear_solver in ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres"]:
+        elif linear_solver in ["PETSc-bcgsl","PETSc-tfqmr","PETSc-minres","PETSc-gmres","PETSc-preonly"]:
             if petsc_available:
                 self.LinearSolve = self.PETScLinearSolver
                 self.PETSc_ksp_type = linear_solver.split('-')[1]

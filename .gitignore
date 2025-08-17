@@ -16,3 +16,6 @@ flax_state/
 py-env*
 .venv
 requirements.txt
+*.stl
+*.pkl
+*.xlsx

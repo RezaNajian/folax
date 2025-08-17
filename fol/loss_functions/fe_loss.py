@@ -329,3 +329,43 @@ class FiniteElementLoss(Loss):
         sparse_jacobian = sparse.BCOO((elements_jacobian_flat,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
 
         return sparse_jacobian, residuals_vector
+    
+    @abstractmethod
+    def ComputeElementStressAtGauss(self,
+                       elem_xyz:jnp.array,
+                       elem_controls:jnp.array,
+                       elem_dofs:jnp.array) -> tuple[float, jnp.array, jnp.array]:
+        pass
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementStress(self,
+                             elem_xyz:jnp.array,
+                             elem_controls:jnp.array,
+                             elem_dofs:jnp.array) -> float:
+        return self.ComputeElementStressAtGauss(elem_xyz,elem_controls,elem_dofs)
+    
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementStressVmapCompatible(self,
+                                           element_id:jnp.integer,
+                                           elements_nodes:jnp.array,
+                                           xyz:jnp.array,
+                                           full_control_vector:jnp.array,
+                                           full_dof_vector:jnp.array):
+        return self.ComputeElementStress(xyz[elements_nodes[element_id],:],
+                                         full_control_vector[elements_nodes[element_id]],
+                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1))
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementsStresses(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
+        # parallel calculation of energies
+        return jax.vmap(self.ComputeElementStressVmapCompatible,(0,None,None,None,None)) \
+                        (self.fe_mesh.GetElementsIds(self.element_type),
+                        self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesCoordinates(),
+                        total_control_vars,
+                        total_primal_vars)
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeTotalStress(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
+        return self.ComputeElementsStresses(total_control_vars.reshape(-1,1),total_primal_vars)

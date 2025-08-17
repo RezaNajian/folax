@@ -13,7 +13,7 @@ from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 import optax
 from flax import nnx
-import jax
+from examples.mechanical_box.mechanical3d_utilities import *
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
@@ -39,12 +39,15 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     mechanical_loss_3d.Initialize()
 
     identity_control = IdentityControl('identity_control', num_vars=fe_mesh.GetNumberOfNodes())
-    tpms_settings = {"phi_x": 0., "phi_y": 0., "phi_z": 0.,
-                     "constant": 0., "threshold": 0.5, "coefficients":(2.,2.,2.)}
+    tpms_settings = {"phi_x": 0., "phi_y": 0., "phi_z": 0., "max": 1., "min": 0.1,
+                      "fiber_length": 0.4, "fiber_radius": 0.05,
+                     "threshold": 0.5, "coefficients":(2.,2.,2.)}
+    
+
     K_matrix = create_gyroid(fe_mesh=fe_mesh, tpms_settings=tpms_settings)
 
-    fe_mesh["K"] = K_matrix.reshape((fe_mesh.GetNumberOfNodes(),1))
-    fe_mesh.Finalize(export_dir=case_dir)
+    # fe_mesh["K"] = K_matrix.reshape((fe_mesh.GetNumberOfNodes(),1))
+    # fe_mesh.Finalize(export_dir=case_dir, export_format="vtu")
    
     # now we need to create, initialize and train fol
     # design synthesizer & modulator NN for hypernetwork
@@ -53,13 +56,13 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     synthesizer_nn = MLP(name="synthesizer_nn",
                         input_size=3,
                         output_size=3,
-                        hidden_layers=[characteristic_length] * 4,
+                        hidden_layers=[characteristic_length] * 2,
                         activation_settings={"type":"sin",
                                             "prediction_gain":30,
                                             "initialization_gain":1.0},
                         skip_connections_settings={"active":False,"frequency":1})
 
-    latent_size = 8 * characteristic_length
+    latent_size = 1 * characteristic_length
     modulator_nn = MLP(name="modulator_nn",
                     input_size=latent_size,
                     use_bias=False) 

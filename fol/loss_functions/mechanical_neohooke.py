@@ -283,6 +283,25 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         Ee = jnp.sum(E_gps, axis=0)
         return  Ee, Fint - Fe, Se
     
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementStressAtGauss(self,xyze,de,uvwe):
+        @jit
+        def compute_at_gauss_point(gp_point):
+            N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
+            DN_DX_T = self.fe_element.ShapeFunctionsGlobalGradients(xyze,gp_point).T
+            J = self.fe_element.Jacobian(xyze,gp_point)
+
+            e_at_gauss = jnp.dot(N_vec, de.squeeze())
+            k_at_gauss = e_at_gauss / (3 * (1 - 2*self.v))
+            mu_at_gauss = e_at_gauss / (2 * (1 + self.v))
+
+            _,F,_ = self.CalculateKinematics(DN_DX_T,uvwe)
+            _,S,_ = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            return S.flatten()
+        gp_points,_ = self.fe_element.GetIntegrationData()
+        stress_gp_elem = jax.vmap(compute_at_gauss_point,in_axes=(0,))(gp_points)
+        return stress_gp_elem
+
 class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():

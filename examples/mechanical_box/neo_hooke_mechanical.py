@@ -1,6 +1,6 @@
 import sys
 import os
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..')))
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
