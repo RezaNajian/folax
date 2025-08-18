@@ -297,7 +297,15 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
 
             _,F,_ = self.CalculateKinematics(DN_DX_T,uvwe)
             _,S,_ = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
-            return S.flatten()
+            S_mat = jnp.zeros((2,2))
+            S_mat = S_mat.at[0,0].set(S[0,0])
+            S_mat = S_mat.at[1,1].set(S[1,0])
+            S_mat = S_mat.at[0,1].set(S[2,0])
+            S_mat = S_mat.at[1,0].set(S[2,0])
+
+            P = jnp.dot(F,S_mat)    # first Piola Kirchhoff stress tensor
+            P = self.material_model.TensorToVoigt(P)
+            return P.flatten()
         gp_points,_ = self.fe_element.GetIntegrationData()
         stress_gp_elem = jax.vmap(compute_at_gauss_point,in_axes=(0,))(gp_points)
         return stress_gp_elem

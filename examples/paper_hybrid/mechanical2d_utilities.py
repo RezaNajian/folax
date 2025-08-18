@@ -1165,17 +1165,17 @@ def plot_paper_triple2(topology_field:tuple[np.array, np.array, np.array], shape
     im = axs[3, 0].imshow(ifol_sxx_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma',
                           vmin=fe_sxx_zssr.min(), vmax=fe_sxx_zssr.max())
     axs[3, 0].set_xticks([]); axs[3, 0].set_yticks([])
-    axs[3, 0].set_title(f'$\\sigma_{{xx}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[3, 0].set_title(f'$P_{{11}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[3, 0], pad=0.02, shrink=0.7)
 
     im = axs[3, 1].imshow(fe_sxx_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma')
     axs[3, 1].set_xticks([]); axs[3, 1].set_yticks([])
-    axs[3, 1].set_title(f'$\\sigma_{{xx}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[3, 1].set_title(f'$P_{{11}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[3, 1], pad=0.02, shrink=0.7)
 
     axs[3, 2].plot(np.linspace(0, L, N_zssr2), stress_x_cross_ifol, label='iFOL', color='b')
     axs[3, 2].plot(np.linspace(0, L, N_zssr2), stress_x_cross_fem, label='HFEM', color='r')
-    axs[3, 2].set_title('Cross-section $\\sigma_{xx}$', fontsize=fontsize)
+    axs[3, 2].set_title('Cross-section $P_{11}$', fontsize=fontsize)
     axs[3, 2].legend()
     # pos = axs[3, 2].get_position()
     # axs[3, 2].set_position([pos.x0, pos.y0, pos.width * 0.8, pos.height * 0.8])
@@ -1184,17 +1184,17 @@ def plot_paper_triple2(topology_field:tuple[np.array, np.array, np.array], shape
     im = axs[4, 0].imshow(ifol_syy_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma',
                           vmin=fe_syy_zssr.min(), vmax=fe_syy_zssr.max())
     axs[4, 0].set_xticks([]); axs[4, 0].set_yticks([])
-    axs[4, 0].set_title(f'$\\sigma_{{yy}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[4, 0].set_title(f'$P_{{22}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[4, 0], pad=0.02, shrink=0.7)
 
     im = axs[4, 1].imshow(fe_syy_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma')
     axs[4, 1].set_xticks([]); axs[4, 1].set_yticks([])
-    axs[4, 1].set_title(f'$\\sigma_{{yy}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[4, 1].set_title(f'$P_{{22}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[4, 1], pad=0.02, shrink=0.7)
 
     axs[4, 2].plot(np.linspace(0, L, N_zssr2), stress_y_cross_fem, label='HFEM', color='r')
     axs[4, 2].plot(np.linspace(0, L, N_zssr2), stress_y_cross_ifol, label='iFOL', color='b')
-    axs[4, 2].set_title('Cross-section $\\sigma_{yy}$', fontsize=fontsize)
+    axs[4, 2].set_title('Cross-section $P_{22}$', fontsize=fontsize)
     axs[4, 2].legend()
     # pos = axs[4, 2].get_position()
     # axs[4, 2].set_position([pos.x0, pos.y0, pos.width * 0.8, pos.height * 0.8])
@@ -1203,17 +1203,17 @@ def plot_paper_triple2(topology_field:tuple[np.array, np.array, np.array], shape
     im = axs[5, 0].imshow(ifol_sxy_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma',
                           vmin=fe_sxy_zssr.min(), vmax=fe_sxy_zssr.max())
     axs[5, 0].set_xticks([]); axs[5, 0].set_yticks([])
-    axs[5, 0].set_title(f'$\\sigma_{{xy}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[5, 0].set_title(f'$P_{{12}}$, iFOL {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[5, 0], pad=0.02, shrink=0.7)
 
     im = axs[5, 1].imshow(fe_sxy_zssr.reshape(N_zssr2, N_zssr2), cmap='plasma')
     axs[5, 1].set_xticks([]); axs[5, 1].set_yticks([])
-    axs[5, 1].set_title(f'$\\sigma_{{xy}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
+    axs[5, 1].set_title(f'$P_{{12}}$, HFEM {N[2]}x{N[2]}', fontsize=fontsize)
     fig.colorbar(im, ax=axs[5, 1], pad=0.02, shrink=0.7)
 
     axs[5, 2].plot(np.linspace(0, L, N_zssr2), stress_xy_cross_fem, label='HFEM', color='r')
     axs[5, 2].plot(np.linspace(0, L, N_zssr2), stress_xy_cross_ifol, label='iFOL', color='b')
-    axs[5, 2].set_title('Cross-section $\\sigma_{xy}$', fontsize=fontsize)
+    axs[5, 2].set_title('Cross-section $P_{12}$', fontsize=fontsize)
     axs[5, 2].legend()
     # pos = axs[5, 2].get_position()
     # axs[5, 2].set_position([pos.x0, pos.y0, pos.width * 0.8, pos.height * 0.8])

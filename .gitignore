@@ -19,3 +19,4 @@ requirements.txt
 *.stl
 *.pkl
 *.xlsx
+mechanical_2d_base_from_ifol_meta*/
