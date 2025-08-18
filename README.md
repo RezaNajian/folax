@@ -1,36 +1,38 @@
-<p align=center><img height="32.125%" width="32.125%" src="https://github.com/RezaNajian/FOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
+<p align=center><img height="64.125%" width="64.125%" src="https://github.com/RezaNajian/eFOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
 
 [![License][license-image]][license] [![CI](https://github.com/RezaNajian/FOL/actions/workflows/ci.yml/badge.svg)](https://github.com/RezaNajian/FOL/actions/workflows/ci.yml)
 
 [license-image]: https://img.shields.io/badge/license-BSD-green.svg?style=flat
 [license]: https://github.com/RezaNajian/FOL/LICENSE
 
-# FOL: Efficient Solution and Optimization of PDEs
-Finite Operator Learning (FOL) combines neural operators, physics-informed machine learning, and classical numerical methods to solve and optimize parametrically defined partial differential equations (PDEs). In essence, FOL directly utilizes the discretized residuals of governing equations during the backpropagation step of training, enabling the integration of traditional numerical methods—such as finite element methods (FEM). The advantages of this approach are thoroughly studied and detailed in FOL's publication.
+# FOL: Solution and Optimization of parameterized PDEs
+**F**inite **O**perator **L**earning constitutes a unified numerical framework that seamlessly integrates established numerical methods with advanced scientific machine learning techniques for solving and optimizing parametrized partial differential equations (PDEs).  In constructing a physics-informed operator learning approach, FOL formulates a purely physics-based loss function derived from the Method of Weighted Residuals, allowing discrete residuals—computed using classical PDE solution techniques—to be directly incorporated into backpropagation during network training. This approach ensures that the learned operators rigorously satisfy the underlying governing equations while maintaining consistency with established numerical discretizations. Importantly, this loss formulation is agnostic to the network architecture and has been successfully applied to architectures such as Conditional Neural Fields, Fourier Neural Operators (FNO), and DeepONets. 
 
-# Main Features
-- Python-based framework built on [JAX](https://github.com/jax-ml/jax), leveraging key features like auto-vectorization with [jax.vmap()](https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html#jax.vmap), just-in-time compilation with [jax.jit()](https://jax.readthedocs.io/en/latest/_autosummary/jax.jit.html#jax.jit), and automatic differentiation with [jax.grad()](https://jax.readthedocs.io/en/latest/_autosummary/jax.grad.html#jax.grad) for high-efficiency computations on CPUs, GPUs, and TPUs. This framework integrates seamlessly with [Flax](https://github.com/google/flax?tab=readme-ov-file) for building modular and flexible neural networks, [Optax](https://github.com/google-deepmind/optax) for applying state-of-the-art gradient-based optimization algorithms, and [Orbax](https://github.com/google/orbax) for efficient checkpointing and serialization, ensuring scalability and ease of use in large-scale training processes.
-- Easily implement the weak form of desired PDEs in Python; the framework handles the rest for highly efficient neural operator learning, PINNs, and finite element simulations.
-- FOL utilizes the [mesh_io](https://github.com/nschloe/meshio) library for seamless mesh and result file handling, and [PETSc4py](https://petsc.org/release/) for efficiently solving large-scale linear systems.
+FOL has been applied in the following scientific studies:
+- A Physics-Informed Meta-Learning Framework for the Continuous Solution of Parametric PDEs on Arbitrary Geometries [[arXiv](https://arxiv.org/abs/2504.02459)].
+- Finite Operator Learning: Bridging Neural Operators and Numerical Methods for Efficient Parametric Solution and Optimization of PDEs [[arXiv](https://arxiv.org/abs/2407.04157)].
+- Digitalizing metallic materials from image segmentation to multiscale solutions via physics informed operator learning [[npj Computational Materials](https://www.nature.com/articles/s41524-025-01718-y)].
+- A Finite Operator Learning Technique for Mapping the Elastic Properties of Microstructures to Their Mechanical Deformations [[Numerical Methods in Eng.](https://onlinelibrary.wiley.com/doi/full/10.1002/nme.7637)].
+- SPiFOL: A Spectral-based physics-informed finite operator learning for prediction of mechanical behavior of microstructures [[J. Mechanics and Physics of Solids](https://www.sciencedirect.com/science/article/pii/S0022509625001954)].
 
-# Installation Guide
-To install FOL, follow these steps:
-   ```sh
-   git clone https://github.com/RezaNajian/FOL.git
-   cd FOL
-   python3 setup.py sdist bdist_wheel
-   pip install -e .
-   ```
-To run the tests:
-   ```sh
-   pytest -s tests/
-   ```
-To run the examples:
-   ```sh
-   cd examples
-   python3 examples_runner.py
-   ```
-# How to cite FOL?
-Please, use the following references when citing FOL in your work.
-- [Shahed Rezaei, Reza Najian Asl, Kianoosh Taghikhani, Ahmad Moeineddin, Michael Kaliske, and Markus Apel. "Finite Operator Learning: Bridging Neural Operators and Numerical Methods for Efficient Parametric Solution and Optimization of PDEs." arXiv preprint arXiv:2407.04157 (2024).](https://arxiv.org/pdf/2407.04157)
-- [Shahed Rezaei, Reza Najian Asl, Shirko Faroughi, Mahdi Asgharzadeh, Ali Harandi, Rasoul Najafi Koopas, Gottfried Laschet, Stefanie Reese, Markus Apel. "A finite operator learning technique for mapping the elastic properties of microstructures to their mechanical deformations." arXiv preprint arXiv:2404.00074 (2024)](https://arxiv.org/pdf/2404.00074)
+We built upon several widely adopted Python packages, including [JAX](https://github.com/jax-ml/jax) for high-performance array computations on CPUs and GPUs, [PETSc](https://petsc.org/release/) for the efficient solution of large-scale linear systems, [Metis](https://github.com/KarypisLab/METIS) for mesh partitioning (integration forthcoming), [Flax](https://github.com/google/flax?tab=readme-ov-file) for constructing modular and flexible neural networks, [Optax](https://github.com/google-deepmind/optax) for applying state-of-the-art gradient-based optimization algorithms, and [Orbax](https://github.com/google/orbax) for efficient checkpointing and serialization. This foundation ensures scalability, computational efficiency, and ease of use in large-scale training and simulation workflows.
+
+## Installation
+### CPU installation 
+To install fol using pip (recommended) for CPU usage you can type the following command
+
+``pip install fol[cpu]``
+
+### GPU installation
+To install fol using pip (recommended) for GPU usage you can type the following command
+
+``pip install fol[cuda]``
+
+### Developer installation
+If you would like to do development in fol, please first clone the repo and in the fol folder, run the following command
+
+``pip install -e .[cuda,dev]``
+
+## Contributing
+If you would like to contribute to the project, please open a pull request with small changes. If you would like to see big changes in the source code, please open an issue or discussion so we can start a conversation.
+
