@@ -1,6 +1,7 @@
 <p align=center><img height="64.125%" width="64.125%" src="https://github.com/RezaNajian/eFOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
 
-[![License][license-image]][license] [![CI](https://github.com/RezaNajian/FOL/actions/workflows/ci.yml/badge.svg)](https://github.com/RezaNajian/FOL/actions/workflows/ci.yml)
+[![License][license-image]][license] 
+[![CI](https://github.com/RezaNajian/FOL/actions/workflows/CI.yml/badge.svg)](https://github.com/RezaNajian/FOL/actions/workflows/CI.yml)
 
 [license-image]: https://img.shields.io/badge/license-BSD-green.svg?style=flat
 [license]: https://github.com/RezaNajian/FOL/LICENSE
