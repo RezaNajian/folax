@@ -15,3 +15,23 @@ FOL includes the following algorithms:
   - A Finite Operator Learning Technique for Mapping the Elastic Properties of Microstructures to Their Mechanical Deformations [[Numerical Methods in Eng.](https://onlinelibrary.wiley.com/doi/full/10.1002/nme.7637)].
 
 We built upon several widely adopted Python packages, including [JAX](https://github.com/jax-ml/jax) for high-performance array computations on CPUs and GPUs, [PETSc](https://petsc.org/release/) for the efficient solution of large-scale linear systems, [Metis](https://github.com/KarypisLab/METIS) for mesh partitioning (integration forthcoming), [Flax](https://github.com/google/flax?tab=readme-ov-file) for constructing modular and flexible neural networks, [Optax](https://github.com/google-deepmind/optax) for applying state-of-the-art gradient-based optimization algorithms, and [Orbax](https://github.com/google/orbax) for efficient checkpointing and serialization. This foundation ensures scalability, computational efficiency, and ease of use in large-scale training and simulation workflows.
+
+## Installation
+### CPU installation 
+To install fol using pip (recommended) for CPU usage you can type the following command
+
+``pip install fol[cpu]``
+
+### GPU installation
+To install fol using pip (recommended) for GPU usage you can type the following command
+
+``pip install fol[cuda]``
+
+### Developer installation
+If you would like to do development in fol, please first clone the repo and in the fol folder, run the following command
+
+``pip install -e .[cuda,dev]``
+
+## Contributing
+If you would like to contribute to the project, please open a pull request with small changes. If you would like to see big changes in the source code, please open an issue or discussion so we can start a conversation.
+
