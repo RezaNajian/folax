@@ -26,7 +26,7 @@ jobs:
         python -m venv venv
         . venv/bin/activate
         pip install .[dev]
-        pytest test --cov=pancax --cov-report=xml --cov-report=term
+        pytest tests --cov=fol --cov-report=xml --cov-report=term
     - name: codecov
       uses: codecov/codecov-action@v4
       with:
