@@ -1,7 +1,5 @@
 name: CI
 on:
-  push:
-    branches: [ "prepare_for_release" ]
   pull_request:
     branches: main
 jobs:
