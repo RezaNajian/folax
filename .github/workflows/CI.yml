@@ -31,10 +31,10 @@ jobs:
         . venv/bin/activate
         pip install .[dev]
         pytest tests --cov=fol --cov-report=xml --cov-report=term
-    - name: codecov
-      uses: codecov/codecov-action@v4
-      with:
-        files: ./coverage.xml
-        flags: unittests
-        fail_ci_if_error: true
-        token: ${{ secrets.CODECOV_TOKEN }}
+    #- name: codecov
+    #  uses: codecov/codecov-action@v4
+    #  with:
+    #    files: ./coverage.xml
+    #    flags: unittests
+    #    fail_ci_if_error: true
+    #    token: ${{ secrets.CODECOV_TOKEN }}
