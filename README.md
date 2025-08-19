@@ -7,7 +7,7 @@
 [license]: https://github.com/RezaNajian/FOL/LICENSE
 
 # Folax: Solution and Optimization of parameterized PDEs
-**F**inite **O**perator **L**earning with [**JAX**](https://github.com/jax-ml/jax) constitutes a unified numerical framework that seamlessly integrates established numerical methods with advanced scientific machine learning techniques for solving and optimizing parametrized partial differential equations (PDEs).  In constructing a physics-informed operator learning approach, FOL formulates a purely physics-based loss function derived from the Method of Weighted Residuals, allowing discrete residuals—computed using classical PDE solution techniques—to be directly incorporated into backpropagation during network training. This approach ensures that the learned operators rigorously satisfy the underlying governing equations while maintaining consistency with established numerical discretizations. Importantly, this loss formulation is agnostic to the network architecture and has been successfully applied to architectures such as Conditional Neural Fields, Fourier Neural Operators (FNO), and DeepONets. 
+**F**inite **O**perator **L**earning (FOL) with [**JAX**](https://github.com/jax-ml/jax) constitutes a unified numerical framework that seamlessly integrates established numerical methods with advanced scientific machine learning techniques for solving and optimizing parametrized partial differential equations (PDEs).  In constructing a physics-informed operator learning approach, FOL formulates a purely physics-based loss function derived from the Method of Weighted Residuals, allowing discrete residuals—computed using classical PDE solution techniques—to be directly incorporated into backpropagation during network training. This approach ensures that the learned operators rigorously satisfy the underlying governing equations while maintaining consistency with established numerical discretizations. Importantly, this loss formulation is agnostic to the network architecture and has been successfully applied to architectures such as Conditional Neural Fields, Fourier Neural Operators (FNO), and DeepONets. 
 
 FOL has been applied in the following scientific studies:
 - A Physics-Informed Meta-Learning Framework for the Continuous Solution of Parametric PDEs on Arbitrary Geometries [[arXiv](https://arxiv.org/abs/2504.02459)].
@@ -20,17 +20,17 @@ We built upon several widely adopted Python packages, including [JAX](https://gi
 
 ## Installation
 ### CPU installation 
-To install fol using pip (recommended) for CPU usage you can type the following command
+To install folax using pip (recommended) for CPU usage you can type the following command
 
-``pip install fol[cpu]``
+``pip install folax[cpu]``
 
 ### GPU installation
-To install fol using pip (recommended) for GPU usage you can type the following command
+To install folax using pip (recommended) for GPU usage you can type the following command
 
-``pip install fol[cuda]``
+``pip install folax[cuda]``
 
 ### Developer installation
-If you would like to do development in fol, please first clone the repo and in the fol folder, run the following command
+If you would like to do development in folax, please first clone the repo and in the folax folder, run the following command
 
 ``pip install -e .[cuda,dev]``
 
