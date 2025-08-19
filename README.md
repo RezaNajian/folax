@@ -1,13 +1,13 @@
-<p align=center><img height="64.125%" width="64.125%" src="https://github.com/RezaNajian/eFOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
+<p align=center><img height="54.125%" width="54.125%" src="https://github.com/RezaNajian/eFOL/assets/62375973/0e1ca4e0-0658-4f5d-aad9-1ae7c9f67574"></p>
 
 [![License][license-image]][license] 
-[![CI](https://github.com/RezaNajian/FOL/actions/workflows/CI.yml/badge.svg)](https://github.com/RezaNajian/FOL/actions/workflows/CI.yml)
+[![CI](https://github.com/RezaNajian/folax/actions/workflows/CI.yml/badge.svg)](https://github.com/RezaNajian/folax/actions/workflows/CI.yml)
 
 [license-image]: https://img.shields.io/badge/license-BSD-green.svg?style=flat
 [license]: https://github.com/RezaNajian/FOL/LICENSE
 
-# FOL: Solution and Optimization of parameterized PDEs
-**F**inite **O**perator **L**earning constitutes a unified numerical framework that seamlessly integrates established numerical methods with advanced scientific machine learning techniques for solving and optimizing parametrized partial differential equations (PDEs).  In constructing a physics-informed operator learning approach, FOL formulates a purely physics-based loss function derived from the Method of Weighted Residuals, allowing discrete residuals—computed using classical PDE solution techniques—to be directly incorporated into backpropagation during network training. This approach ensures that the learned operators rigorously satisfy the underlying governing equations while maintaining consistency with established numerical discretizations. Importantly, this loss formulation is agnostic to the network architecture and has been successfully applied to architectures such as Conditional Neural Fields, Fourier Neural Operators (FNO), and DeepONets. 
+# Folax: Solution and Optimization of parameterized PDEs
+**F**inite **O**perator **L**earning with [**JAX**](https://github.com/jax-ml/jax) constitutes a unified numerical framework that seamlessly integrates established numerical methods with advanced scientific machine learning techniques for solving and optimizing parametrized partial differential equations (PDEs).  In constructing a physics-informed operator learning approach, FOL formulates a purely physics-based loss function derived from the Method of Weighted Residuals, allowing discrete residuals—computed using classical PDE solution techniques—to be directly incorporated into backpropagation during network training. This approach ensures that the learned operators rigorously satisfy the underlying governing equations while maintaining consistency with established numerical discretizations. Importantly, this loss formulation is agnostic to the network architecture and has been successfully applied to architectures such as Conditional Neural Fields, Fourier Neural Operators (FNO), and DeepONets. 
 
 FOL has been applied in the following scientific studies:
 - A Physics-Informed Meta-Learning Framework for the Continuous Solution of Parametric PDEs on Arbitrary Geometries [[arXiv](https://arxiv.org/abs/2504.02459)].
