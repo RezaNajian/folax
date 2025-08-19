@@ -1,5 +1,5 @@
 [project]
-name = 'JAX-FOL'
+name = 'folax'
 version = '0.0.1'
 requires-python = ">=3.10"
 authors = [
@@ -40,5 +40,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = [
-  'fol'
+  'folax'
 ]
