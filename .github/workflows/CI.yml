@@ -1,5 +1,7 @@
 name: CI
 on:
+  push:
+    branches: [ "finalize_first_realse" ]
   pull_request:
     branches: main
 jobs:
