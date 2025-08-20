@@ -33,7 +33,8 @@ cuda = [
 ]
 dev = [
   'pytest',
-  'pytest-cov'
+  'pytest-cov',
+  'pytest-xdist'
 ]
 
 [build-system]
@@ -43,4 +44,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = [
   'fol'
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no coverage",
+  "if __name__ == '__main__'",
+  "def main",
+  "def __repr__",
+  "pass"
 ]
