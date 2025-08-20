@@ -2,7 +2,7 @@
 
 [![License][license-image]][license] 
 [![CI](https://github.com/RezaNajian/folax/actions/workflows/CI.yml/badge.svg)](https://github.com/RezaNajian/folax/actions/workflows/CI.yml)
-[![PyPI version](https://badge.fury.io/py/folax.svg)](https://pypi.org/project/folax/)
+[![PyPI version](https://img.shields.io/pypi/v/folax.svg)](https://pypi.org/project/folax/)
 
 
 [license-image]: https://img.shields.io/badge/license-BSD-green.svg?style=flat
