@@ -122,6 +122,11 @@ class MechanicalLoss(FiniteElementLoss):
         element_residuals = jax.lax.stop_gradient(Se @ uvwe - Fe)
         return  ((uvwe.T @ element_residuals)[0,0]), (Se @ uvwe - Fe), Se
 
+
+    def ComputeElementStressAtGauss(self,xyze,de,uvwe):
+        pass
+
+    
 class MechanicalLoss3DTetra(MechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,

@@ -307,8 +307,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             P = self.material_model.TensorToVoigt(P)
             return P.flatten()
         gp_points,_ = self.fe_element.GetIntegrationData()
-        stress_gp_elem = jax.vmap(compute_at_gauss_point,in_axes=(0,))(gp_points)
-        return stress_gp_elem
+        stress_at_gauss = jax.vmap(compute_at_gauss_point,in_axes=(0,))(gp_points)
+        return stress_at_gauss
 
 class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):

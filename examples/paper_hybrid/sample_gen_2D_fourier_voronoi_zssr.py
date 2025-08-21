@@ -20,13 +20,13 @@ from fol.tools.decoration_functions import *
 def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
 
     # directory & save handling
-    working_directory_name = "sample_gen_2D_fourier_voronoi_res_141_for_multi"
+    working_directory_name = "sample_gen_2D_fourier_res_21_phase_contract_2e-2"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
     # problem setup
-    model_settings = {"L":1,"N":141,
+    model_settings = {"L":1,"N":21,
                     "Ux_left":0.0,"Ux_right":0.1,
                     "Uy_left":0.0,"Uy_right":0.1}
 
@@ -50,7 +50,7 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
     # define settings to create K_matrix samples
     # fourier control
     fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
-                                "beta":20,"min":1e-1,"max":1}
+                                "beta":20,"min":2e-2,"max":1}
     fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
     fourier_control.Initialize()
 
@@ -66,10 +66,10 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
     # fourier samples
     
     mixed_fourier_sample_dict_new = {}
-    file_path_base = f"ifol_fourier_test_samples_res_81.pkl"
+    file_path_base = f".\\sample_gen_data\\ifol_fourier_test_samples_res_21.pkl"
     with open(file_path_base, 'rb') as f:
             mixed_fourier_sample_dict_base = pickle.load(f)
-    file_path = os.path.join(case_dir,f"ifol_fourier_test_samples_res_{model_settings['N']}.pkl")
+    file_path = os.path.join(case_dir,f"ifol_fourier_test_samples_res_{model_settings['N']}_phase_contrast_2e-2.pkl")
 
     # create new samples?
     confirm = "y"
@@ -78,7 +78,8 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
             i = 1
             for _ in list(mixed_fourier_sample_dict_base.keys()):
                 mixed_fourier_sample_dict_new[f"series_{i}"] = {}
-                fourier_control_settings_copy = mixed_fourier_sample_dict_base[f"series_{i}"]["settings"]
+                fourier_control_settings_copy = mixed_fourier_sample_dict_base[f"series_{i}"]["settings"].copy()
+                fourier_control_settings_copy.update({"min":2e-2})
                 coeffs_matrix = mixed_fourier_sample_dict_base[f"series_{i}"]["coeffs_matrix"]
                 fourier_control = FourierControl("fourier_control",fourier_control_settings_copy,fe_mesh)
                 fourier_control.Initialize()
@@ -103,36 +104,35 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
     voronoi_control.Initialize()
 
     seed_list = [16,32,64,128]
-    file_path_base = f"ifol_voronoi_test_samples_res_41.pkl"
+    file_path_base = f".\\sample_gen_data\\ifol_voronoi_test_samples_res_41.pkl"
     with open(file_path_base, 'rb') as f:
             voronoi_sample_dict_base = pickle.load(f)
 
-    file_path = os.path.join(case_dir,f"ifol_voronoi_test_samples_res_{model_settings['N']}.pkl")
+    file_path = os.path.join(case_dir,f"ifol_voronoi_test_samples_res_{model_settings['N']}_phase_contrast_2e-1.pkl")
     voronoi_sample_dict_new = {}
 
-    confirm = "y"
-    if confirm == "y":
-        with open (file_path, 'wb') as f:
-            i = 1
-            for _ in list(voronoi_sample_dict_base.keys()):
-                voronoi_sample_dict_new[f"series_{i}"] = {}
-                voronoi_control_settings_copy = voronoi_sample_dict_base[f"series_{i}"]["settings"]
-                coeffs_matrix = voronoi_sample_dict_base[f"series_{i}"]["coeffs_matrix"]
-                voronoi_control = VoronoiControl2D("first_voronoi_control",voronoi_control_settings_copy,fe_mesh)
-                voronoi_control.Initialize()
-                K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
-                coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["K_matrix"] = K_matrix
-                coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["coeffs_matrix"] = coeffs_matrix
-                coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["settings"] = voronoi_control_settings_copy
-                i += 1
-            pickle.dump(voronoi_sample_dict_new,f)
-            fol_info(f"{file_path} saved successfully!")
-    elif confirm == "n":
-        with open(file_path, 'rb') as f:
-            voronoi_sample_dict_new = pickle.load(f)
-        fol_info(f"The file {file_path} loaded!")
-    else:
-        fol_info("Invalid input. Please enter Y or N.")
+    # confirm = "y"
+    # if confirm == "y":
+    #     with open (file_path, 'wb') as f:
+    #         i = 1
+    #         for _ in list(voronoi_sample_dict_base.keys()):
+    #             voronoi_sample_dict_new[f"series_{i}"] = {}
+    #             voronoi_control_settings_copy = voronoi_sample_dict_base[f"series_{i}"]["settings"].copy()
+    #             voronoi_control = VoronoiControl2D("first_voronoi_control",voronoi_control_settings_copy,fe_mesh)
+    #             voronoi_control.Initialize()
+    #             K_matrix = voronoi_control.ComputeBatchControlledVariables(coeffs_matrix)
+    #             coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["K_matrix"] = K_matrix
+    #             coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["coeffs_matrix"] = coeffs_matrix
+    #             coeffs_matrix = voronoi_sample_dict_new[f"series_{i}"]["settings"] = voronoi_control_settings_copy
+    #             i += 1
+    #         pickle.dump(voronoi_sample_dict_new,f)
+    #         fol_info(f"{file_path} saved successfully!")
+    # elif confirm == "n":
+    #     with open(file_path, 'rb') as f:
+    #         voronoi_sample_dict_new = pickle.load(f)
+    #     fol_info(f"The file {file_path} loaded!")
+    # else:
+    #     fol_info("Invalid input. Please enter Y or N.")
     
     # voronoi multi phase samples
     voronoi_multi_control_settings = {"number_of_seeds":25,"E_values":(0.1,1.)}
@@ -140,36 +140,36 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
     voronoi_multi_control.Initialize()
 
     seed_list = [16,32,64,128]
-    file_path_base_multi = f"ifol_voronoi_multi_test_samples_res_21.pkl"
+    file_path_base_multi = f".\\sample_gen_data\\ifol_voronoi_multi_test_samples_res_21.pkl"
     with open(file_path_base_multi, 'rb') as f:
             voronoi_multi_sample_dict_base = pickle.load(f)
 
-    file_path = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_res_{model_settings['N']}.pkl")
+    file_path = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_res_{model_settings['N']}_phase_contrast_05.pkl")
     voronoi_multi_sample_dict_new = {}
 
-    confirm = "y"
-    if confirm == "y":
-        with open (file_path, 'wb') as f:
-            i = 1
-            for _ in list(voronoi_multi_sample_dict_base.keys()):
-                voronoi_multi_sample_dict_new[f"series_{i}"] = {}
-                voronoi_multi_control_settings_copy = voronoi_multi_sample_dict_base[f"series_{i}"]["settings"]
-                coeffs_matrix = voronoi_multi_sample_dict_base[f"series_{i}"]["coeffs_matrix"]
-                voronoi_multi_control = VoronoiControl2D("first_voronoi_control",voronoi_multi_control_settings_copy,fe_mesh)
-                voronoi_multi_control.Initialize()
-                K_matrix = voronoi_multi_control.ComputeBatchControlledVariables(coeffs_matrix)
-                coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["K_matrix"] = K_matrix
-                coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["coeffs_matrix"] = coeffs_matrix
-                coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["settings"] = voronoi_multi_control_settings_copy
-                i += 1
-            pickle.dump(voronoi_multi_sample_dict_new,f)
-            fol_info(f"{file_path} saved successfully!")
-    elif confirm == "n":
-        with open(file_path, 'rb') as f:
-            voronoi_multi_sample_dict_new = pickle.load(f)
-        fol_info(f"The file {file_path} loaded!")
-    else:
-        fol_info("Invalid input. Please enter Y or N.")
+    # confirm = "y"
+    # if confirm == "y":
+    #     with open (file_path, 'wb') as f:
+    #         i = 1
+    #         for _ in list(voronoi_multi_sample_dict_base.keys()):
+    #             voronoi_multi_sample_dict_new[f"series_{i}"] = {}
+    #             voronoi_multi_control_settings_copy = voronoi_multi_sample_dict_base[f"series_{i}"]["settings"].copy()
+    #             coeffs_matrix = voronoi_multi_sample_dict_base[f"series_{i}"]["coeffs_matrix"]
+    #             voronoi_multi_control = VoronoiControl2D("first_voronoi_control",voronoi_multi_control_settings_copy,fe_mesh)
+    #             voronoi_multi_control.Initialize()
+    #             K_matrix = voronoi_multi_control.ComputeBatchControlledVariables(coeffs_matrix)
+    #             coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["K_matrix"] = K_matrix
+    #             coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["coeffs_matrix"] = coeffs_matrix
+    #             coeffs_matrix = voronoi_multi_sample_dict_new[f"series_{i}"]["settings"] = voronoi_multi_control_settings_copy
+    #             i += 1
+    #         pickle.dump(voronoi_multi_sample_dict_new,f)
+    #         fol_info(f"{file_path} saved successfully!")
+    # elif confirm == "n":
+    #     with open(file_path, 'rb') as f:
+    #         voronoi_multi_sample_dict_new = pickle.load(f)
+    #     fol_info(f"The file {file_path} loaded!")
+    # else:
+    #     fol_info("Invalid input. Please enter Y or N.")
     
     index = 1
     N = model_settings["N"]
@@ -201,28 +201,28 @@ def main(solve_FE=False,ifol_num_epochs=10,clean_dir=False):
             plt.savefig(f"{file_name}_{series}_res_{model_settings['N']}.png", dpi=300)
             plt.close(fig)
 
-    plot_random_K_matrix(sample_dict=mixed_fourier_sample_dict_new,file_name=os.path.join(case_dir,"plot_fourier"))
-    plot_random_K_matrix(sample_dict=voronoi_sample_dict_new,file_name=os.path.join(case_dir,"plot_voronoi"))
-    plot_random_K_matrix(sample_dict=voronoi_multi_sample_dict_new,file_name=os.path.join(case_dir,"plot_voronoi_multi"))
+    # plot_random_K_matrix(sample_dict=mixed_fourier_sample_dict_new,file_name=os.path.join(case_dir,"plot_fourier"))
+    # plot_random_K_matrix(sample_dict=voronoi_sample_dict_new,file_name=os.path.join(case_dir,"plot_voronoi"))
+    # plot_random_K_matrix(sample_dict=voronoi_multi_sample_dict_new,file_name=os.path.join(case_dir,"plot_voronoi_multi"))
 
 
     fourier_coeffs_matrix, fourier_K_matrix = fourier_to_K_matrix(mixed_fourier_sample_dict_new)
-    fourier_file = os.path.join(case_dir,f"ifol_fourier_test_samples_K_matrix_res_{model_settings['N']}.txt")
-    fourier_file_coeffs = os.path.join(case_dir,f"ifol_fourier_test_samples_coeffs_matrix_res_{model_settings['N']}.txt")
+    fourier_file = os.path.join(case_dir,f"ifol_fourier_test_samples_K_matrix_res_{model_settings['N']}_phase_contrast_2e-2.txt")
+    fourier_file_coeffs = os.path.join(case_dir,f"ifol_fourier_test_samples_coeffs_matrix_res_{model_settings['N']}_phase_contrast_2e-2.txt")
     np.savetxt(fourier_file, fourier_K_matrix)
     np.savetxt(fourier_file_coeffs, fourier_coeffs_matrix)
 
-    voronoi_coeffs_matrix, voronoi_K_matrix = voronoi_to_K_matrix(voronoi_sample_dict_new)
-    voronoi_file = os.path.join(case_dir,f"ifol_voronoi_test_samples_K_matrix_res_{model_settings['N']}.txt")
-    voronoi_file_coeffs = os.path.join(case_dir,f"ifol_voronoi_test_samples_coeffs_matrix_res_{model_settings['N']}.txt")
-    np.savetxt(voronoi_file, voronoi_K_matrix)
-    np.savetxt(voronoi_file_coeffs, voronoi_coeffs_matrix)
+    # voronoi_coeffs_matrix, voronoi_K_matrix = voronoi_to_K_matrix(voronoi_sample_dict_new)
+    # voronoi_file = os.path.join(case_dir,f"ifol_voronoi_test_samples_K_matrix_res_{model_settings['N']}.txt")
+    # voronoi_file_coeffs = os.path.join(case_dir,f"ifol_voronoi_test_samples_coeffs_matrix_res_{model_settings['N']}.txt")
+    # np.savetxt(voronoi_file, voronoi_K_matrix)
+    # np.savetxt(voronoi_file_coeffs, voronoi_coeffs_matrix)
 
-    voronoi_multi_coeffs_matrix, voronoi_multi_K_matrix = voronoi_to_K_matrix(voronoi_multi_sample_dict_new)
-    voronoi_multi_file = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_K_matrix_res_{model_settings['N']}.txt")
-    voronoi_multi_file_coeffs = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_coeffs_matrix_res_{model_settings['N']}.txt")
-    np.savetxt(voronoi_multi_file, voronoi_multi_K_matrix)
-    np.savetxt(voronoi_multi_file_coeffs, voronoi_multi_coeffs_matrix)
+    # voronoi_multi_coeffs_matrix, voronoi_multi_K_matrix = voronoi_to_K_matrix(voronoi_multi_sample_dict_new)
+    # voronoi_multi_file = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_K_matrix_res_{model_settings['N']}.txt")
+    # voronoi_multi_file_coeffs = os.path.join(case_dir,f"ifol_voronoi_multi_test_samples_coeffs_matrix_res_{model_settings['N']}.txt")
+    # np.savetxt(voronoi_multi_file, voronoi_multi_K_matrix)
+    # np.savetxt(voronoi_multi_file_coeffs, voronoi_multi_coeffs_matrix)
 
     if clean_dir:
         shutil.rmtree(case_dir)

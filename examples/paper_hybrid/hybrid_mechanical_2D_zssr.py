@@ -83,8 +83,9 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
     # K_matrix = np.array(K_matrix_all)
     # fol_info(f"K_matrix shape loaded from {file_path}: {K_matrix.shape}")
 
+    phase_contrast = 0.5
     #### load a txt file:
-    fourier_file = os.path.join(data_dir,f"ifol_fourier_test_samples_K_matrix_res_{model_settings['N']}.txt")
+    fourier_file = os.path.join(data_dir,f"ifol_fourier_test_samples_K_matrix_res_{model_settings['N']}_phase_contrast_{phase_contrast}.txt")
     voronoi_file = os.path.join(data_dir,f"ifol_voronoi_test_samples_K_matrix_res_{model_settings['N']}.txt")
     tpms_file = os.path.join(data_dir,f"ifol_tpms_test_samples_K_matrix_res_{model_settings['N']}.txt")
     voronoi_multi_file = os.path.join(data_dir,f"ifol_voronoi_multi_test_samples_K_matrix_res_{model_settings['N']}.txt")
@@ -92,18 +93,27 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
 
     K_matrix_fourier = np.loadtxt(fourier_file)
     K_matrix_voronoi = np.loadtxt(voronoi_file)
+    for i in range(K_matrix_voronoi.shape[0]):
+        K_matrix_voronoi[i,:] = np.where(K_matrix_voronoi[i,:] < 1., phase_contrast, 1.)
+
+    plt.imshow(K_matrix_voronoi[1,:].reshape(81,81))
+    plt.show()
     K_matrix_tpms = np.loadtxt(tpms_file)
-    K_matrix_voronoi_multi = np.loadtxt(voronoi_multi_file)
+    for i in range(K_matrix_tpms.shape[0]):
+        K_matrix_tpms[i,:] = np.where(K_matrix_tpms[i,:] < 1., phase_contrast, 1.)
+    plt.imshow(K_matrix_tpms[1,:].reshape(81,81))
+    plt.show()
+    # K_matrix_voronoi_multi = np.loadtxt(voronoi_multi_file)
 
     K_matrix_1 = np.vstack((K_matrix_fourier,K_matrix_voronoi))
-    K_matrix_2 = np.vstack((K_matrix_1, K_matrix_tpms))
-    K_matrix = np.vstack((K_matrix_2, K_matrix_voronoi_multi))
+    K_matrix = np.vstack((K_matrix_1, K_matrix_tpms))
+    # K_matrix = np.vstack((K_matrix_2, K_matrix_voronoi_multi))
 
     # load lower resolutions
-    with open(os.path.join(data_dir,"U_base_res_21_bc_0.5.pkl"), 'rb') as f:
+    with open(os.path.join(data_dir,f"U_base_res_21_bc_0.5_phase_contrast_{phase_contrast}.pkl"), 'rb') as f:
                 U_dict_base = pickle.load(f)
 
-    with open(os.path.join(data_dir,"U_base_res_41_bc_0.5.pkl"), 'rb') as f:
+    with open(os.path.join(data_dir,f"U_base_res_41_bc_0.5_phase_contrast_{phase_contrast}.pkl"), 'rb') as f:
                 U_dict_zssr1 = pickle.load(f)
 
 
@@ -206,24 +216,22 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
     # create a dir to save the results
     plot_directory_name = f"{working_directory_name}_outputs"
     output_dir = os.path.join('.', plot_directory_name)
-    create_clean_directory(plot_directory_name)
+    # create_clean_directory(plot_directory_name)
 
     iFOL_UVW = np.array(ifol.Predict(K_matrix))
     U_dict = {}
 
     for eval_id in range(K_matrix.shape[0]):
         if U_dict_zssr1.get(f"U_FE_41_{eval_id}") is not None:
+        # if True:
             if not np.allclose(U_dict_zssr1[f"U_FE_41_{eval_id}"], 0.):
+            # if True:
                 fol_info(f"########### sample {eval_id}")
                 ifol_uvw = np.array(iFOL_UVW[eval_id,:])
 
                 ifol_stress = get_stress(loss_function=mechanical_loss_2d, fe_mesh=fe_mesh,
                                             disp_field_vec=jnp.array(ifol_uvw), K_matrix=jnp.array(K_matrix[eval_id,:]))
                 
-                fe_mesh[f'iFOL_U_{model_settings["N"]}_{eval_id}'] = ifol_uvw.reshape((fe_mesh.GetNumberOfNodes(), 2))
-                fe_mesh[f'K_{model_settings["N"]}_{eval_id}'] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(),1))
-                fe_mesh[f'iFOL_stress_{model_settings["N"]}_{eval_id}'] = ifol_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
-
                 # solve FE here
                 if solve_FE:
                     # hybrid solver
@@ -248,6 +256,10 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
                         abs_stress_err = abs(fe_stress.reshape(-1,1) - ifol_stress.reshape(-1,1))
                         
 
+                        fe_mesh[f'iFOL_U_{model_settings["N"]}_{eval_id}'] = ifol_uvw.reshape((fe_mesh.GetNumberOfNodes(), 2))
+                        fe_mesh[f'K_{model_settings["N"]}_{eval_id}'] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(),1))
+                        fe_mesh[f'iFOL_stress_{model_settings["N"]}_{eval_id}'] = ifol_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
+                        
                         fe_mesh[f'FE_U_{model_settings["N"]}_{eval_id}'] = FE_H_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
                         fe_mesh[f'abs_U_{model_settings["N"]}_error_{eval_id}'] = abs_err.reshape((fe_mesh.GetNumberOfNodes(), 2))
                         fe_mesh[f'FE_stress_{model_settings["N"]}_{eval_id}'] = fe_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
@@ -263,9 +275,9 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
                         U_dict[f'Stress_iFOL_{model_settings["N"]}_{eval_id}'] = ifol_stress
                         U_dict[f'abs_error_{model_settings["N"]}_{eval_id}'] = abs_err
                         U_dict[f'abs_stress_error_{model_settings["N"]}_{eval_id}'] = abs_stress_err
-                        file_path = os.path.join(case_dir,f"U_base_res_{model_settings['N']}_bc_{model_settings['Ux_right']}.pkl")
-                        with open(file_path, 'wb') as f:
-                            pickle.dump(U_dict,f)
+                        # file_path = os.path.join(case_dir,f"U_base_res_{model_settings['N']}_bc_{model_settings['Ux_right']}_phase_contrast_{phase_contrast}_StressAtPoints.pkl")
+                        # with open(file_path, 'wb') as f:
+                        #     pickle.dump(U_dict,f)
 
                         
                         
@@ -297,8 +309,11 @@ def main(ifol_num_epochs=10,solve_FE=False,solve_FE_hybrid=False,clean_dir=False
                         fe_sol_field=(FE_base[::2], FE_zssr1[::2], FE_zssr2[::2]),
                         ifol_sol_field=(iFOL_base[::2], iFOL_zssr1[::2], iFOL_zssr2[::2]), 
                         sol_field_err=(err_base[::2], err_zssr1[::2], err_zssr2[::2]), 
-                        file_name=f"{plot_name}_res_{model_settings['N']}_{eval_id}.png",
+                        file_name=f"{plot_name}_res_{model_settings['N']}_{eval_id}_StressAtPoints.png",
                         fe_stress_field=fe_stress_zssr2, ifol_stress_field=ifol_stress_zssr2, stress_field_err=err_stress_zssr2)
+
+                        plot_name_2 = os.path.join(output_dir,"plot_paper2")
+                        plot_mesh_grad_res_mechanics(vectors_list=[K_matrix_zssr2,iFOL_zssr2,FE_zssr2], file_name=plot_name_2, loss_settings=material_dict)
 
 
     fe_mesh.Finalize(export_dir=case_dir)
