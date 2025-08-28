@@ -43,8 +43,12 @@ def test_find_best_and_derived_fields(tmp_vtk):
     p.mesh['K_1'] = np.full(p.mesh.n_points, 0.5)
     p.compute_derived_fields()
     expected_norm = np.linalg.norm([2,2,2])
-    np.testing.assert_allclose(p.mesh['U_FOL_mag'], expected_norm)
-    np.testing.assert_allclose(p.mesh['U_FE_mag'], expected_norm)
+
+    fol_mag_field = f"U_FOL_{p.best_id}_mag"
+    fe_mag_field  = f"U_FE_{p.best_id}_mag"
+
+    np.testing.assert_allclose(p.mesh[fol_mag_field], expected_norm)
+    np.testing.assert_allclose(p.mesh[fe_mag_field], expected_norm)
     np.testing.assert_allclose(p.mesh['abs_error'], 0.0)
 
 
