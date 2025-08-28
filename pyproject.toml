@@ -1,0 +1,56 @@
+[project]
+name = 'folax'
+version = '0.0.2'
+requires-python = ">=3.10"
+authors = [
+  {name = 'Reza Najian Asl, email = <reza.najian-asl@tum.de>'}
+]
+description = "A framework for solving and optimizing PDEs by integrating machine learning with numerical methods in computational mechanics."
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["Numerical-Simulation-Optimization", "PDE-Solver", "Scientific Machine Learning (SciML)", "Physics-Informed-Neural-Networks (PINNs)"]
+
+dependencies = [
+    'flax~=0.10.7',
+    'optax',   
+    'meshio',
+    'gmsh',
+    'matplotlib',
+    'tqdm',
+    'numpy',
+    'scipy',
+    'h5py',
+    'zarr',
+    'dask' 
+]
+
+[project.optional-dependencies]
+cpu = [
+  'jax~=0.6.2'
+]
+cuda = [
+  'jax[cuda12]~=0.6.2'
+]
+dev = [
+  'pytest',
+  'pytest-cov',
+  'pytest-xdist'
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  'fol'
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no coverage",
+  "if __name__ == '__main__'",
+  "def main",
+  "def __repr__",
+  "pass"
+]
