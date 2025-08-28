@@ -2,7 +2,7 @@ import pytest
 import os
 import numpy as np
 import pyvista as pv
-from fol.inference.plotter import Plotter3D
+from fol.tools.plotter import Plotter3D
 
 @pytest.fixture
 def tmp_vtk(tmp_path):
