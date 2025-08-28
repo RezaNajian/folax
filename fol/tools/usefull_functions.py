@@ -571,3 +571,224 @@ def UpdateDefaultDict(default_dict:dict,given_dict:dict):
     updated_dict = copy.deepcopy(default_dict)
     updated_dict.update(filtered_update)
     return updated_dict
+    
+    
+    
+    
+# -------------------------------------------------------------------------
+#  Dirichlet-BC helper: JAX-FEM torsion of a 1×1×1 cube
+# -------------------------------------------------------------------------
+import jax.numpy as jnp
+
+def build_twist_dirichlet(mesh,
+                          left_name="left",
+                          right_name="right",
+                          theta_deg=60.0):
+    """
+    Returns a bc_dict whose keys are *group names* (strings).
+    Each node on the left or right face is added to mesh.node_sets
+    as a group named str(node_id), so MechanicalLoss3DTetra can apply
+    a constant value per ‘group’ without any code changes.
+    """
+    # 1. node IDs & coordinates
+    left_ids  = mesh.GetNodeSet(left_name)
+    right_ids = mesh.GetNodeSet(right_name)
+    coords    = mesh.GetNodesCoordinates()
+
+    y, z  = coords[left_ids, 1], coords[left_ids, 2]
+    theta = jnp.deg2rad(theta_deg)
+    c, s  = jnp.cos(theta), jnp.sin(theta)
+
+    # 2. target positions after 60° rotation, then half-step
+    y_rot = 0.5 + (y - 0.5) * c - (z - 0.5) * s
+    z_rot = 0.5 + (y - 0.5) * s + (z - 0.5) * c
+
+    ux_left = jnp.zeros_like(y)
+    uy_left = 0.5 * (y_rot - y)
+    uz_left = 0.5 * (z_rot - z)
+
+    # 3. make one-node groups and build BC maps
+    bc_ux, bc_uy, bc_uz = {}, {}, {}
+    to_py = lambda v: float(v)
+
+    for nid, ux, uy, uz in zip(left_ids, ux_left, uy_left, uz_left):
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])    # create group
+        bc_ux[g] = to_py(ux)
+        bc_uy[g] = to_py(uy)
+        bc_uz[g] = to_py(uz)
+
+    # right face: all zeros
+    for nid in right_ids:
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])
+        bc_ux[g] = 0.0
+        bc_uy[g] = 0.0
+        bc_uz[g] = 0.0
+
+    return {"Ux": bc_ux, "Uy": bc_uy, "Uz": bc_uz}
+
+
+
+# -------------------------------------------------------------------------
+#  Dirichlet-BC helper: uniform stretch / compression for a 1×1×1 cube
+# -------------------------------------------------------------------------
+import jax.numpy as jnp
+
+def build_uniform_stretch_dirichlet(mesh,
+                                    left_name="left",
+                                    right_name="right",
+                                    stretch_pct=5.0,
+                                    axis="x",
+                                    half_step=True):
+    """
+    Parameters
+    ----------
+    mesh : FOL mesh object with GetNodeSet() & GetNodesCoordinates().
+    left_name, right_name : str
+        Opposite faces (node-set names) between which the stretch is applied.
+        The *right* face is kept fixed (all zeros), the *left* face is displaced.
+    stretch_pct : float
+        Percentage of stretch relative to the unit cube side.
+        +5.0  ➜  +5 % tension;   –2.0 ➜  2 % compression.
+    axis : {'x','y','z', 0,1,2}
+        Principal axis along which to stretch.
+    half_step : bool
+        `True` reproduces the 0.5 factor used in build_twist_dirichlet
+        (handy for incremental loading).  Set to False for the full step.
+
+    Returns
+    -------
+    dict with keys {"Ux","Uy","Uz"} mapping each one-node group to a float.
+    """
+    # -- 1. node IDs & coordinates ------------------------------------------------
+    left_ids  = mesh.GetNodeSet(left_name)
+    right_ids = mesh.GetNodeSet(right_name)
+    coords    = mesh.GetNodesCoordinates()
+
+    # ensure axis is an int 0,1,2
+    axis_map  = {"x": 0, "y": 1, "z": 2}
+    ax        = axis_map[axis] if isinstance(axis, str) else int(axis)
+
+    # -- 2. displacement to impose on the left face ------------------------------
+    # |Δ| = ε · L, with L = 1 for a 1×1×1 cube
+    eps   = stretch_pct / 100.0           # engineering strain
+    delta = eps * 1.0                     # side length = 1
+    factor = 0.5 if half_step else 1.0    # match twist helper
+
+    # initialise zero arrays with same length as left_ids
+    zeros = jnp.zeros_like(coords[left_ids, 0])
+    ux_left, uy_left, uz_left = zeros, zeros, zeros
+
+    if ax == 0:
+        ux_left = factor * delta * jnp.ones_like(zeros)
+    elif ax == 1:
+        uy_left = factor * delta * jnp.ones_like(zeros)
+    elif ax == 2:
+        uz_left = factor * delta * jnp.ones_like(zeros)
+    else:
+        raise ValueError("axis must be 0, 1, 2 or 'x', 'y', 'z'")
+
+    # -- 3. make one-node groups and build BC maps --------------------------------
+    bc_ux, bc_uy, bc_uz = {}, {}, {}
+    to_py = lambda v: float(v)            # JAX scalar ➜ Python float
+
+    for nid, ux, uy, uz in zip(left_ids, ux_left, uy_left, uz_left):
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])   # create group
+        bc_ux[g] = to_py(ux)
+        bc_uy[g] = to_py(uy)
+        bc_uz[g] = to_py(uz)
+
+    # right face: fully fixed
+    for nid in right_ids:
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])
+        bc_ux[g] = 0.0
+        bc_uy[g] = 0.0
+        bc_uz[g] = 0.0
+
+    return {"Ux": bc_ux, "Uy": bc_uy, "Uz": bc_uz}
+
+
+
+# -------------------------------------------------------------------------
+#  Dirichlet-BC helper: simple shear of a 1×1×1 cube
+# -------------------------------------------------------------------------
+import jax.numpy as jnp
+
+def build_simple_shear_dirichlet(mesh,
+                                 left_name="left",
+                                 right_name="right",
+                                 shear_pct=25.0,
+                                 axis="x",
+                                 disp_dir="y",
+                                 half_step=True):
+    """
+    Parameters
+    ----------
+    mesh : FOL mesh object
+    left_name, right_name : str
+        Opposite faces *normal* to `axis`.  `right_name` is fixed (all zeros);
+        `left_name` receives a tangential displacement.
+    shear_pct : float
+        γ in percent.  +25 → 25 % shear; −10 → opposite shear of 10 %.
+    axis : {'x','y','z', 0,1,2}
+        Normal direction between the two faces (the “gradient” axis).
+    disp_dir : {'x','y','z', 0,1,2}
+        Direction **within** the face along which it slides.
+        Must be different from `axis`.
+    half_step : bool
+        Retains the 0.5 factor of the twist helper so you can load in two
+        increments if desired.  Set False for the full step.
+
+    Returns
+    -------
+    bc_dict : {"Ux": {group: value}, "Uy": {…}, "Uz": {…}}
+        Ready for MechanicalLoss3DTetra.
+    """
+    # -- sanity checks -----------------------------------------------------------
+    axis_map = {"x": 0, "y": 1, "z": 2}
+    ax = axis_map[axis] if isinstance(axis, str) else int(axis)
+    dx = axis_map[disp_dir] if isinstance(disp_dir, str) else int(disp_dir)
+    if ax == dx:
+        raise ValueError("disp_dir must be orthogonal to axis")
+
+    # -- 1. node IDs -------------------------------------------------------------
+    left_ids  = mesh.GetNodeSet(left_name)
+    right_ids = mesh.GetNodeSet(right_name)
+
+    # -- 2. prescribed displacement (fixed version) ------------------------------
+    gamma  = shear_pct / 100.0          # engineering shear γ
+    delta  = gamma * 1.0                # side length L = 1
+    factor = 0.5 if half_step else 1.0
+    shift  = factor * delta             # constant shift
+
+    zeros = jnp.zeros_like(mesh.GetNodesCoordinates()[left_ids, 0])
+    ux_left, uy_left, uz_left = zeros, zeros, zeros
+
+    if   dx == 0: ux_left = jnp.full_like(zeros, shift)  # ← keep array shape
+    elif dx == 1: uy_left = jnp.full_like(zeros, shift)
+    elif dx == 2: uz_left = jnp.full_like(zeros, shift)
+
+    # -- 3. build one-node groups ------------------------------------------------
+    bc_ux, bc_uy, bc_uz = {}, {}, {}
+    to_py = lambda v: float(v)
+
+    for nid, ux, uy, uz in zip(left_ids, ux_left, uy_left, uz_left):
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])
+        bc_ux[g] = to_py(ux)
+        bc_uy[g] = to_py(uy)
+        bc_uz[g] = to_py(uz)
+
+    # right face: fully fixed
+    for nid in right_ids:
+        g = str(int(nid))
+        mesh.node_sets[g] = jnp.array([nid])
+        bc_ux[g] = 0.0
+        bc_uy[g] = 0.0
+        bc_uz[g] = 0.0
+
+    return {"Ux": bc_ux, "Uy": bc_uy, "Uz": bc_uz}
+
