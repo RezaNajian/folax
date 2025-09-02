@@ -136,8 +136,9 @@ class ExplicitParametricOperatorLearning(DeepNetwork):
         jnp.ndarray
             The predicted outputs, mapped to the full DoF vector.
         """
+        batch_control_param = jax.vmap(self.control.ComputeControlledVariables)(batch_X)
         batch_Y = self.flax_neural_network(batch_X)
-        return vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
+        return vmap(self.loss_function.GetFullDofVector)(batch_control_param,batch_Y)[1]
 
     def Finalize(self):
         pass
