@@ -12,6 +12,7 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.loss_functions.loss import Loss
 from fol.tools.decoration_functions import *
 import jax
+import numpy as np
 
 class DirichletControl(Control):
     
@@ -27,8 +28,9 @@ class DirichletControl(Control):
         if self.initialized and not reinitialize:
             return
 
+        self.boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet("right"))
         self.dirichlet_indices = self.loss_function.dirichlet_indices
-        self.dirichlet_values = self.loss_function.dirichlet_values
+       
         self.dofs = self.loss_function.loss_settings.get("ordered_dofs")
         self.dirichlet_bc_dict = self.loss_function.loss_settings.get("dirichlet_bc_dict")
         self.dim = self.loss_function.loss_settings.get("compute_dims")
@@ -39,12 +41,13 @@ class DirichletControl(Control):
 
     @partial(jit, static_argnums=(0,))
     def ComputeControlledVariables(self,variable_vector:jnp.array):
-        dirichlet_values = jnp.zeros_like(self.dirichlet_values)
-        slice_len = int(len(dirichlet_values)/6)
-        dirichlet_values = dirichlet_values.at[slice_len:2*slice_len].set(variable_vector[0])
-        dirichlet_values = dirichlet_values.at[3*slice_len:4*slice_len].set(variable_vector[1])
-        dirichlet_values = dirichlet_values.at[5*slice_len:6*slice_len].set(variable_vector[2])
-        
+        all_dofs = jnp.arange(3*self.fe_mesh.GetNumberOfNodes())
+        dof_values = jnp.zeros_like(all_dofs, dtype=jnp.float32)
+        dof_values = dof_values.at[3*self.boundary_node_ids].set(jnp.full(self.boundary_node_ids.shape, variable_vector[0], dtype=jnp.float32))
+        dof_values = dof_values.at[3*self.boundary_node_ids+1].set(jnp.full(self.boundary_node_ids.shape, variable_vector[1], dtype=jnp.float32))
+        dof_values = dof_values.at[3*self.boundary_node_ids+2].set(jnp.full(self.boundary_node_ids.shape, variable_vector[2], dtype=jnp.float32))
+
+        dirichlet_values = dof_values[self.dirichlet_indices]
         return dirichlet_values
 
     @print_with_timestamp_and_execution_time

@@ -2,8 +2,8 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..')))
 import numpy as np
-from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
-from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
+from fol.loss_functions.mechanical import MechanicalLoss3DTetra
+from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
@@ -16,8 +16,9 @@ from flax import nnx
 import jax
 
 def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
+    
     # directory & save handling
-    working_directory_name = "box_3D_tetra_nonlin_bc"
+    working_directory_name = "box_3D_tetra"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -26,36 +27,47 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     fe_mesh = Mesh("fol_io","box_3D_coarse.med",'../meshes/')
     fe_mesh.Initialize()
 
-    # creation of fe model and loss function
-    bc_dict = {"Ux":{"left":0.0,"right":0.5},
-                "Uy":{"left":0.0},
-                "Uz":{"left":0.0}}
+    # create fe-based loss function
+    bc_dict = {"Ux":{"left":0.0, "right":0.02},
+                "Uy":{"left":0.0,"right":-0.04},
+                "Uz":{"left":0.0,"right":-0.06}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     loss_settings = {"dirichlet_bc_dict":bc_dict,"parametric_boundary_learning":True,"material_dict":material_dict}
-    mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=loss_settings,
+    mechanical_loss_3d = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=loss_settings,
                                                                                    fe_mesh=fe_mesh)
     mechanical_loss_3d.Initialize()
+    print("bc indices: ", mechanical_loss_3d.dirichlet_indices)
+    print("dirichlet values: ", mechanical_loss_3d.dirichlet_values)
 
-    # dirichlet control
+    # fourier control
+    fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
+                                "beta":20,"min":1e-1,"max":1}
+    fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_mesh)
+
     dirichlet_control_settings = {}
     dirichlet_control = DirichletControl(control_name='dirichlet_control',control_settings=dirichlet_control_settings, 
                                          fe_mesh= fe_mesh,fe_loss=mechanical_loss_3d)
+
+    
+    fourier_control.Initialize()
     dirichlet_control.Initialize()
 
-    # create some random coefficients & K for training
-    mean, std, n_samples = 0.05, 0.02, 100
+    K_matrix = dirichlet_control.ComputeBatchControlledVariables(jnp.array([[0.02, -0.04, -0.06]]))
+    print("dirichlet from control : ", K_matrix)
+    
+    # # create some random coefficients & K for training
+    mean, std, n_samples = 0.1, 0.05, 100
     np.random.seed(42)
     coeffs_matrix = np.random.normal(loc=mean, scale=std, size=(n_samples,3))
     K_matrix = dirichlet_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-    eval_id = 69
+    eval_id = -1
 
-    # now we need to create, initialize and train fol
     # design NN for learning
     class MLP(nnx.Module):
         def __init__(self, in_features: int, dmid: int, out_features: int, *, rngs: nnx.Rngs):
-            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.normal(0.01),bias_init=nnx.initializers.normal(0.01))
-            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.normal(0.01),bias_init=nnx.initializers.normal(0.01))
+            self.dense1 = nnx.Linear(in_features, dmid, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
+            self.dense2 = nnx.Linear(dmid, out_features, rngs=rngs,kernel_init=nnx.initializers.zeros,bias_init=nnx.initializers.zeros)
             self.in_features = in_features
             self.out_features = out_features
 
@@ -70,34 +82,43 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
                   rngs=nnx.Rngs(0))
 
     # create fol optax-based optimizer
+    scheduler = optax.exponential_decay(
+        init_value=1e-3,
+        transition_steps=10,
+        decay_rate=0.99)
     chained_transform = optax.chain(optax.normalize_by_update_norm(), 
-                                    optax.adam(1e-3))
-    
+                                    optax.scale_by_adam(),
+                                    optax.scale_by_schedule(scheduler),
+                                    optax.scale(-1.0))
+
+    # create fol
     fol = ExplicitParametricOperatorLearning(name="dis_fol",control=dirichlet_control,
                                              loss_function=mechanical_loss_3d,
                                              flax_neural_network=fol_net,
                                              optax_optimizer=chained_transform)
+
     fol.Initialize()
 
     # single sample training for eval_id
     fol.Train(train_set=(coeffs_matrix[eval_id].reshape(-1,1).T,),
-              convergence_settings={"num_epochs":fol_num_epochs,
-                                    "relative_error":1e-10},
+              convergence_settings={"num_epochs":fol_num_epochs},
               save_nnx_state_settings={"least_loss_checkpointing":True,"frequency":100,
                                        "state_directory":case_dir,
                                        "save_final_state": False,
                                        "final_state_directory":case_dir},
               working_directory=case_dir)
 
-    FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
-    fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+    # predict for all samples 
+    FOL_UVWs = fol.Predict(coeffs_matrix)
+
+    # assign the prediction for  eval_id
+    fe_mesh['U_FOL'] = FOL_UVWs[eval_id].reshape((fe_mesh.GetNumberOfNodes(), 3))
     fe_mesh['K'] = np.ones((fe_mesh.GetNumberOfNodes(),1))
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
-                      "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                    "maxiter":5,"load_incr":10}}
+        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"}}
+        
         updated_bc = bc_dict.copy()
         updated_bc.update({"Ux":{"left":0.,"right":coeffs_matrix[eval_id,0]},
                             "Uy":{"left":0.,"right":coeffs_matrix[eval_id,1]},
@@ -106,12 +127,12 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         updated_loss_setting.update({"dirichlet_bc_dict":updated_bc})
         print("loss settings: ",loss_settings)
         print("updated loss settings: ",updated_loss_setting)
-        mechanical_loss_3d_updated = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=updated_loss_setting,
+        mechanical_loss_3d_updated = MechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=updated_loss_setting,
                                                                                    fe_mesh=fe_mesh)
         mechanical_loss_3d_updated.Initialize()
-        nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_3d_updated,fe_setting)
-        nonlin_fe_solver.Initialize()
-        FE_UVW = np.array(nonlin_fe_solver.Solve(np.ones(fe_mesh.GetNumberOfNodes()),np.zeros(3*fe_mesh.GetNumberOfNodes())))  
+        first_fe_solver = FiniteElementLinearResidualBasedSolver("first_fe_solver",mechanical_loss_3d_updated,fe_setting)
+        first_fe_solver.Initialize()
+        FE_UVW = np.array(first_fe_solver.Solve(np.ones(fe_mesh.GetNumberOfNodes()),jnp.ones(3*fe_mesh.GetNumberOfNodes())))  
         fe_mesh['U_FE'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
     fe_mesh.Finalize(export_dir=case_dir,export_format='vtu')
