@@ -34,8 +34,10 @@ class FiniteElementLoss(Loss):
     def __CreateDofsDict(self, dofs_list:list, dirichlet_bc_dict:dict):
         number_dofs_per_node = len(dofs_list)
         dirichlet_indices = []
-        dirichlet_values = []     
+        dirichlet_values = [] 
+        dirichlet_indices_dict = {}    
         for dof_index,dof in enumerate(dofs_list):
+            dirichlet_indices_dict[dof]={}
             for boundary_name,boundary_value in dirichlet_bc_dict[dof].items():
                 boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet(boundary_name))
                 dirichlet_bc_indices = number_dofs_per_node*boundary_node_ids + dof_index
@@ -43,6 +45,7 @@ class FiniteElementLoss(Loss):
 
                 dirichlet_bc_values = boundary_value * jnp.ones_like(dirichlet_bc_indices)
                 dirichlet_values.append(dirichlet_bc_values)
+                dirichlet_indices_dict[dof][boundary_name]=dirichlet_bc_indices
         
         if len(dirichlet_indices) != 0:
             self.dirichlet_indices = jnp.concatenate(dirichlet_indices)
@@ -53,6 +56,7 @@ class FiniteElementLoss(Loss):
 
         all_indices = jnp.arange(number_dofs_per_node*self.fe_mesh.GetNumberOfNodes())
         self.non_dirichlet_indices = jnp.setdiff1d(all_indices, self.dirichlet_indices)
+        self.dirichlet_indices_dict = dirichlet_indices_dict
 
     def Initialize(self,reinitialize=False) -> None:
 

@@ -28,8 +28,8 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     # creation of fe model and loss function
     bc_dict = {"Ux":{"left":0.0,"right":0.5},
-                "Uy":{"left":0.0},
-                "Uz":{"left":0.0}}
+                "Uy":{"left":0.0,"right":0.15},
+                "Uz":{"left":0.0,"right":0.15}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     loss_settings = {"dirichlet_bc_dict":bc_dict,"parametric_boundary_learning":True,"material_dict":material_dict}
     mechanical_loss_3d = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=loss_settings,
@@ -43,12 +43,19 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
     dirichlet_control.Initialize()
 
     # create some random coefficients & K for training
-    mean, std, n_samples = 0.05, 0.02, 100
-    np.random.seed(42)
+    mean, std, n_samples = 0.2, 0.05, 100
     coeffs_matrix = np.random.normal(loc=mean, scale=std, size=(n_samples,3))
+    np.random.seed(42)
+    ux_comp = np.random.normal(loc=0.4, scale=0.05, size=n_samples).reshape(-1,1)
+    uy_comp = np.random.normal(loc=0.1, scale=0.05, size=n_samples).reshape(-1,1)
+    uz_comp = np.random.normal(loc=0.1, scale=0.05, size=n_samples).reshape(-1,1)
+    coeffs_matrix = np.concatenate((np.concatenate((ux_comp,uy_comp),axis=1),uz_comp),axis=1)
+    coeffs_matrix = np.round(coeffs_matrix, 4)
+
     K_matrix = dirichlet_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-    eval_id = 69
+    eval_id = 0
+    print("coeff matrix: ", coeffs_matrix[eval_id])
 
     # now we need to create, initialize and train fol
     # design NN for learning
@@ -65,7 +72,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
             x = self.dense2(x)
             return x
 
-    fol_net = MLP(dirichlet_control.GetNumberOfVariables(),1, 
+    fol_net = MLP(dirichlet_control.GetNumberOfVariables(),10, 
                   mechanical_loss_3d.GetNumberOfUnknowns(), 
                   rngs=nnx.Rngs(0))
 
@@ -90,6 +97,7 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
               working_directory=case_dir)
 
     FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
+    print("coeff matrix in fol.Predict: ", coeffs_matrix[eval_id])
     fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
     fe_mesh['K'] = np.ones((fe_mesh.GetNumberOfNodes(),1))
 
@@ -102,10 +110,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         updated_bc.update({"Ux":{"left":0.,"right":coeffs_matrix[eval_id,0]},
                             "Uy":{"left":0.,"right":coeffs_matrix[eval_id,1]},
                             "Uz":{"left":0.,"right":coeffs_matrix[eval_id,2]}})
+        print("updated bc: ",updated_bc)
         updated_loss_setting = loss_settings.copy()
         updated_loss_setting.update({"dirichlet_bc_dict":updated_bc})
-        print("loss settings: ",loss_settings)
-        print("updated loss settings: ",updated_loss_setting)
         mechanical_loss_3d_updated = NeoHookeMechanicalLoss3DTetra("mechanical_loss_3d",loss_settings=updated_loss_setting,
                                                                                    fe_mesh=fe_mesh)
         mechanical_loss_3d_updated.Initialize()
