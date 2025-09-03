@@ -364,7 +364,7 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
         latent_codes = self.ComputeBatchLatent(batch_control,self.flax_neural_network,self.latent_step_nnx_model)
         batch_Y =jax.vmap(self.flax_neural_network,(0,None))(latent_codes,self.loss_function.fe_mesh.GetNodesCoordinates())
         batch_Y = batch_Y.reshape(latent_codes.shape[0], -1)[:,self.loss_function.non_dirichlet_indices]
-        return jax.vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
+        return jax.vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)[1]
 
     @print_with_timestamp_and_execution_time
     def PredictDynamics(self,initial_u:jnp.ndarray,num_steps:int):

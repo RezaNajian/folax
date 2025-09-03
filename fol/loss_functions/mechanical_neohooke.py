@@ -281,7 +281,13 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         Fint = jnp.sum(fint_gps, axis=0)
         Ee = jnp.sum(E_gps, axis=0)
-        return  Ee, Fint - Fe, Se
+        # return  Ee, Fint - Fe, Se
+        return jax.lax.cond(
+           jnp.isnan(Ee),
+           lambda _: (0.0, Fint - Fe, Se),          
+           lambda _: (Ee,Fint - Fe, Se),    
+           operand=None
+           )
     
 class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):

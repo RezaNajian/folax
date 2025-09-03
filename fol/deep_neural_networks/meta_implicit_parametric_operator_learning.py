@@ -184,7 +184,7 @@ class MetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning)
 
             nn_output = self.flax_neural_network(latent_code,self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
 
-            return self.loss_function.GetFullDofVector(sample_x,nn_output)
+            return self.loss_function.GetFullDofVector(sample_x,nn_output)[1]
 
         return jnp.array(jax.vmap(predict_single_sample)(batch_X))
     
