@@ -344,13 +344,16 @@ class HyperNetwork(nnx.Module):
     def __init__(self,name:str,
                       modulator_nn:MLP,
                       synthesizer_nn:MLP,
-                      coupling_settings:dict={}):
+                      coupling_settings:dict={},
+                      output_scale_factor:float=1.):
         self.name = name
         self.modulator_nn = modulator_nn
         self.synthesizer_nn = synthesizer_nn
 
         self.in_features = self.modulator_nn.in_features
         self.out_features = self.synthesizer_nn.out_features
+
+        self.output_scale_factor = output_scale_factor
         
         self.coupling_settings = {"coupled_variable":"shift",
                                   "modulator_to_synthesizer_coupling_mode":"all_to_all"} # other coupling options: last_to_all,last_to_last                  
@@ -674,6 +677,6 @@ class HyperNetwork(nnx.Module):
     
     def __call__(self, latent_array: jax.Array,coord_matrix: jax.Array):
         if self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "one_modulator_per_synthesizer_layer":
-            return self.fw_func(latent_array,coord_matrix,self.modulator_nns,self.synthesizer_nn)
+            return self.output_scale_factor * self.fw_func(latent_array,coord_matrix,self.modulator_nns,self.synthesizer_nn)
         else:
-            return self.fw_func(latent_array,coord_matrix,self.modulator_nn,self.synthesizer_nn)
+            return self.output_scale_factor * self.fw_func(latent_array,coord_matrix,self.modulator_nn,self.synthesizer_nn)

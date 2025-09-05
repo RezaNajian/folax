@@ -31,6 +31,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
         if "nonlinear_solver_settings" in self.fe_solver_settings.keys():
             self.nonlinear_solver_settings = UpdateDefaultDict(self.nonlinear_solver_settings,
                                                                 self.fe_solver_settings["nonlinear_solver_settings"])
+        self.jitted_ComputeJacobianMatrixAndResidualVector = jax.jit(self.fe_loss_function.ComputeJacobianMatrixAndResidualVector)
     @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars,current_dofs_np:np.array):
         current_dofs = jnp.array(current_dofs_np)
@@ -39,7 +40,9 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             fol_info(f"loadStep; increment:{load_fac+1}")
             applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
             for i in range(self.nonlinear_solver_settings["maxiter"]):
-                BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                # BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                #                                                     current_control_vars,applied_BC_dofs)
+                BC_applied_jac,BC_applied_r = self.jitted_ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
                 if jnp.isnan(res_norm):

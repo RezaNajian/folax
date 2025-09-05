@@ -14,7 +14,7 @@ from fol.tools.decoration_functions import *
 import jax
 import numpy as np
 
-class DirichletControl(Control):
+class DirichletControl3D(Control):
     
     def __init__(self,control_name: str,control_settings: dict, fe_mesh: Mesh,fe_loss:Loss):
         super().__init__(control_name)
@@ -49,6 +49,47 @@ class DirichletControl(Control):
         dof_values = dof_values.at[self.right_indices_ux].set(jnp.full(self.boundary_node_ids.shape, variable_vector[0], dtype=jnp.float32))
         dof_values = dof_values.at[self.right_indices_uy].set(jnp.full(self.boundary_node_ids.shape, variable_vector[1], dtype=jnp.float32))
         dof_values = dof_values.at[self.right_indices_uz].set(jnp.full(self.boundary_node_ids.shape, variable_vector[2], dtype=jnp.float32))
+
+        dirichlet_values = dof_values[self.dirichlet_indices]
+        return dirichlet_values
+
+    @print_with_timestamp_and_execution_time
+    def Finalize(self) -> None:
+        pass
+
+class DirichletControl2D(Control):
+    
+    def __init__(self,control_name: str,control_settings: dict, fe_mesh: Mesh,fe_loss:Loss):
+        super().__init__(control_name)
+        self.settings = control_settings
+        self.fe_mesh = fe_mesh
+        self.loss_function = fe_loss
+        
+
+    @print_with_timestamp_and_execution_time
+    def Initialize(self,reinitialize=False) -> None:
+        if self.initialized and not reinitialize:
+            return
+
+        self.boundary_node_ids = jnp.array(self.fe_mesh.GetNodeSet("right"))
+        self.dirichlet_indices = self.loss_function.dirichlet_indices
+        dirichlet_indices_dict = self.loss_function.dirichlet_indices_dict
+        self.right_indices_ux = dirichlet_indices_dict["Ux"]['right']
+        self.right_indices_uy = dirichlet_indices_dict["Uy"]['right']
+       
+        self.dofs = self.loss_function.loss_settings.get("ordered_dofs")
+        self.dirichlet_bc_dict = self.loss_function.loss_settings.get("dirichlet_bc_dict")
+        self.dim = self.loss_function.loss_settings.get("compute_dims")
+    
+        self.num_control_vars = 2   #len(self.dirichlet_indices) / 2
+        self.num_controlled_vars = self.fe_mesh.GetNumberOfNodes()
+        self.initialized = True
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeControlledVariables(self,variable_vector:jnp.array):
+        dof_values = jnp.zeros(2*self.fe_mesh.GetNumberOfNodes(), dtype=jnp.float32)
+        dof_values = dof_values.at[self.right_indices_ux].set(jnp.full(self.boundary_node_ids.shape, variable_vector[0], dtype=jnp.float32))
+        dof_values = dof_values.at[self.right_indices_uy].set(jnp.full(self.boundary_node_ids.shape, variable_vector[1], dtype=jnp.float32))
 
         dirichlet_values = dof_values[self.dirichlet_indices]
         return dirichlet_values

@@ -101,26 +101,26 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
     test_start_id = 3*train_end_id
     test_end_id = 3*train_end_id + 2
     # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),
-            test_set=(coeffs_matrix[-1,:].reshape(-1,1).T,),
-            test_frequency=10,
-            batch_size=1,
-            convergence_settings={"num_epochs":num_epochs,
-                                    "relative_error":1e-100,
-                                    "absolute_error":1e-100},
-            working_directory=case_dir)
+    # fol.Train(train_set=(coeffs_matrix[eval_id,:].reshape(-1,1).T,),
+    #         test_set=(coeffs_matrix[-1,:].reshape(-1,1).T,),
+    #         test_frequency=10,
+    #         batch_size=1,
+    #         convergence_settings={"num_epochs":num_epochs,
+    #                                 "relative_error":1e-100,
+    #                                 "absolute_error":1e-100},
+    #         working_directory=case_dir)
 
-    # load teh best model
-    fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
+    # # load teh best model
+    # fol.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
 
-    FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
+    # FOL_UVW = np.array(fol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
     print("coeff matrix in fol.Predict: ", coeffs_matrix[eval_id])
-    fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
+    # fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 3))
     fe_mesh['K'] = np.ones((fe_mesh.GetNumberOfNodes(),1))
 
     # solve FE here
     if solve_FE:
-        fe_setting = {"linear_solver_settings":{"solver":"PETSc-bcgsl"},
+        fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
                       "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
                                                     "maxiter":5,"load_incr":10}}
         updated_bc = bc_dict.copy()
