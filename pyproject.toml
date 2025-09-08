@@ -21,9 +21,9 @@ dependencies = [
     'scipy',
     'h5py',
     'zarr',
-    'dask' 
+    'dask',         
+    'pyvista'       
 ]
-
 [project.optional-dependencies]
 cpu = [
   'jax~=0.6.2'
