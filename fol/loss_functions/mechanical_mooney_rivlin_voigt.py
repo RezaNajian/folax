@@ -13,7 +13,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class NeoHookeMechanicalLoss(FiniteElementLoss):
+class MooneyRivlinMechanicalLoss(FiniteElementLoss):
 
     def Initialize(self) -> None:  
         super().Initialize() 
@@ -21,6 +21,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             fol_error("material_dict should provided in the loss settings !")
         self.e = self.loss_settings["material_dict"]["young_modulus"]
         self.v = self.loss_settings["material_dict"]["poisson_ratio"]  
+        self.c10 = self.loss_settings["material_dict"]["c01"]
+        self.c01 = self.loss_settings["material_dict"]["c10"]
         
         if self.dim == 2:
             self.material_model = NeoHookianModel2D()
@@ -35,7 +37,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
         
         if self.dim == 3:
-            self.material_model = NeoHookianModel()
+            self.material_model = MooneyRivlinModel()
             self.CalculateNMatrix = self.CalculateNMatrix3D
             self.CalculateKinematics = self.CalculateKinematics3D   
             if self.element_type == "tetra":
@@ -80,13 +82,13 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         B = B.at[2, 3 * indices].set(F[0, 2] * DN_DX_T[2, indices])
         B = B.at[2, 3 * indices + 1].set(F[1, 2] * DN_DX_T[2, indices])
         B = B.at[2, 3 * indices + 2].set(F[2, 2] * DN_DX_T[2, indices])
-        B = B.at[3, 3 * indices].set(F[0, 1] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[1, indices])
+        B = B.at[3, 3 * indices].set(F[0, 1] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[1, indices])             # E[1,2] = E23
         B = B.at[3, 3 * indices + 1].set(F[1, 1] * DN_DX_T[2, indices] + F[1, 2] * DN_DX_T[1, indices])
         B = B.at[3, 3 * indices + 2].set(F[2, 1] * DN_DX_T[2, indices] + F[2, 2] * DN_DX_T[1, indices])
-        B = B.at[4, 3 * indices].set(F[0, 0] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[0, indices])
+        B = B.at[4, 3 * indices].set(F[0, 0] * DN_DX_T[2, indices] + F[0, 2] * DN_DX_T[0, indices])             # E[0,2] = E13
         B = B.at[4, 3 * indices + 1].set(F[1, 0] * DN_DX_T[2, indices] + F[1, 2] * DN_DX_T[0, indices])
         B = B.at[4, 3 * indices + 2].set(F[2, 0] * DN_DX_T[2, indices] + F[2, 2] * DN_DX_T[0, indices])
-        B = B.at[5, 3 * indices].set(F[0, 0] * DN_DX_T[1, indices] + F[0, 1] * DN_DX_T[0, indices])
+        B = B.at[5, 3 * indices].set(F[0, 0] * DN_DX_T[1, indices] + F[0, 1] * DN_DX_T[0, indices])             # E[0,1] = E12
         B = B.at[5, 3 * indices + 1].set(F[1, 0] * DN_DX_T[1, indices] + F[1, 1] * DN_DX_T[0, indices])
         B = B.at[5, 3 * indices + 2].set(F[2, 0] * DN_DX_T[1, indices] + F[2, 1] * DN_DX_T[0, indices])
 
@@ -186,13 +188,13 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         """
         S_mat = jnp.zeros((3,3))
         S_mat = S_mat.at[0,0].set(S[0,0])
-        S_mat = S_mat.at[0,1].set(S[5,0])
-        S_mat = S_mat.at[0,2].set(S[4,0])
-        S_mat = S_mat.at[1,0].set(S[5,0])
+        S_mat = S_mat.at[0,1].set(S[3,0])
+        S_mat = S_mat.at[0,2].set(S[5,0])
+        S_mat = S_mat.at[1,0].set(S[3,0])
         S_mat = S_mat.at[1,1].set(S[1,0])
-        S_mat = S_mat.at[1,2].set(S[3,0])
-        S_mat = S_mat.at[2,0].set(S[4,0])
-        S_mat = S_mat.at[2,1].set(S[3,0])
+        S_mat = S_mat.at[1,2].set(S[4,0])
+        S_mat = S_mat.at[2,0].set(S[5,0])
+        S_mat = S_mat.at[2,1].set(S[4,0])
         S_mat = S_mat.at[2,2].set(S[2,0])
         num_nodes = DN_DX_T.shape[1]
         gp_geo_stiffness = jnp.zeros((3*num_nodes,3*num_nodes))
@@ -286,7 +288,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             # print("size of C: ",C.shape)
             # xsi = energy(C)
 
-            xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            xsi,S,C = self.material_model.evaluate(F=F,kappa=k_at_gauss,c01=self.c01,c10=self.c10)
+
             gp_geo_stiffness = self.CalculateGeometricStiffness(DN_DX_T,S)
             
             
@@ -305,7 +308,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         Ee = jnp.sum(E_gps, axis=0)
         return  Ee, Fint - Fe, Se
     
-class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss2DQuad(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
@@ -313,19 +316,19 @@ class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"quad"},fe_mesh)
 
-class NeoHookeMechanicalLoss2DTri(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss2DTri(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"triangle"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DTetra(NeoHookeMechanicalLoss):
+class MooneyRivlinMechanicalLoss3DTetra(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DHexa(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss3DHexa(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2

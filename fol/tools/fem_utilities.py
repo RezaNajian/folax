@@ -456,3 +456,155 @@ class NeoHookianModel2D(MaterialModel):
         Se_voigt = self.TensorToVoigt(Se)
         C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
         return xsie, Se_voigt, C_tangent
+    
+    
+class MooneyRivlinModel(MaterialModel):
+    """
+    Material model.
+    """
+    @partial(jit, static_argnums=(0,))
+    def evaluate(self, F:jnp.array, c10:float=0.2588 ,c01:float=-0.0449 ,kappa:float=2000):
+        """
+        Evaluate the stress and tangent operator at given local coordinates.
+        This method should be overridden by subclasses.
+
+        Parameters:
+        F (ndarray): Deformation gradient.
+        args (float): Optional material constants
+
+        Returns:
+        jnp.ndarray: Values of stress and tangent operator at given local coordinates.
+        """
+        c10, c01 = c10, c01
+
+        C = jnp.dot(F.T,F)
+        E_mat = 0.5*(C - jnp.eye(3)) 
+        E_voigt = jnp.zeros((6,1))
+        E_voigt = E_voigt.at[0,0].set(E_mat[0,0])
+        E_voigt = E_voigt.at[1,0].set(E_mat[1,1])
+        E_voigt = E_voigt.at[2,0].set(E_mat[2,2])
+        E_voigt = E_voigt.at[3,0].set(E_mat[0,1])
+        E_voigt = E_voigt.at[4,0].set(E_mat[1,2])
+        E_voigt = E_voigt.at[5,0].set(E_mat[0,2])
+
+        one_tensor_voigt = jnp.array([[1],[1],[1],[0],[0],[0]])
+        C_cauchy = 2 * E_voigt + one_tensor_voigt
+        I1 = C_cauchy[0,0] + C_cauchy[1,0] + C_cauchy[2,0]
+        I2 = C_cauchy[0,0] * C_cauchy[1,0] + C_cauchy[0,0] * C_cauchy[2,0] + C_cauchy[1,0] * C_cauchy[2,0] \
+                - C_cauchy[3,0] * C_cauchy[3,0] - C_cauchy[4,0] * C_cauchy[4,0] - C_cauchy[5,0] * C_cauchy[5,0]
+        I3 = (C_cauchy[0,0]*C_cauchy[1,0] - C_cauchy[3,0]*C_cauchy[3,0])*C_cauchy[2,0] +\
+                (C_cauchy[3,0]*C_cauchy[5,0] - C_cauchy[0,0]*C_cauchy[4,0])*C_cauchy[4,0] +\
+                (C_cauchy[3,0]*C_cauchy[4,0] - C_cauchy[1,0]*C_cauchy[5,0])*C_cauchy[4,0]
+        
+        J1 = I1 * I3**(-1/3)
+        J2 = I2 * I3**(-2/3)
+        J3 = I3 ** (1/2)
+        J3M1 = J3 - 1.
+        
+        I1E = 2*one_tensor_voigt
+        I2E = 2 * jnp.array([[C_cauchy[1,0] + C_cauchy[2,0]], 
+                               [C_cauchy[2,0] + C_cauchy[0,0]],
+                               [C_cauchy[0,0] + C_cauchy[1,0]],
+                               [-C_cauchy[3,0]], [-C_cauchy[4,0]], [-C_cauchy[6,0]]])
+        I3E = 2 * jnp.array([[C_cauchy[1,0]*C_cauchy[2,0] - C_cauchy[4,0]*C_cauchy[4,0]],
+                              [ C_cauchy[2,0]*C_cauchy[0,0] - C_cauchy[5,0]*C_cauchy[5,0]],
+                               [C_cauchy[0,0]*C_cauchy[1,0] - C_cauchy[3,0]*C_cauchy[3,0]],
+                               [C_cauchy[4,0]*C_cauchy[5,0] - C_cauchy[2,0]*C_cauchy[3,0]],
+                               [C_cauchy[5,0]*C_cauchy[3,0] - C_cauchy[0,0]*C_cauchy[4,0]],
+                               [C_cauchy[3,0]*C_cauchy[4,0] - C_cauchy[1,0]*C_cauchy[5,0]]])
+        
+        J1E = I3**(-1/3) * I1E - (1/3)*I1*(I3**(-4/3))*I3E
+        J2E = I3**(-2/3) * I2E - (2/3)*I2*(I3**(-5/3))*I3E
+        J3E = (1/2)*I3**(-1/2)*I3E
+
+        S = c10*J1E + c01*J2E + kappa*J3M1*J3E
+
+        # Material stiffness
+        D = jnp.zeros((6, 6))
+
+        # Define matrices
+        I2EE = jnp.array([
+            [0, 4, 4, 0, 0, 0],
+            [4, 0, 4, 0, 0, 0],
+            [4, 4, 0, 0, 0, 0],
+            [0, 0, 0, -2, 0, 0],
+            [0, 0, 0, 0, -2, 0],
+            [0, 0, 0, 0, 0, -2]
+        ])
+
+        I3EE = jnp.array([
+            [0,   4*C_cauchy[3,0], 4*C_cauchy[2,0],   0,  -4*C_cauchy[5,0],   0],
+            [4*C_cauchy[3,0],   0, 4*C_cauchy[1,0],   0,     0, -4*C_cauchy[6,0]],
+            [4*C_cauchy[2,0], 4*C_cauchy[1,0],   0,   0, -4*C_cauchy[4,0],   0],
+            [0,     0,   0, -2*C_cauchy[3,0], 2*C_cauchy[6,0], 2*C_cauchy[5,0]],
+            [-4*C_cauchy[5,0], 0, -4*C_cauchy[4,0], 2*C_cauchy[6,0], -2*C_cauchy[1,0], 2*C_cauchy[4,0]],
+            [0, -4*C_cauchy[6,0], 0, 2*C_cauchy[5,0], 2*C_cauchy[4,0], -2*C_cauchy[2,0]]
+        ])
+
+        # Scalars
+        W1 = (2/3) * I3**(-1/2)
+        W4 = (4/3) * I3**(-1/2)
+        W2 = (8/9) * I1 * I3**(-4/3)
+        W3 = (1/3) * I1 * I3**(-4/3)
+        W5 = (8/9) * I2 * I3**(-5/3)
+        W6 = I3**(-2/3)
+        W7 = (2/3) * I2 * I3**(-5/3)
+        W8 = I3**(-1/2)
+        W9 = (1/2) * I3**(-1/2)
+
+        # Second-order tensors
+        J1EE = -W1 * (J1E @ J3E.T + J3E @ J1E.T) + W2 * (J3E @ J3E.T) - W3 * I3EE
+        J2EE = -W4 * (J2E @ J3E.T + J3E @ J2E.T) + W5 * (J3E @ J3E.T) + W6 * I2EE - W7 * I3EE
+        J3EE = -W8 * (J3E @ J3E.T) + W9 * I3EE
+
+        # Final stiffness matrix
+        D = c10 * J1EE + c01 * J2EE + kappa * (J3E @ J3E.T) + kappa * J3M1 * J3EE
+
+        Xsie = c10*(J1 - 3) + c01*(J2 - 3) + (kappa/2)*(J3 - 1)**2
+        return Xsie, S, D
+    
+class MooneyRivlinModelPaper(MaterialModel):
+    """
+    Material model.
+    """
+    @partial(jit, static_argnums=(0,))
+    def evaluate(self, F:jnp.array, c10:float=0.2588 ,c01:float=-0.0449 ,kappa:float=2000):
+        
+        c10 = c10
+        c01 = c01
+        kappa = kappa
+
+        C = jnp.dot(F.T,F)
+        invC = jnp.linalg.inv(C)
+        J = jnp.linalg.det(F)
+        # p = (kappa/4)*(2*J-2*J**(-1))
+        p_h = 0.5*kappa*(J-(1/J))
+        dp_dJ = (kappa/4)*(2 + 2*J**(-2))
+
+        # Strain Energy
+        xsie_vol = (kappa/4)*(J**2 - 2*jnp.log(J) -1)
+        I1_bar = (J**(-2/3))*jnp.trace(C)
+        C2 = jnp.einsum('ij,jk->ik',C,C)
+        I2_bar = 0.5*(I1_bar**2 - (J**(-4/3)*jnp.trace(C2)))
+        xsie_iso = c10*(I1_bar - 3) + c01*(I2_bar - 3)
+        xsie = xsie_vol + xsie_iso
+
+        # Stress Tensor
+        S_vol = J*p_h*invC
+        I_fourth = self.fourth_order_identity_tensor(C.shape[0])
+        P = I_fourth - (1/3)*jnp.einsum('ij,kl->ijkl', invC, C)
+        S_bar = 2*(c10 + c01*I1_bar)*jnp.eye(C.shape[0]) - 2*c01*J**(-2/3)*C
+        S_iso = (J**(-2/3))*jnp.einsum('ijkl,kl->ij',P,S_bar)
+        Se = S_vol + S_iso
+
+        C_ = 4*J**(-4/3)*(c01*jnp.einsum('ij,kl->ijkl',jnp.eye(3),jnp.eye(3)) - c01*I_fourth)
+        P_double_C = jnp.einsum('ijkl,klpq->ijpq',P,C_)
+        P_bar = self.diad_special(invC,invC,invC.shape[0]) - (1/3)*jnp.einsum('ij,kl->ijkl',invC,invC)
+        C_vol = (J*p_h + dp_dJ*(J**2))*jnp.einsum('ij,kl->ijkl',invC,invC) - 2*J*p_h*self.diad_special(invC,invC,invC.shape[0])
+        C_iso = jnp.einsum('ijkl,pqkl->ijpq',P_double_C,P) + \
+                (2/3)*(J**(-2/3))*jnp.einsum('ij,ij->',S_bar,C)*P_bar - \
+                (2/3)*(jnp.einsum('ij,kl->ijkl',invC,S_iso) + jnp.einsum('ij,kl->ijkl',S_iso,invC))
+        C_tangent_fourth = C_vol + C_iso
+        Se_voigt = self.TensorToVoigt(Se)
+        C_tangent = self.FourthTensorToVoigt(C_tangent_fourth)
+        return xsie, Se_voigt, C_tangent

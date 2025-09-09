@@ -70,3 +70,35 @@ def create_rectangle_tri_mesh(Lx, Ly, case_dir,
     fe_mesh.is_initialized = True
     return fe_mesh
 
+
+def generate_circular_microstructure(fe_mesh, circles, inside_value=1.0, outside_value=0.0):
+    """
+    Generate a microstructure field with circular inclusions.
+
+    Parameters
+    ----------
+    fe_mesh : Mesh
+        Mesh object with attribute `nodes_coordinates` of shape (n_nodes, 2).
+    circles : list of tuples
+        Each tuple is (x_center, y_center, radius).
+    inside_value : float
+        Value assigned to nodes inside any circle.
+    outside_value : float
+        Value assigned to nodes outside all circles.
+
+    Returns
+    -------
+    microstructure : ndarray (n_nodes,)
+        Array of microstructure values at each node.
+    """
+    coords = np.asarray(fe_mesh.nodes_coordinates)
+    n_nodes = coords.shape[0]
+
+    microstructure = np.full(n_nodes, outside_value, dtype=float)
+
+    for (cx, cy, r) in circles:
+        distances = np.linalg.norm(coords - np.array([cx, cy]), axis=1)
+        inside = distances <= r
+        microstructure[inside] = inside_value
+
+    return microstructure

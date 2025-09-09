@@ -8,32 +8,52 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.controls.dirichlet_control import DirichletControl2D
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
-from fol.tools.usefull_functions import *
+from usefull_functions import *
 from fol.tools.logging_functions import *
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 import optax
 from flax import nnx
 from mechanical2d_utilities import *
+# top of meta_alpha_HFEM_2d.p
+# from mechanical2d_utilities import create_quad_with_holes_tri_mesh
+from mechanical2d_utilities import create_rectangle_tri_mesh
+from mechanical2d_utilities import create_rectangle_tri_mesh
 
 def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
     # directory & save handling
-    working_directory_name = "2D_tri_nonlin_meta_alpha_pr"
+    working_directory_name = "2D_tri_nonlin_meta_alpha_pr_single_mesh_rectangle"
     case_dir = os.path.join('.', working_directory_name)
     create_clean_directory(working_directory_name)
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 
     #call the function to create the mesh
-    fe_mesh = create_rectangle_tri_mesh(Lx=1., Ly=1., case_dir=case_dir,
-                                       mesh_size_min=0.04, mesh_size_max=0.08)
-    fe_mesh.Initialize()
+    # ------------------------------------------------------------------
+    # 1. Build tapered cantilever with a circular hole
+    # ------------------------------------------------------------------
+    fe_mesh = create_rectangle_tri_mesh(
+        Lx=1.0,
+        Ly=1.0,
+        mesh_size_min=0.01,
+        mesh_size_max=0.04,
+        case_dir="2D_tri_nonlin_meta_alpha_pr_single_mesh_rectangle"
+    )
 
-    print(fe_mesh.GetNumberOfNodes())
+   # fe_mesh = create_quad_with_holes_tri_mesh(
+    #    case_dir="2D_tri_nonlin_meta_alpha_pr_single_mesh_refined",
+     #   p0=(0,0), p1=(1,0.5), p2=(1,0.8), p3=(0,0.8),
+      #  holes=[(0.28, 0.45, 0.12), (0.65, 0.55, 0.08)],
+       # adapt_radius=None, adapt_factor=0.15,   # refinement bands
+        #mesh_size_min=0.005, mesh_size_max=None
+    #)
+    fe_mesh.Initialize()
+    print(f"Number of nodes: {fe_mesh.GetNumberOfNodes()}")
+   
 
     # creation of fe model and loss function
     bc_dict = {"Ux":{"left":0.0,"right":0.5},
-                "Uy":{"left":0.0,"right":0.15}}
+                "Uy":{"left":0.0,"right":0.5}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
     loss_settings = {"dirichlet_bc_dict":bc_dict,"parametric_boundary_learning":True,"material_dict":material_dict}
     mechanical_loss_2d = NeoHookeMechanicalLoss2DTri("mechanical_loss_2d",loss_settings=loss_settings,
@@ -64,14 +84,14 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
         "characteristic_length": 1*64,
         "synthesizer_depth": 4,
         "activation_settings":{"type":"sin",
-                                "prediction_gain":30.0,
+                                "prediction_gain":530.0,
                                 "initialization_gain":1.0},
         "skip_connections_settings": {"active":False,"frequency":1},
         "latent_size":  1*64,
         "modulator_bias": False,
         "main_loop_transform": 1e-4,
         "latent_step_optimizer": 1e-4,
-        "ifol_nn_latent_step_size": 1e-2
+        "ifol_nn_latent_step_size": 1e-3
     }
     
     characteristic_length = ifol_settings_dict["characteristic_length"]
@@ -148,31 +168,30 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
     print(f"\ncheck...\tParametric learning: {train_settings_dict['parametric_learning']}")
     print(f"\ncheck...\ttraining sample ids: {train_start_id} -> {train_end_id}\n")
 
-    # ifol.Train(train_set=(train_set,),
-    #             test_set=(test_set,),
-    #             test_frequency=100,
-    #             batch_size=train_settings_dict["batch_size"],
-    #             convergence_settings={"num_epochs":train_settings_dict["num_epoch"],"relative_error":1e-100,"absolute_error":1e-100},
-    #             plot_settings={"plot_save_rate":100},
-    #             train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-    #             working_directory=case_dir)
+    ifol.Train(train_set=(train_set,),
+                test_set=(test_set,),
+                test_frequency=100,
+                batch_size=train_settings_dict["batch_size"],
+                convergence_settings={"num_epochs":train_settings_dict["num_epoch"],"relative_error":1e-100,"absolute_error":1e-100},
+                plot_settings={"plot_save_rate":100},
+                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                working_directory=case_dir)
 
 
-    # # load teh best model
-    # ifol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
+    # load teh best model
+    ifol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
     if train_settings_dict["parametric_learning"]:
-        # FOL_UVW = np.array(ifol.Predict(test_set))
-        pass
+        FOL_UVW = np.array(ifol.Predict(test_set))
     else:    
         FOL_UVW = np.array(ifol.Predict(train_set)).reshape(-1)
         fe_mesh['U_FOL'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
         
     for eval_id in range(5):
-        # FOL_UVW = np.array(ifol.Predict(train_set[eval_id,:].reshape(-1,1).T)).reshape(-1)
-        # fe_mesh[f'U_FOL_{eval_id}'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
-        # # solve FE here
+        FOL_UVW = np.array(ifol.Predict(train_set[eval_id,:].reshape(-1,1).T)).reshape(-1)
+        fe_mesh[f'U_FOL_{eval_id}'] = FOL_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
+        # solve FE here
         updated_bc = bc_dict.copy()
         updated_bc.update({"Ux":{"left":0.,"right":coeffs_matrix[eval_id,0]},
                             "Uy":{"left":0.,"right":coeffs_matrix[eval_id,1]}})
@@ -185,32 +204,31 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
         try:
             hfe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
                     "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                    "maxiter":8,"load_incr":10}}
+                                                    "maxiter":8,"load_incr":1}}
             nonlin_hfe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d_updated,hfe_setting)
             nonlin_hfe_solver.Initialize()
-            HFE_UVW = np.array(nonlin_hfe_solver.Solve(np.ones(fe_mesh.GetNumberOfNodes()),np.zeros(2*fe_mesh.GetNumberOfNodes())))
+            HFE_UVW = np.array(nonlin_hfe_solver.Solve(np.ones(fe_mesh.GetNumberOfNodes()),FOL_UVW.reshape(2*fe_mesh.GetNumberOfNodes())))
         except:
             ValueError('res_norm contains nan values!')
             HFE_UVW = np.zeros(2*fe_mesh.GetNumberOfNodes())
         fe_mesh[f'U_HFE_{eval_id}'] = HFE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
-        # abs_err = abs(HFE_UVW.reshape(-1,1) - FOL_UVW.reshape(-1,1))
-        # fe_mesh[f"abs_error_{eval_id}"] = abs_err.reshape((fe_mesh.GetNumberOfNodes(), 2))
+        abs_err = abs(HFE_UVW.reshape(-1,1) - FOL_UVW.reshape(-1,1))
+        fe_mesh[f"abs_error_{eval_id}"] = abs_err.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
     fe_mesh.Finalize(export_dir=case_dir)
 
     if clean_dir:
         shutil.rmtree(case_dir)
 
+
 if __name__ == "__main__":
     # Initialize default values
-    ifol_num_epochs = 2000
+    ifol_num_epochs = 5
     solve_FE = True
     clean_dir = False
 
     # Parse the command-line arguments
     args = sys.argv[1:]
-
-    # Process the arguments if provided
     for arg in args:
         if arg.startswith("ifol_num_epochs="):
             try:
@@ -233,8 +251,12 @@ if __name__ == "__main__":
                 print("clean_dir should be True or False.")
                 sys.exit(1)
         else:
-            print("Usage: python thermal_fol.py ifol_num_epochs=10 solve_FE=False clean_dir=False")
+            print("Usage: python script.py ifol_num_epochs=10 solve_FE=False clean_dir=False")
             sys.exit(1)
 
-    # Call the main function with the parsed values
-    main(ifol_num_epochs, solve_FE,clean_dir)
+    # First run the main function to generate results
+    main(ifol_num_epochs, solve_FE, clean_dir)
+
+    # Then call the Plotter2D only if clean_dir=False
+    # if not clean_dir:
+

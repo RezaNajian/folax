@@ -40,10 +40,11 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             fol_info(f"loadStep; increment:{load_fac+1}")
             applied_BC_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,(load_fac+1)/load_increament)
             for i in range(self.nonlinear_solver_settings["maxiter"]):
-                # BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
-                #                                                     current_control_vars,applied_BC_dofs)
-                BC_applied_jac,BC_applied_r = self.jitted_ComputeJacobianMatrixAndResidualVector(
+                BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,applied_BC_dofs)
+                # BC_applied_jac,BC_applied_r = self.jitted_ComputeJacobianMatrixAndResidualVector(
+                #                                                     current_control_vars,applied_BC_dofs)
+                jax.debug.print("BC applied jac is nan?: {x}",x=jnp.sum(jnp.isnan(BC_applied_jac.data)))
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
                 if jnp.isnan(res_norm):
                     fol_info("Residual norm is NaN, check inputs!")

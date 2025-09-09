@@ -13,7 +13,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class NeoHookeMechanicalLoss(FiniteElementLoss):
+class MooneyRivlinMechanicalLoss(FiniteElementLoss):
 
     def Initialize(self) -> None:  
         super().Initialize() 
@@ -21,6 +21,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             fol_error("material_dict should provided in the loss settings !")
         self.e = self.loss_settings["material_dict"]["young_modulus"]
         self.v = self.loss_settings["material_dict"]["poisson_ratio"]  
+        self.c10 = self.loss_settings["material_dict"]["c01"]
+        self.c01 = self.loss_settings["material_dict"]["c10"]
         
         if self.dim == 2:
             self.material_model = NeoHookianModel2D()
@@ -35,7 +37,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
         
         if self.dim == 3:
-            self.material_model = NeoHookianModel()
+            self.material_model = MooneyRivlinModelPaper()
             self.CalculateNMatrix = self.CalculateNMatrix3D
             self.CalculateKinematics = self.CalculateKinematics3D   
             if self.element_type == "tetra":
@@ -286,7 +288,8 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             # print("size of C: ",C.shape)
             # xsi = energy(C)
 
-            xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            xsi,S,C = self.material_model.evaluate(F=F,kappa=k_at_gauss,c01=self.c01,c10=self.c10)
+
             gp_geo_stiffness = self.CalculateGeometricStiffness(DN_DX_T,S)
             
             
@@ -305,7 +308,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         Ee = jnp.sum(E_gps, axis=0)
         return  Ee, Fint - Fe, Se
     
-class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss2DQuad(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
@@ -313,19 +316,19 @@ class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"quad"},fe_mesh)
 
-class NeoHookeMechanicalLoss2DTri(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss2DTri(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"triangle"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DTetra(NeoHookeMechanicalLoss):
+class MooneyRivlinMechanicalLoss3DTetra(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DHexa(NeoHookeMechanicalLoss):
+class NeoHookeMechanicalLoss3DHexa(MooneyRivlinMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
