@@ -3,7 +3,7 @@ import glob
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..')))
 
-case_dir = os.path.join('.', "Squre_FE_only_neo_hooke_parametric_plane_strain_fine_Parametric")  
+case_dir = os.path.join('.', "Squre_FE_only_neo_hooke_parametric_plane_strain_fine_Parametric")  ####folder name containing .vtk
 vtk_files = glob.glob(os.path.join(case_dir, "*.vtk"))
 if vtk_files:
     vtk_path = vtk_files[0]
