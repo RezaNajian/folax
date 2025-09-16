@@ -13,7 +13,7 @@ from fol.tools.fem_utilities import *
 from fol.tools.decoration_functions import *
 from fol.mesh_input_output.mesh import Mesh
 
-class NeoHookeMechanicalLoss(FiniteElementLoss):
+class SaintVenantMechanicalLoss(FiniteElementLoss):
 
     def Initialize(self) -> None:  
         super().Initialize() 
@@ -35,7 +35,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
                 self.body_force = jnp.array(self.loss_settings["body_foce"])
         
         if self.dim == 3:
-            self.material_model = NeoHookianModel()
+            self.material_model = SaintVenant()
             self.CalculateNMatrix = self.CalculateNMatrix3D
             self.CalculateKinematics = self.CalculateKinematics3D   
             if self.element_type == "tetra":
@@ -262,31 +262,11 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
             e_at_gauss = jnp.dot(N_vec, de.squeeze())
             k_at_gauss = e_at_gauss / (3 * (1 - 2*self.v))
             mu_at_gauss = e_at_gauss / (2 * (1 + self.v))
+            lambda_ = e_at_gauss * self.v / ((1 + self.v) * (1 - 2*self.v))
 
             H,F,B = self.CalculateKinematics(DN_DX_T,uvwe)
-            # C = jnp.dot(F.T,F)
-            
-            # def energy(C,F):
-            #     detF = jnp.linalg.det(F)
-            #     xsie_vol = (k_at_gauss/4)*(detF**2 - 2*jnp.log(detF) -1)
-            #     I1_bar = (detF**(-2/3))*jnp.trace(C)
-            #     xsie_iso = 0.5*mu_at_gauss*(I1_bar - 3)
-            #     return xsie_vol + xsie_iso
-            
-            # def second_piola(C):
-            #     return jax.jacfwd(energy,argnums=(0,None))(C,F)
-            
-            # def C_tang(C):
-            #     return 2*jax.jacfwd(second_piola)(C)
-            
-            # C_voigt = self.material_model.TensorToVoigt(C)
-            # S = second_piola(C_voigt.flatten())
-            # C_tangent_fourth = C_tang(C_voigt.flatten())
-            # C = self.material_model.FourthTensorToVoigt(C_tangent_fourth)
-            # print("size of C: ",C.shape)
-            # xsi = energy(C)  
 
-            xsi,S,C = self.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
+            xsi,S,C = self.material_model.evaluate(F,lambda_,mu_at_gauss)
             gp_geo_stiffness = self.CalculateGeometricStiffness(DN_DX_T,S)
             
             
@@ -305,7 +285,7 @@ class NeoHookeMechanicalLoss(FiniteElementLoss):
         Ee = jnp.sum(E_gps, axis=0)
         return  Ee, Fint - Fe, Se
     
-class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
+class SaintVenantMechanicalLossLoss2DQuad(SaintVenantMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
@@ -313,19 +293,19 @@ class NeoHookeMechanicalLoss2DQuad(NeoHookeMechanicalLoss):
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"quad"},fe_mesh)
 
-class NeoHookeMechanicalLoss2DTri(NeoHookeMechanicalLoss):
+class SaintVenantMechanicalLossLoss2DTri(SaintVenantMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
                                "ordered_dofs": ["Ux","Uy"],  
                                "element_type":"triangle"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DTetra(NeoHookeMechanicalLoss):
+class SaintVenantMechanicalLossLoss3DTetra(SaintVenantMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
                                "ordered_dofs": ["Ux","Uy","Uz"],  
                                "element_type":"tetra"},fe_mesh)
 
-class NeoHookeMechanicalLoss3DHexa(NeoHookeMechanicalLoss):
+class SaintVenantMechanicalLossMechanicalLoss3DHexa(SaintVenantMechanicalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2

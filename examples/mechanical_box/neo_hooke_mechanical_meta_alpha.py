@@ -6,7 +6,7 @@ from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss3DTetra
 from fol.loss_functions.mechanical import MechanicalLoss3DTetra
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.dirichlet_control import DirichletControl
+from examples.mechanical_square.dirichlet_control import DirichletControl
 from fol.controls.identity_control import IdentityControl
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *

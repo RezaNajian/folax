@@ -6,7 +6,7 @@ from fol.loss_functions.mechanical import MechanicalLoss3DHexa
 from fol.solvers.fe_linear_residual_based_solver import FiniteElementLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.fourier_control import FourierControl
-from fol.controls.dirichlet_control import DirichletControl
+from dirichlet_control import DirichletControl3D
 from fol.deep_neural_networks.explicit_parametric_operator_learning import ExplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *

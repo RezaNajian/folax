@@ -5,7 +5,7 @@ import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DTri
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.dirichlet_control import DirichletControl2D
+from examples.mechanical_square.dirichlet_control import DirichletControl2D
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *

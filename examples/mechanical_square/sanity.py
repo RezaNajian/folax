@@ -5,7 +5,7 @@ import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DTri
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
-from fol.controls.dirichlet_control import DirichletControl2D
+from examples.mechanical_square.dirichlet_control import DirichletControl2D
 from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
 from fol.deep_neural_networks.meta_implicit_parametric_operator_learning import MetaImplicitParametricOperatorLearning
 from fol.tools.usefull_functions import *
@@ -50,7 +50,7 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
     #         adapt_radius=0.15,     # optional: local refinement
     #         adapt_factor=0.25) 
 
-    fe_mesh = Mesh("fol_io","plane_tet_holes_fine.med",'../meshes/')
+    fe_mesh = Mesh("fol_io","cantilever_trial_fine.med",'../meshes/')
     fe_mesh.Initialize()
     print(f"Number of nodes: {fe_mesh.GetNumberOfNodes()}")
    
@@ -59,7 +59,7 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
     bc_dict = {"Ux":{"left":0.0,"right":0.5},
                 "Uy":{"left":0.0,"right":0.5}}
     material_dict = {"young_modulus":1,"poisson_ratio":0.3}
-    loss_settings = {"dirichlet_bc_dict":bc_dict,"parametric_boundary_learning":True,"material_dict":material_dict}
+    loss_settings = {"dirichlet_bc_dict":bc_dict,"parametric_boundary_learning":True,"material_dict":material_dict,"num_gp":2}
     mechanical_loss_2d = NeoHookeMechanicalLoss2DTri("mechanical_loss_2d",loss_settings=loss_settings,
                                                                                    fe_mesh=fe_mesh)
 
@@ -207,7 +207,7 @@ def main(ifol_num_epochs=10,solve_FE=False,clean_dir=False):
         try:
             hfe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
                     "nonlinear_solver_settings":{"rel_tol":1e-8,"abs_tol":1e-8,
-                                                    "maxiter":10,"load_incr":10}}
+                                                    "maxiter":10,"load_incr":30}}
             nonlin_hfe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d_updated,hfe_setting)
             nonlin_hfe_solver.Initialize()
             HFE_UVW = np.array(nonlin_hfe_solver.Solve(np.ones(fe_mesh.GetNumberOfNodes()),np.zeros(2*fe_mesh.GetNumberOfNodes())))
