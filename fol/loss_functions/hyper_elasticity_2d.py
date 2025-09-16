@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------
-# Hyper_elastic_2d.py  –  linear Hooke (plane strain) and compressible Neo‑Hookean (plane strain) loss for Solver #1 (2‑D variant)
+# Hyper_elastic_2d.py  –  linear Hooke (plane strain) and compressible Neo‑Hookean
 # -------------------------------------------------------------------------
 # Authors: Jerry Paul Varghese
 # License: FOL/LICENSE
