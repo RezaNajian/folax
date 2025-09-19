@@ -36,8 +36,8 @@ class DirichletControl3D(Control):
             for laerning_boundary_tag in dirichlet_indices_dict[dof].keys():
                 if laerning_boundary_tag=='right' and dof=='Ux':
                     self.right_indices_ux = dirichlet_indices_dict[dof]['right']
-                if laerning_boundary_tag=='top' and dof=='Uy':
-                    self.right_indices_uy = dirichlet_indices_dict[dof]['top']
+                if laerning_boundary_tag=='right' and dof=='Uy':
+                    self.right_indices_uy = dirichlet_indices_dict[dof]['right']
 
         self.dofs = self.loss_function.loss_settings.get("ordered_dofs")
         self.dirichlet_bc_dict = self.loss_function.loss_settings.get("dirichlet_bc_dict")

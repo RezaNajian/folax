@@ -198,7 +198,7 @@ class ImplicitParametricOperatorLearning(DeepNetwork):
         prediction = []
         for i in range(batch_X.shape[0]):
             nn_output = self.flax_neural_network(batch_X[i],self.loss_function.fe_mesh.GetNodesCoordinates()).flatten()[self.loss_function.non_dirichlet_indices]
-            full_dof = self.loss_function.GetFullDofVector(batch_X[i],nn_output)
+            full_dof = self.loss_function.GetFullDofVector(batch_X[i],nn_output)[1]
             prediction.append(full_dof)
         return jnp.array(prediction)
 
