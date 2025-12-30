@@ -31,7 +31,7 @@ jobs:
         sudo apt-get install libglu1-mesa
         python -m venv venv
         . venv/bin/activate
-        pip install .[dev]
+        pip install .[cpu,dev]
         pytest tests --cov=fol --cov-report=xml --cov-report=term
     #- name: codecov
     #  uses: codecov/codecov-action@v4
