@@ -14,12 +14,55 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
 
 class TransientThermalLoss(ThermalLoss):
+    """
+    Transient thermal energy functional with implicit time integration.
 
+    This class defines an energy-based loss functional for transient heat
+    conduction problems. The total loss value represents the total discrete
+    thermal energy of the system at a time step and is assembled by summing
+    element-level energy contributions over all finite elements in the mesh.
+
+    For each element, a scalar energy contribution is computed using Gaussian
+    quadrature based on the current and next nodal temperatures. The global
+    energy is obtained by accumulating these element energies across the
+    computational domain.
+
+    In addition to the scalar energy contribution, the class provides the
+    element residual vector and Jacobian matrix associated with the discrete
+    system used for implicit time stepping. The default time integration method
+    is implicit Euler, controlled through ``loss_settings["time_integration_dict"]``.
+
+    The conductivity field can depend on temperature through parameters
+    ``beta`` and ``c`` and an element heterogeneity field ``k0`` provided per
+    node.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing configuration for material and time
+            integration. Supported keys include:
+            - ``"material_dict"`` with optional keys ``"rho"``, ``"cp"``,
+              ``"k0"``, ``"beta"``, and ``"c"``.
+            - ``"time_integration_dict"`` with keys ``"method"`` and
+              ``"time_step"``.
+            Element discretization settings (dimension, element type, ordered
+            DOFs) are typically provided by the specialized subclasses.
+        fe_mesh (Mesh):
+            Finite element mesh over which the energy functional is defined.
+
+    Attributes:
+        material_settings (dict):
+            Material and conductivity settings merged from defaults and user
+            input. Includes ``rho``, ``cp``, ``k0``, ``beta``, and ``c``.
+        time_integration_settings (dict):
+            Time integration settings including ``method`` and ``time_step``.
+    """
     @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
+    def Initialize(self,reinitialize=False) -> None:
         if self.initialized and not reinitialize:
             return
-        super().Initialize() 
+        super().Initialize()
 
         self.default_material_settings = {"rho":1.0,"cp":1.0,"k0":np.ones((self.fe_mesh.GetNumberOfNodes())),"beta":0.0,"c":1.0}
         self.default_time_integration_settings = {"method":"implicit-euler","time_step":None}
@@ -38,7 +81,7 @@ class TransientThermalLoss(ThermalLoss):
         self.time_integration_settings = UpdateDefaultDict(self.default_time_integration_settings,self.loss_settings["time_integration_dict"])
         if self.time_integration_settings["time_step"] == None:
             fol_error("time step should be provided in the time_integration_dict ")
-    
+
     def ComputeElement(self,xyze,Te_c,Te_n,Ke):
         Te_c = Te_c.reshape(-1,1)
         Te_n = Te_n.reshape(-1,1)
@@ -48,7 +91,7 @@ class TransientThermalLoss(ThermalLoss):
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
             T_at_gauss_n = jnp.dot(N_vec.reshape(1,-1), Te_n)
             T_at_gauss_c = jnp.dot(N_vec.reshape(1,-1), Te_c)
-            K_at_gauss = jnp.dot(N_vec, Ke.squeeze()) * (1 + 
+            K_at_gauss = jnp.dot(N_vec, Ke.squeeze()) * (1 +
                                     self.material_settings["beta"]*(T_at_gauss_n)**self.thermal_loss_settings["c"])
             DN_DX = self.fe_element.ShapeFunctionsLocalGradients(gp_point)
             J = self.fe_element.Jacobian(xyze,gp_point)
@@ -56,10 +99,10 @@ class TransientThermalLoss(ThermalLoss):
             invJ = jnp.linalg.inv(J)
             B_mat = jnp.dot(invJ,DN_DX.T)
             gp_stiffness = B_mat.T @ B_mat*K_at_gauss * detJ * gp_weight
-            gp_mass = self.material_settings["rho"] * self.material_settings["cp"]* jnp.outer(N_vec, N_vec) * detJ * gp_weight 
+            gp_mass = self.material_settings["rho"] * self.material_settings["cp"]* jnp.outer(N_vec, N_vec) * detJ * gp_weight
             gp_t = self.material_settings["rho"] * self.material_settings["cp"] * 0.5/(self.time_integration_settings["time_step"])*gp_weight  * detJ *(T_at_gauss_n-T_at_gauss_c)**2
             dk_dT = jnp.dot(N_vec, Ke.squeeze()) * self.material_settings["beta"] * self.thermal_loss_settings["c"] * T_at_gauss_n ** (self.thermal_loss_settings["c"] - 1)
-            gp_dR = (dk_dT * jnp.outer(N_vec, (B_mat@Te_n).T@B_mat) + K_at_gauss *B_mat.T @ B_mat)* detJ * gp_weight 
+            gp_dR = (dk_dT * jnp.outer(N_vec, (B_mat@Te_n).T@B_mat) + K_at_gauss *B_mat.T @ B_mat)* detJ * gp_weight
             return gp_stiffness,gp_mass, gp_t, gp_dR
 
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
@@ -67,7 +110,7 @@ class TransientThermalLoss(ThermalLoss):
         Se = jnp.sum(k_gps, axis=0)
         Me = jnp.sum(m_gps, axis=0)
         Se_dR = jnp.sum(dR_gps, axis=0)
-        Te = jnp.sum(t_gps) 
+        Te = jnp.sum(t_gps)
         element_residuals = jax.lax.stop_gradient((Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c)
         # element_weighted_residual_loss  = ((Te_n.T @ element_residuals)[0,0])
         return  0.5*Te_n.T@Se@Te_n + Te, (Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c, (Me+self.time_integration_settings["time_step"]*Se_dR)
@@ -78,7 +121,7 @@ class TransientThermalLoss(ThermalLoss):
                              elem_next_temps:jnp.array,
                              elem_heterogeneity:jnp.array) -> float:
         return self.ComputeElement(elem_xyz,elem_current_temps,elem_next_temps,elem_heterogeneity)[0]
-    
+
     def ComputeElementEnergyVmapCompatible(self,
                                            element_id:jnp.integer,
                                            elements_nodes:jnp.array,
@@ -100,7 +143,7 @@ class TransientThermalLoss(ThermalLoss):
                         nodal_current_temps,
                         nodal_next_temps,
                         self.material_settings["k0"])
-    
+
     def ComputeElementResidualAndJacobian(self,
                                           elem_xyz:jnp.array,
                                           elem_current_temps:jnp.array,
@@ -146,16 +189,16 @@ class TransientThermalLoss3DTetra(TransientThermalLoss):
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"tetra"},fe_mesh)
-        
+
 class TransientThermalLoss3DHexa(TransientThermalLoss):
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"hexahedron"},fe_mesh)
 
 class TransientThermalLoss2DQuad(TransientThermalLoss):
@@ -163,11 +206,11 @@ class TransientThermalLoss2DQuad(TransientThermalLoss):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"quad"},fe_mesh)
-        
+
 class TransientThermalLoss2DTri(TransientThermalLoss):
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"triangle"},fe_mesh)
