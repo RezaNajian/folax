@@ -16,23 +16,65 @@ from fol.tools.usefull_functions import *
 from fol.constitutive_material_models.saint_venant import SaintVenant
 
 class SaintVenantMechanicalLoss(FiniteElementLoss):
+    """
+    Saint Venant–Kirchhoff mechanical energy loss for finite deformation elasticity.
 
+    This class defines an energy-based loss functional for mechanical problems
+    governed by a Saint Venant–Kirchhoff constitutive model. The total loss
+    value represents the total strain energy of the structure and is assembled
+    by summing element-level energy contributions over all finite elements in
+    the mesh.
+
+    For each element, the strain energy density is evaluated at Gauss points
+    and integrated to obtain an element energy contribution. The global energy
+    is obtained by accumulating these element energies across the computational
+    domain.
+
+    In addition to the scalar energy contribution, this loss provides the
+    element residual vector (internal minus external forces) and the element
+    tangent matrix (material stiffness plus geometric stiffness) required for
+    Newton-based solution procedures.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Configuration dictionary. Must include ``material_dict`` with keys
+            ``"young_modulus"`` and ``"poisson_ratio"``. Optional entries
+            include ``"body_foce"`` and parametric heterogeneity settings via
+            ``"heterogeneity_field_name"`` and ``"heterogeneity_default_value"``.
+            Element discretization settings (dimension, element type, ordered
+            DOFs) are typically provided by specialized subclasses.
+        fe_mesh (Mesh):
+            Finite element mesh over which the energy functional is defined.
+
+    Attributes:
+        e (float):
+            Young's modulus used by the constitutive model.
+        v (float):
+            Poisson's ratio used by the constitutive model.
+        material_model (SaintVenant):
+            Constitutive material model used to compute energy density, stress,
+            and consistent tangent.
+        body_force (jax.numpy.ndarray):
+            Body force vector with shape ``(2, 1)`` in 2D or ``(3, 1)`` in 3D.
+    """
     default_material_settings = {"young_modulus":1.0,
                                  "poisson_ratio":"0.3",
                                  "heterogeneity_field_name":"K",
                                  "heterogeneity_default_value":1.0}
-    
+
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         loss_settings["material_dict"] = UpdateDefaultDict(self.default_material_settings,loss_settings["material_dict"])
         super().__init__(name,loss_settings,fe_mesh)
 
-    def Initialize(self) -> None:  
-        super().Initialize() 
+    def Initialize(self) -> None:
+        super().Initialize()
         if "material_dict" not in self.loss_settings.keys():
             fol_error("material_dict should provided in the loss settings !")
         self.e = self.loss_settings["material_dict"]["young_modulus"]
-        self.v = self.loss_settings["material_dict"]["poisson_ratio"] 
-        self.material_model = SaintVenant() 
+        self.v = self.loss_settings["material_dict"]["poisson_ratio"]
+        self.material_model = SaintVenant()
 
         if self.dim == 2:
             self.CalculateNMatrix = self.CalculateNMatrix2D
@@ -47,16 +89,16 @@ class SaintVenantMechanicalLoss(FiniteElementLoss):
 
         if self.dim == 3:
             self.CalculateNMatrix = self.CalculateNMatrix3D
-            self.CalculateKinematics = self.CalculateKinematics3D   
+            self.CalculateKinematics = self.CalculateKinematics3D
             if self.element_type == "tetra":
                 self.CalculateGeometricStiffness = self.CalculateTetraGeometricStiffness3D
             elif self.element_type == "hexahedron":
                  self.CalculateGeometricStiffness = self.CalculateHexaGeometricStiffness3D
             self.body_force = jnp.zeros((3,1))
         if "body_foce" in self.loss_settings:
-                self.body_force = jnp.array(self.loss_settings["body_foce"])   
+                self.body_force = jnp.array(self.loss_settings["body_foce"])
 
-        if self.loss_settings.get("parametric_boundary_learning"):  
+        if self.loss_settings.get("parametric_boundary_learning"):
             heterogeneity_field = self.loss_settings["material_dict"]["heterogeneity_field_name"]
             heterogeneity_default_value = self.loss_settings["material_dict"]["heterogeneity_default_value"]
             if not self.fe_mesh.HasPointData(heterogeneity_field):
@@ -114,9 +156,9 @@ class SaintVenantMechanicalLoss(FiniteElementLoss):
     @partial(jit, static_argnums=(0,))
     def CalculateNMatrix2D(self,N_vec:jnp.array) -> jnp.array:
         N_mat = jnp.zeros((2, 2 * N_vec.size))
-        indices = jnp.arange(N_vec.size)   
+        indices = jnp.arange(N_vec.size)
         N_mat = N_mat.at[0, 2 * indices].set(N_vec)
-        N_mat = N_mat.at[1, 2 * indices + 1].set(N_vec)    
+        N_mat = N_mat.at[1, 2 * indices + 1].set(N_vec)
         return N_mat
 
     @partial(jit, static_argnums=(0,))
@@ -269,6 +311,37 @@ class SaintVenantMechanicalLoss(FiniteElementLoss):
 
     @partial(jit, static_argnums=(0,))
     def ComputeElement(self,xyze,de,uvwe):
+        """
+        Compute element-level energy, residual, and tangent contributions.
+
+        This method evaluates the element strain energy by Gaussian quadrature
+        using the Saint Venant–Kirchhoff constitutive model. The returned scalar
+        value represents the strain energy contribution of this element to the
+        total energy of the system. The total loss value is obtained by summing
+        these element energies over all elements in the mesh.
+
+        The method also computes the element residual vector as the difference
+        between internal and external nodal force vectors and returns the
+        element tangent matrix including both material and geometric stiffness
+        contributions.
+
+        Args:
+            xyze:
+                Element nodal coordinates.
+            de:
+                Element parameter field values at nodes used to interpolate
+                material parameters to Gauss points.
+            uvwe:
+                Element displacement DOF vector arranged consistently with the
+                element type and ordered degrees of freedom.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, jax.numpy.ndarray, jax.numpy.ndarray]:
+                - Scalar element strain energy contribution.
+                - Element residual vector defined as ``Fint - Fe``.
+                - Element tangent matrix including material and geometric
+                  stiffness contributions.
+        """
         @jit
         def compute_at_gauss_point(gp_point,gp_weight):
 
@@ -305,29 +378,105 @@ class SaintVenantMechanicalLoss(FiniteElementLoss):
         return  Ee, Fint - Fe, Se
 
 class SaintVenantMechanicalLoss2DQuad(SaintVenantMechanicalLoss):
+    """
+    Saint Venant–Kirchhoff mechanical energy loss for 2D quadrilateral elements.
+
+    This class configures :class:`SaintVenantMechanicalLoss` for two-dimensional
+    problems discretized with quadrilateral elements. The displacement field
+    consists of two components (``Ux``, ``Uy``) per node, and the total energy
+    is assembled by summing element energy contributions defined in the base
+    class.
+
+    If the number of Gauss points is not specified in the loss settings, a
+    default value of ``num_gp = 2`` is used.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and optional settings such
+            as integration parameters.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["Ux","Uy"],  
+                               "ordered_dofs": ["Ux","Uy"],
                                "element_type":"quad"},fe_mesh)
 
 class SaintVenantMechanicalLoss2DTri(SaintVenantMechanicalLoss):
+    """
+    Saint Venant–Kirchhoff mechanical energy loss for 2D triangular elements.
+
+    This class configures :class:`SaintVenantMechanicalLoss` for two-dimensional
+    problems discretized with triangular elements. The displacement field
+    consists of two components (``Ux``, ``Uy``) per node, and the total energy
+    is assembled by summing element energy contributions defined in the base
+    class.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and optional settings.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["Ux","Uy"],  
+                               "ordered_dofs": ["Ux","Uy"],
                                "element_type":"triangle"},fe_mesh)
 
 class SaintVenantMechanicalLoss3DTetra(SaintVenantMechanicalLoss):
+    """
+    Saint Venant–Kirchhoff mechanical energy loss for 3D tetrahedral elements.
+
+    This class configures :class:`SaintVenantMechanicalLoss` for three-dimensional
+    problems discretized with tetrahedral elements. The displacement field
+    consists of three components (``Ux``, ``Uy``, ``Uz``) per node, and the total
+    energy is assembled by summing element energy contributions defined in the
+    base class.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and optional settings.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "ordered_dofs": ["Ux","Uy","Uz"],
                                "element_type":"tetra"},fe_mesh)
 
 class SaintVenantMechanicalLoss3DHexa(SaintVenantMechanicalLoss):
+    """
+    Saint Venant–Kirchhoff mechanical energy loss for 3D hexahedral elements.
+
+    This class configures :class:`SaintVenantMechanicalLoss` for three-dimensional
+    problems discretized with hexahedral elements. The displacement field
+    consists of three components (``Ux``, ``Uy``, ``Uz``) per node, and the total
+    energy is assembled by summing element energy contributions defined in the
+    base class.
+
+    If the number of Gauss points is not specified in the loss settings, a
+    default value of ``num_gp = 2`` is used.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and optional settings such
+            as integration parameters.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "ordered_dofs": ["Ux","Uy","Uz"],
                                "element_type":"hexahedron"},fe_mesh)
