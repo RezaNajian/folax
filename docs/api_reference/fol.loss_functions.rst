@@ -116,6 +116,17 @@ Elastoplasticity loss functions
    :members:
    :show-inheritance:
 
+Kratos small-displacement mechanical loss functions
+---------------------------------------------------
+
+.. automodule:: fol.loss_functions.kratos_small_displacement
+.. currentmodule:: fol.loss_functions.kratos_small_displacement
+
+.. autoclass:: KratosSmallDisplacement3DTetra
+   :members:
+   :show-inheritance:
+   :exclude-members: ComputeElement
+
 Nonlinear thermal loss functions
 --------------------------------
 

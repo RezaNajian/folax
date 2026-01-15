@@ -6,6 +6,17 @@ Solve strategies provided by FoLax.
 .. automodule:: fol.solvers
 .. currentmodule:: fol.solvers
 
+Finite element linear solver class
+----------------------------------
+
+.. automodule:: fol.solvers.fe_solver
+.. currentmodule:: fol.solvers.fe_solver
+
+.. autoclass:: FiniteElementSolver
+   :members:
+   :show-inheritance:
+   :exclude-members: Finalize
+
 Adjoint-based Finite Element solver
 -----------------------------------
 

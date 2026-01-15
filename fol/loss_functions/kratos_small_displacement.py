@@ -28,56 +28,73 @@ if _HAS_FOL_FFI_LIB:
 
 class KratosSmallDisplacement3DTetra(FiniteElementLoss):
     """
-    Finite element formulation for 3D small-displacement problems
-    using tetrahedral elements using Kratos Multiphysics.
+    Kratos-based 3D small-displacement tetrahedral loss accelerated via JAX FFI.
 
-    This class extends `FiniteElementLoss` and implements residual,
-    Jacobian, and energy computations for small-displacement elasticity
-    in 3D. Computations are accelerated with custom CUDA kernels implemented in
-    `fol_ffi_functions`.
+    This class provides a finite element loss for linear small-displacement
+    elasticity in 3D using tetrahedral elements. It derives from
+    :class:`fol.loss_functions.fe_loss.FiniteElementLoss` and reuses the base
+    class infrastructure for DOF bookkeeping, Dirichlet boundary conditions,
+    and sparse assembly.
 
-    Attributes:
-        material_settings (dict): Material parameters including
-            - "poisson_ratio" (float): Poisson's ratio of the material.
-            - "young_modulus" (float): Young’s modulus of the material.
+    In contrast to standard Python/JAX element implementations, this class
+    delegates element-level computations to custom CUDA kernels exposed through
+    ``fol_ffi_functions`` and registered with ``jax.ffi``. The kernels compute
+    element residuals and element stiffness matrices, which are then processed
+    to enforce Dirichlet boundary conditions and assembled into a global sparse
+    Jacobian matrix and residual vector.
 
-    Methods:
-        __init__(name, loss_settings, fe_mesh):
-            Initialize the loss object and check for FFI availability.
+    The total loss value is computed in an energy-consistent manner using the
+    dot product of the global displacement vector with the global nodal
+    residual vector produced by the FFI kernel.
 
-        Initialize(reinitialize=False):
-            Initialize or reinitialize the FEM problem setup,
-            including material settings.
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Configuration dictionary. User-provided settings may include
+            ``"material_dict"`` with keys ``"poisson_ratio"`` and
+            ``"young_modulus"`` and the standard FE settings expected by the
+            base class. The element discretization is fixed to 3D tetrahedra
+            with displacement DOFs.
+        fe_mesh (Mesh):
+            Finite element mesh containing node coordinates and tetrahedral
+            connectivity.
 
-        ComputeTotalEnergy(total_control_vars, total_primal_vars):
-            Compute the total strain energy for the system using nodal
-            residuals and displacements.
-
-        ComputeJacobianMatrixAndResidualVector(total_control_vars,
-                                               total_primal_vars,
-                                               transpose_jacobian=False):
-            Assemble the global Jacobian matrix and residual vector,
-            applying Dirichlet boundary conditions and using sparse COO
-            storage.
+    Raises:
+        RuntimeError:
+            If ``fol_ffi_functions`` is not available.
 
     Notes:
-        - Dirichlet boundary conditions are handled by masking and
-          modifying both residuals and element Jacobians.
-        - Uses JAX's experimental sparse API for efficient global
-          stiffness matrix assembly.
-        - Requires `fol_ffi_functions` for CUDA kernels
-          (`compute_nodal_residuals`, `compute_elements`).
+        This class relies on CUDA FFI targets registered at import time. It is
+        expected to run on platforms where the registered targets are available.
+        Element-level routines are not implemented in Python for this class.
     """
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not _HAS_FOL_FFI_LIB:
             fol_error(" fol_ffi_functions is not available, install by running install script under ffi_functions folder!")
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["Ux","Uy","Uz"],  
+                               "ordered_dofs": ["Ux","Uy","Uz"],
                                "element_type":"tetra"},fe_mesh)
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
+    def Initialize(self,reinitialize=False) -> None:
+        """
+        Initialize FE bookkeeping and material parameters.
+
+        This method calls the base class initialization and then prepares the
+        material parameters used by the CUDA kernels. If ``material_dict`` is
+        provided in ``loss_settings``, it is used directly; otherwise default
+        values are applied.
+
+        Args:
+            reinitialize (bool, optional):
+                If ``True``, re-run initialization even if already initialized.
+                Default is ``False``.
+
+        Returns:
+            None
+        """
         if self.initialized and not reinitialize:
             return
         super().Initialize()
@@ -87,9 +104,55 @@ class KratosSmallDisplacement3DTetra(FiniteElementLoss):
             self.material_settings = self.loss_settings["material_dict"]
 
     def ComputeElement(self,xyze,de,te,body_force=0):
+        """
+        Element-level computation is not available for this FFI-based loss.
+
+        The element residual and stiffness contributions are computed in CUDA
+        through JAX FFI. The Python element routine is intentionally not
+        implemented for this class.
+
+        Args:
+            xyze:
+                Element nodal coordinates.
+            de:
+                Element control values.
+            te:
+                Element DOF vector.
+            body_force:
+                Body force term (unused).
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError:
+                Always raised because the method is not implemented.
+        """
         fol_error(" is not implemented for KratosSmallDisplacement3DTetra!")
 
     def ComputeTotalEnergy(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
+        """
+        Compute the total energy-consistent scalar loss value for the system.
+
+        This method calls the FFI kernel ``compute_nodal_residuals`` to evaluate
+        the global nodal residual vector for the provided displacement field.
+        The returned scalar value is computed as the dot product of the global
+        displacement vector with the global residual vector.
+
+        Args:
+            total_control_vars (jax.numpy.ndarray):
+                Control variables. This argument is accepted for API
+                compatibility and is not used by the current FFI kernels.
+            total_primal_vars (jax.numpy.ndarray):
+                Global displacement (DOF) vector with shape
+                ``(total_number_of_dofs,)`` or compatible. The vector is
+                reshaped internally to a batch of size 1.
+
+        Returns:
+            jax.numpy.ndarray:
+                Scalar loss value computed from the displacement field and the
+                nodal residuals.
+        """
         total_primal_vars = total_primal_vars.reshape(1,-1)
         batch_size = 1
         nodal_res_type = jax.ShapeDtypeStruct((batch_size,self.number_dofs_per_node*self.fe_mesh.GetNumberOfNodes()), total_primal_vars.dtype)
@@ -102,7 +165,33 @@ class KratosSmallDisplacement3DTetra(FiniteElementLoss):
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False):
+        """
+        Assemble the global sparse Jacobian matrix and residual vector using FFI.
 
+        This method calls the FFI kernel ``compute_elements`` to compute element
+        stiffness matrices and element residual vectors for all tetrahedral
+        elements. Dirichlet boundary conditions are applied at element level
+        using the base class masking strategy, and the processed contributions
+        are assembled into:
+
+        - a global residual vector, and
+        - a global sparse Jacobian matrix in BCOO format.
+
+        Args:
+            total_control_vars (jax.numpy.ndarray):
+                Control variables. This argument is accepted for API
+                compatibility and is not used by the current FFI kernels.
+            total_primal_vars (jax.numpy.ndarray):
+                Global displacement (DOF) vector.
+            transpose_jacobian (bool, optional):
+                If ``True``, element stiffness matrices are transposed before
+                applying boundary conditions and assembly. Default is ``False``.
+
+        Returns:
+            Tuple[jax.experimental.sparse.BCOO, jax.numpy.ndarray]:
+                A tuple containing the global sparse Jacobian matrix and the
+                global residual vector.
+        """
         BC_vector = jnp.ones((self.total_number_of_dofs))
         BC_vector = BC_vector.at[self.dirichlet_indices.astype(jnp.int32)].set(0)
         mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
@@ -124,7 +213,7 @@ class KratosSmallDisplacement3DTetra(FiniteElementLoss):
                      re:jnp.array,
                      elem_BC:jnp.array,
                      elem_mask_BC:jnp.array):
-                     
+
             index = jnp.asarray(transpose_jacobian, dtype=jnp.int32)
             # Define the two branches for switch
             branches = [
@@ -163,11 +252,11 @@ class KratosSmallDisplacement3DTetra(FiniteElementLoss):
         for dof_idx in range(self.number_dofs_per_node):
             residuals_vector = residuals_vector.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)+dof_idx].add(jnp.squeeze(elements_residuals[:,dof_idx::self.number_dofs_per_node]))
 
-        # second compute the global jacobian matrix  
+        # second compute the global jacobian matrix
         jacobian_data = jnp.ravel(elements_stiffness)
         jacobian_indices = jax.vmap(self.ComputeElementJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
         jacobian_indices = jacobian_indices.reshape(-1,2)
-        
+
         sparse_jacobian = sparse.BCOO((jacobian_data,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
-        
+
         return sparse_jacobian, residuals_vector
