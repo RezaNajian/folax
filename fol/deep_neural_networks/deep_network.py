@@ -24,26 +24,57 @@ class DeepNetwork(ABC):
     """
     Base abstract class for deep learning models.
 
-    This class serves as a foundation for deep neural networks. It provides a 
-    structure to initialize essential components such as the network, optimizer, 
-    loss function, and checkpoint settings. The class is abstract and intended 
-    to be extended by specific model implementations.
+    This class provides a common training/testing workflow for Flax/NNX neural
+    networks optimized with Optax. It centralizes model initialization, JIT-compiled
+    train/test steps, convergence checks, plotting of training curves, and Orbax
+    checkpointing.
+
+    Subclasses must implement :meth:`ComputeBatchLossValue` to define how a batch
+    loss is computed (including any auxiliary loss terms and metrics) and
+    :meth:`Finalize` to run any end-of-training procedures.
+
+    The training loop performs:
+
+    - Optional restoration of a previously saved model state.
+    - Optional data/model sharding across devices.
+    - Batched training with randomized batch indices.
+    - Periodic evaluation on a test set.
+    - Convergence checks based on configured criteria.
+    - Optional checkpointing (least-loss, interval, and final state).
+    - Optional plotting of loss histories.
+
+    Args:
+        name (str):
+            Name identifier for the model instance. Used for logging and to
+            organize checkpoint folders.
+        loss_function (Loss):
+            Loss function object that defines the optimization objective and
+            provides any required initialization.
+        flax_neural_network (nnx.Module):
+            Flax/NNX module defining the neural network architecture.
+        optax_optimizer (GradientTransformation):
+            Optax optimizer transformation used to update the model parameters.
 
     Attributes:
-    ----------
-    name : str
-        The name of the model, used for identification and checkpointing.
-    loss_function : Loss
-        The loss function that the model will optimize during training. 
-        It defines the objective that the network is learning to minimize.
-    flax_neural_network : nnx.Module
-        The Flax neural network module that defines the model's architecture.
-    optax_optimizer : GradientTransformation
-        The Optax optimizer used to update model parameters during training.
-    checkpoint_settings : dict, optional
-        Dictionary that stores settings for saving and restoring checkpoints. 
-        Defaults to an empty dictionary.
+        name (str):
+            Model name used for identification and checkpointing.
+        loss_function (Loss):
+            Loss function used to compute objective values.
+        flax_neural_network (nnx.Module):
+            Flax/NNX neural network module.
+        optax_optimizer (GradientTransformation):
+            Optax optimizer transformation.
+        initialized (bool):
+            Indicates whether :meth:`Initialize` has been called.
+        checkpointer (ocp.StandardCheckpointer):
+            Orbax checkpointer used for saving/restoring model states.
+        nnx_optimizer (nnx.Optimizer):
+            NNX optimizer wrapper holding parameters and optimizer state.
 
+    Notes:
+        The subclass implementation of :meth:`ComputeBatchLossValue` must return
+        a metrics dictionary containing the key ``"total_loss"``. This value is
+        used for logging, convergence checks, plotting, and checkpointing.
     """
     default_convergence_settings = {"num_epochs":100,"convergence_criterion":"total_loss",
                                     "relative_error":1e-8,"absolute_error":1e-8}
@@ -68,25 +99,20 @@ class DeepNetwork(ABC):
 
     def Initialize(self,reinitialize=False) -> None:
         """
-        Initialize the deep learning model, its components, and checkpoint settings.
+        Initialize the loss function, checkpointer, and NNX optimizer wrapper.
 
-        This method handles the initialization of essential components for the deep network. 
-        It ensures that the loss function is initialized, sets up checkpointing 
-        for saving and restoring model states, and manages reinitialization if needed. 
-        The function is responsible for restoring the model's state from a previous checkpoint, 
-        if specified in the checkpoint settings.
+        This method prepares the model for training and testing. It initializes
+        ``self.loss_function`` (if needed or if ``reinitialize=True``), creates an
+        Orbax ``StandardCheckpointer``, and constructs an ``nnx.Optimizer`` that couples
+        the Flax/NNX model with the Optax optimizer transformation.
 
-        Attributes:
-        ----------
-        reinitialize : bool, optional
-            If True, forces reinitialization of the model and its components even if 
-            they have been initialized previously. Default is False.
+        Args:
+            reinitialize (bool, optional):
+                If ``True``, force reinitialization of the loss function even if it was
+                previously initialized. Default is ``False``.
 
-        Raises:
-        -------
-        AssertionError:
-            If the restored neural network state does not match the current state 
-            (based on a comparison using `np.testing.assert_array_equal`).
+        Returns:
+            None
         """
 
         # initialize inputs
@@ -101,62 +127,113 @@ class DeepNetwork(ABC):
 
     def GetName(self) -> str:
         """
-        Returns the name of the model.
+        Return the model name.
 
-        Returns
-        -------
-        str
-            The name of the deep learning model.
+        Returns:
+            str:
+                The name identifier of this model instance.
         """
         return self.name
-    
+
     @abstractmethod
     def ComputeBatchLossValue(self,batch_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         """
-        Computes the loss values for a batch of data.
+        Compute the loss for a single batch and return loss metrics.
 
-        This method computes the network's output for a batch of input data, applies the control parameters,
-        and evaluates the loss function for the entire batch. It aggregates the results and returns
-        summary statistics (min, max, avg) for the batch losses.
+        Subclasses must implement this method. It is used by both training and testing
+        steps. Implementations are expected to perform a forward pass of ``nn_model``
+        on the batch input, evaluate the configured loss function and any auxiliary
+        loss terms, and return a scalar batch loss together with a metrics dictionary.
 
-        Parameters
-        ----------
-        batch_set : Tuple[jnp.ndarray, jnp.ndarray]
-            A tuple containing a batch of input data and corresponding target labels.
-        nn_model : nnx.Module
-            The Flax neural network model.
+        The returned metrics dictionary must include the key ``"total_loss"`` because
+        the training loop uses it for logging, convergence checks, plotting, and
+        checkpoint decisions.
 
-        Returns
-        -------
-        Tuple[jnp.ndarray, dict]
-            The mean loss for the batch and a dictionary of loss statistics (min, max, avg, total).
+        Args:
+            batch_set (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Batch tuple ``(inputs, targets)``. Exact shapes depend on the problem
+                setup.
+            nn_model (nnx.Module):
+                The Flax/NNX model to evaluate.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, dict]:
+                A tuple ``(loss_value, metrics_dict)`` where ``loss_value`` is the scalar
+                loss used for differentiation and optimization, and ``metrics_dict``
+                contains batch-level metrics including the required key
+                ``"total_loss"``.
+
+        Raises:
+            KeyError:
+                If the returned metrics dictionary does not contain ``"total_loss"``.
         """
         pass
 
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, state, data):
+        """
+        Execute one JIT-compiled training step.
+
+        This step calls :meth:`ComputeBatchLossValue` with gradients enabled,
+        applies the parameter update using the internal ``nnx.Optimizer``, and
+        returns the scalar ``"total_loss"`` for logging.
+
+        Args:
+            state (tuple[nnx.Module, nnx.Optimizer]):
+                Training state as ``(model, optimizer)``.
+            data (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Batch tuple ``(inputs, targets)``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Scalar total loss for the batch (``metrics["total_loss"]``).
+        """
         nn, opt = state
         (_,batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
                                                                     (data,nn)
         opt.update(nn,batch_grads)
         return batch_dict["total_loss"]
-    
+
     @partial(nnx.jit, static_argnums=(0,))
     def TestStep(self, state, data):
+        """
+        Execute one JIT-compiled evaluation (test) step.
+
+        This step calls :meth:`ComputeBatchLossValue` without updating parameters
+        and returns the scalar ``"total_loss"`` for logging.
+
+        Args:
+            state (tuple[nnx.Module, nnx.Optimizer]):
+                State tuple ``(model, optimizer)``. The optimizer is unused but
+                kept for interface consistency.
+            data (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Batch tuple ``(inputs, targets)``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Scalar total loss for the batch (``metrics["total_loss"]``).
+        """
         nn,_ = state
         (_,batch_dict) = self.ComputeBatchLossValue(data,nn)
         return batch_dict["total_loss"]
 
     def GetState(self):
+        """
+        Return the state tuple consumed by :meth:`TrainStep` and :meth:`TestStep`.
+
+        Returns:
+            tuple[nnx.Module, nnx.Optimizer]:
+                A tuple ``(self.flax_neural_network, self.nnx_optimizer)``.
+        """
         return (self.flax_neural_network, self.nnx_optimizer)
 
     @print_with_timestamp_and_execution_time
-    def Train(self, 
-              train_set:Tuple[jnp.ndarray, jnp.ndarray], 
+    def Train(self,
+              train_set:Tuple[jnp.ndarray, jnp.ndarray],
               test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])),
-              test_frequency:int=100, 
-              batch_size:int=100, 
-              convergence_settings:dict={}, 
+              test_frequency:int=100,
+              batch_size:int=100,
+              convergence_settings:dict={},
               plot_settings:dict={},
               restore_nnx_state_settings:dict={},
               train_checkpoint_settings:dict={},
@@ -164,7 +241,61 @@ class DeepNetwork(ABC):
               save_nnx_state_settings:dict={},
               data_model_sharding_settings:dict={},
               working_directory='.'):
+        """
+        Train the model using mini-batch optimization and optional evaluation.
 
+        This method orchestrates the full training loop:
+        - Applies default settings and merges user settings dictionaries,
+        - Optionally restores a saved model state,
+        - Optionally shards data/model across devices,
+        - Runs multiple epochs of randomized mini-batch updates,
+        - Periodically evaluates on ``test_set``,
+        - Checks convergence criteria,
+        - Optionally plots and saves loss histories,
+        - Optionally saves checkpoints (least-loss, interval, and/or final state).
+
+        Args:
+            train_set (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Training dataset tuple ``(inputs, targets)``.
+            test_set (Tuple[jax.numpy.ndarray, jax.numpy.ndarray], optional):
+                Test dataset tuple ``(inputs, targets)``. If empty arrays are
+                provided, testing is skipped. Default is empty arrays.
+            test_frequency (int, optional):
+                Evaluate test loss every ``test_frequency`` epochs. Default is
+                ``100``.
+            batch_size (int, optional):
+                Requested batch size. May be adjusted to evenly divide the
+                training set size for batching/parallelization. Default is
+                ``100``.
+            convergence_settings (dict, optional):
+                Convergence configuration (epochs, criterion name, tolerances).
+                Missing keys are filled from defaults.
+            plot_settings (dict, optional):
+                Plot configuration (metrics list, plot frequency, save paths).
+                Missing keys are filled from defaults.
+            restore_nnx_state_settings (dict, optional):
+                Restore configuration. If ``restore=True``, restores model state
+                from ``state_directory``.
+            train_checkpoint_settings (dict, optional):
+                Checkpoint configuration for tracking least training loss.
+            test_checkpoint_settings (dict, optional):
+                Checkpoint configuration for tracking least test loss.
+            save_nnx_state_settings (dict, optional):
+                Final and interval checkpoint configuration.
+            data_model_sharding_settings (dict, optional):
+                Sharding configuration including device partitioning.
+            working_directory (str, optional):
+                Base directory used to store plots and checkpoints. Default is
+                ``"."``.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError:
+                If provided settings dictionaries are missing required keys after
+                default merging (implementation-dependent).
+        """
         convergence_settings = UpdateDefaultDict(self.default_convergence_settings,convergence_settings)
         fol_info(f"convergence settings:{convergence_settings}")
 
@@ -188,7 +319,7 @@ class DeepNetwork(ABC):
         default_test_checkpoint_settings["state_directory"] = working_directory + "/" + default_test_checkpoint_settings["state_directory"]
         test_checkpoint_settings = UpdateDefaultDict(default_test_checkpoint_settings,test_checkpoint_settings)
         fol_info(f"test checkpoint settings:{test_checkpoint_settings}")
-        
+
         default_save_nnx_state_settings = copy.deepcopy(self.default_save_nnx_state_settings)
         default_save_nnx_state_settings["final_state_directory"] = working_directory + "/" + default_save_nnx_state_settings["final_state_directory"]
         default_save_nnx_state_settings["interval_state_checkpointing_directory"] = working_directory + "/" + default_save_nnx_state_settings["interval_state_checkpointing_directory"]
@@ -198,15 +329,15 @@ class DeepNetwork(ABC):
         sharding_settings = UpdateDefaultDict(self.default_data_model_sharding_settings,data_model_sharding_settings)
         fol_info(f"sharding settings:{sharding_settings}")
 
-        # restore state if needed 
+        # restore state if needed
         if restore_nnx_state_settings['restore']:
             self.RestoreState(restore_nnx_state_settings["state_directory"])
 
         # adjust batch for parallization reasons
-        adjusted_batch_size = next(i for i in range(batch_size, 0, -1) if len(train_set[0]) % i == 0)   
+        adjusted_batch_size = next(i for i in range(batch_size, 0, -1) if len(train_set[0]) % i == 0)
         if adjusted_batch_size!=batch_size:
-            fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")   
-            batch_size = adjusted_batch_size  
+            fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")
+            batch_size = adjusted_batch_size
 
         # sharding & data-model parallelization
         if sharding_settings["sharding"]:
@@ -230,16 +361,16 @@ class DeepNetwork(ABC):
 
             # data sharding
             train_set = jax.device_put(train_set, data_sharding)
-                
+
             if len(test_set)>0:
                 test_set = jax.device_put(test_set, data_sharding)
 
             # nnx model sharding
             with sharding_mesh:
-                state = nnx.state(self.flax_neural_network)   
+                state = nnx.state(self.flax_neural_network)
                 pspecs = nnx.get_partition_spec(state)
                 sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
-                nnx.update(self.flax_neural_network, sharded_state) 
+                nnx.update(self.flax_neural_network, sharded_state)
 
             fol_info("neural network is sharded as ")
             jax.debug.visualize_array_sharding(self.flax_neural_network.synthesizer_nn.nn_params[0][0])
@@ -247,7 +378,7 @@ class DeepNetwork(ABC):
             jax.debug.visualize_array_sharding(train_set[0])
             if len(test_set)>0:
                 fol_info("test set is sharded as ")
-                jax.debug.visualize_array_sharding(test_set[0])                
+                jax.debug.visualize_array_sharding(test_set[0])
 
         def train_loop():
 
@@ -259,28 +390,28 @@ class DeepNetwork(ABC):
 
             state = self.GetState()
 
-            # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b 
+            # Most powerful chicken seasoning taken from https://gist.github.com/puct9/35bb1e1cdf9b757b7d1be60d51a2082b
             # and discussions in https://github.com/google/flax/issues/4045
-            train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs), donate_argnums=(0, 1),)    
+            train_multiple_steps_with_idxs = nnx.jit(lambda st, dat, idxs: nnx.scan(lambda st, idxs: (st, self.TrainStep(st, jax.tree.map(lambda a: a[idxs], dat))))(st, idxs), donate_argnums=(0, 1),)
 
             for epoch in pbar:
                 # update least values in case of restore
                 if train_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
                     train_checkpoint_settings["least_loss"] = self.TestStep(state,train_set)
                 if test_checkpoint_settings["least_loss_checkpointing"] and restore_nnx_state_settings['restore'] and epoch==0:
-                    test_checkpoint_settings["least_loss"] = self.TestStep(state,test_set)            
+                    test_checkpoint_settings["least_loss"] = self.TestStep(state,test_set)
 
                 # parallel batching and train step
                 rng, sub = jax.random.split(rng)
                 order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)
                 _, losses = train_multiple_steps_with_idxs(state, train_set, order)
                 train_history_dict["total_loss"].append(losses.mean())
-                
+
                 # test step
                 if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
                     test_history_dict["total_loss"].append(self.TestStep(state,test_set))
-                
-                # print step   
+
+                # print step
                 if len(test_set[0])>0:
                     print_dict = {"train_loss":train_history_dict["total_loss"][-1],
                                 "test_loss":test_history_dict["total_loss"][-1]}
@@ -318,7 +449,7 @@ class DeepNetwork(ABC):
                     self.SaveCheckPoint(f"interval {epoch}",save_nnx_state_settings["interval_state_checkpointing_directory"]+"/flax_train_state_epoch_"+str(epoch))
 
                 if epoch<convergence_settings["num_epochs"]-1 and converged:
-                    break          
+                    break
 
             if train_checkpoint_settings["least_loss_checkpointing"] and \
                 train_history_dict["total_loss"][-1] < train_checkpoint_settings['least_loss']:
@@ -341,27 +472,37 @@ class DeepNetwork(ABC):
                 train_loop()
         else:
             train_loop()
-            
+
     def CheckConvergence(self,train_history_dict:dict,convergence_settings:dict):
         """
-        Checks whether the training process has converged.
+        Determine whether training has converged based on loss history.
 
-        This method evaluates the training history based on the defined convergence 
-        criterion, absolute error, or relative error. If the conditions are met, 
-        it returns True, indicating convergence.
+        Convergence is checked using:
+        - Absolute threshold on the most recent value of the configured criterion,
+        - Relative change between the last two criterion values,
+        - Or reaching the configured maximum number of epochs.
 
-        Parameters
-        ----------
-        train_history_dict : dict
-            The history of the training loss values.
-        convergence_settings : dict
-            The settings that define when convergence occurs, including absolute error 
-            and relative error thresholds.
+        Args:
+            train_history_dict (dict):
+                Dictionary of training histories. Must contain the key specified
+                by ``convergence_settings["convergence_criterion"]`` whose value
+                is a list of scalar history values.
+            convergence_settings (dict):
+                Dictionary containing:
+                - ``"convergence_criterion"`` (str): key in ``train_history_dict``
+                - ``"absolute_error"`` (float): absolute threshold
+                - ``"relative_error"`` (float): relative change threshold
+                - ``"num_epochs"`` (int): maximum epochs
 
-        Returns
-        -------
-        bool
-            True if the model has converged, False otherwise.
+        Returns:
+            bool:
+                ``True`` if the convergence conditions are met, otherwise
+                ``False``.
+
+        Raises:
+            KeyError:
+                If the configured convergence criterion is missing from
+                ``train_history_dict``.
         """
         convergence_criterion = convergence_settings["convergence_criterion"]
         absolute_error = convergence_settings["absolute_error"]
@@ -380,32 +521,29 @@ class DeepNetwork(ABC):
             else:
                 return False
         else:
-            return False   
+            return False
 
     def RestoreState(self,restore_state_directory:str):
         """
-        Restores the state of the neural network from a saved checkpoint.
+        Restore the model state from a checkpoint directory.
 
-        This method retrieves the saved state of the neural network from a specified directory and updates the model 
-        to reflect the restored state.
+        This loads a previously saved NNX state using Orbax and updates the
+        in-memory Flax/NNX model parameters accordingly.
 
-        Parameters
-        ----------
-        checkpoint_settings : dict
-            A dictionary containing the settings for checkpoint restoration.
-            Expected keys:
-            - `state_directory` (str): The directory path where the checkpoint is saved.
+        Args:
+            restore_state_directory (str):
+                Directory containing the saved Orbax checkpoint state.
 
-        Returns
-        -------
-        None
-            The neural network's state is restored and updated in place. A message is logged to confirm the restoration process.
+        Returns:
+            None
 
-        Notes
-        -----
-        - Ensure the `state_directory` key is included in the `checkpoint_settings` dictionary, and the specified directory exists.
-        - This method uses `nnx.state` to retrieve the current state of the model and updates it with the restored state.
-        - Logs the restoration process using `fol_info`.
+        Raises:
+            FileNotFoundError:
+                If the checkpoint directory does not exist (may be raised by the
+                checkpointer backend).
+            ValueError:
+                If the restored state is incompatible with the current model
+                structure.
         """
 
         absolute_path = os.path.abspath(restore_state_directory)
@@ -419,28 +557,24 @@ class DeepNetwork(ABC):
 
     def SaveCheckPoint(self,check_point_type,checkpoint_state_dir):
         """
-        Saves the current state of the neural network to a specified directory.
+        Save the current model state to a checkpoint directory.
 
-        This method stores the state of the neural network model in a designated directory, ensuring the model's 
-        state can be restored later.
+        This writes the current NNX model state (parameters and related state)
+        using Orbax to the provided directory and forces the write.
 
-        Parameters
-        ----------
-        None
+        Args:
+            check_point_type (str):
+                Human-readable label for logging (e.g., ``"train"``, ``"test"``,
+                ``"final"``, or ``"interval <epoch>"``).
+            checkpoint_state_dir (str):
+                Directory where the checkpoint will be saved.
 
-        Returns
-        -------
-        None
-            The current state of the neural network is saved to the specified directory. A confirmation message is 
-            logged to indicate the successful save operation.
+        Returns:
+            None
 
-        Notes
-        -----
-        - The directory for saving the checkpoint is specified in the `checkpoint_settings` attribute under the 
-        `state_directory` key.
-        - The directory path is converted to an absolute path before saving.
-        - Uses the `self.checkpointer.save` method to store the state and forces the save operation.
-        - Logs the save operation using `fol_info`.
+        Raises:
+            OSError:
+                If the directory cannot be created or written to.
         """
 
         absolute_path = os.path.abspath(checkpoint_state_dir)
@@ -449,30 +583,28 @@ class DeepNetwork(ABC):
 
     def PlotHistoryDict(self,plot_settings:dict,train_history_dict:dict,test_history_dict:dict):
         """
-        Plots the training and testing history.
+        Plot and save training/test history curves.
 
-        This method generates and saves a plot of the training and test history based on 
-        the specified settings. It supports logging various metrics, such as loss, 
-        across training epochs and allows customization of which metrics to plot.
+        This method creates a semilog-y plot for selected metrics from
+        ``train_history_dict`` and ``test_history_dict`` and saves the figure as
+        ``training_history.png`` in ``plot_settings["save_directory"]``.
 
-        Parameters
-        ----------
-        plot_settings : dict
-            Dictionary containing settings for the plot, such as:
-            - 'plot_rate': int, how often to plot the history (in terms of epochs).
-            - 'plot_list': list of str, the metrics to be plotted (e.g., 'total_loss').
-        train_history_dict : dict
-            A dictionary where keys are metric names (e.g., 'total_loss') and values 
-            are lists of the corresponding metric values during training.
-        test_history_dict : dict
-            A dictionary where keys are metric names (e.g., 'total_loss') and values 
-            are lists of the corresponding metric values during testing.
+        Args:
+            plot_settings (dict):
+                Dictionary containing plot configuration. Expected entries include
+                ``plot_frequency``, ``plot_list``, ``save_directory``, and
+                ``test_frequency``.
+            train_history_dict (dict):
+                Training history mapping metric names to lists of recorded values.
+            test_history_dict (dict):
+                Test history mapping metric names to lists of recorded values.
 
-        Returns
-        -------
-        None
-            The function does not return any values but saves the plot to a file 
-            in the working directory as 'training_history.png'.
+        Returns:
+            None
+
+        Raises:
+            KeyError:
+                If required entries are missing from ``plot_settings``.
         """
         plot_rate = plot_settings["plot_frequency"]
         plot_list = plot_settings["plot_list"]
@@ -482,14 +614,14 @@ class DeepNetwork(ABC):
         for key,value in train_history_dict.items():
             if len(value)>0 and (len(plot_list)==0 or key in plot_list):
                 train_max_length = len(value)
-                plt.semilogy(value[::plot_rate], label=f"train_{key}") 
+                plt.semilogy(value[::plot_rate], label=f"train_{key}")
 
         for key,value in test_history_dict.items():
             if len(value)>0 and (len(plot_list)==0 or key in plot_list):
                 test_length = len(value)
                 x_value = [ i * plot_settings["test_frequency"] for i in range(test_length-1)]
                 x_value.append(train_max_length-1)
-                plt.semilogy(x_value,value[::plot_rate], label=f"test_{key}") 
+                plt.semilogy(x_value,value[::plot_rate], label=f"test_{key}")
 
         plt.title("Training History")
         plt.xlabel(str(plot_rate) + " Epoch")
@@ -501,10 +633,15 @@ class DeepNetwork(ABC):
 
     @abstractmethod
     def Finalize(self) -> None:
-        """Finalizes the network.
+        """
+        Finalize the model after training.
 
-        This method finalizes the network. This is only called once in the whole training process.
+        Subclasses implement this hook to perform any final steps that must occur
+        once at the end of training (for example, releasing resources, computing
+        final diagnostics, exporting artifacts, or post-processing).
 
+        Returns:
+            None
         """
         pass
 

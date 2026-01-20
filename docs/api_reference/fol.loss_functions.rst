@@ -1,5 +1,5 @@
-``fol.loss_functions`` module
-=============================
+``fol.loss_functions``
+======================
 
 Loss functions provided by FoLax.
 

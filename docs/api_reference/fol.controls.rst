@@ -1,5 +1,5 @@
-``fol.controls`` module
-=======================
+``fol.controls``
+================
 
 Control strategies provided by FoLax.
 

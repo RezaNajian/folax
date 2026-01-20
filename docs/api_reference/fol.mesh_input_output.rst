@@ -1,5 +1,5 @@
-``fol.mesh_input_output`` module
-=================================
+``fol.mesh_input_output``
+=========================
 
 Mesh input/output utilities provided by FoLax.
 

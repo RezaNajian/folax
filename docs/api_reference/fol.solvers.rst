@@ -1,5 +1,5 @@
-``fol.solvers`` module
-=======================
+``fol.solvers``
+===============
 
 Solve strategies provided by FoLax.
 
