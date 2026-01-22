@@ -23,7 +23,9 @@ import base64
 import pyvista as pv
 from streamlit.components.v1 import html
 import stpyvista
-
+from streamlit_drawable_canvas import st_canvas
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 
 
 # Constants
@@ -63,7 +65,8 @@ if "running_solver" not in st.session_state:
     st.session_state.running_solver = False
 
 # --- Tabs ---
-tabs = st.tabs(["2D", "3D", "Image Upload"])
+tabs = st.tabs(["2D", "3D", "Image Upload", "Paint"])
+
 
 
 def run_solver(cmd, results_folder=None):
@@ -73,9 +76,9 @@ def run_solver(cmd, results_folder=None):
             process = subprocess.run(cmd, capture_output=True, text=True)
 
         # stdout, stderr
-        # st.subheader("Solver Output")
-        # st.text_area("stdout", process.stdout, height=200)
-        # st.text_area("stderr", process.stderr, height=200)
+        st.subheader("Solver Output")
+        st.text_area("stdout", process.stdout, height=200)
+        st.text_area("stderr", process.stderr, height=200)
 
         if process.returncode != 0:
             st.error("Solver failed. Check stderr.")
@@ -171,7 +174,7 @@ with tabs[0]:
                 np.save("K_matrix.npy", np.array(K_matrix))
                 cmd = [
                     sys.executable,
-                    "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
+                    "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
                     f"N={N_voronoi}",
                     f"ifol_num_epochs={epochs}",
                     f"fe_solver={run_fe}",
@@ -244,7 +247,7 @@ with tabs[0]:
                 np.save("K_matrix.npy", K_matrix)
                 cmd = [
                     sys.executable,
-                    "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
+                    "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
                     f"N={N_periodic}",
                     f"ifol_num_epochs={epochs_periodic}",
                     f"fe_solver={run_fe}",
@@ -319,7 +322,7 @@ with tabs[0]:
                 else:
                     cmd = [
                         sys.executable,
-                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
+                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
                         f"N={N_fourier}",
                         f"ifol_num_epochs={epochs_fourier}",
                         f"fe_solver={run_fe}",
@@ -575,7 +578,7 @@ with tabs[2]:  # Image Upload tab
                     np.save("K_matrix.npy", K_slice.reshape(1, -1))
                     cmd = [
                         sys.executable,
-                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
+                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
                         f"N={N_slice}",
                         f"ifol_num_epochs={epochs_vtk}",
                         f"fe_solver={run_fe_vtk}",
@@ -642,29 +645,152 @@ with tabs[2]:  # Image Upload tab
             elif method == "Unet":
                 st.warning("Unet segmentation not implemented yet. Coming soon!")
 
-            st.divider()
-            st.subheader("Deep Learning & Solver Options")
+            
+with tabs[3]:
+    st.subheader("Paint Your Own Microstructure (Viridis Mode)")
 
-            # --- Option to run solver ---
-            epochs_upload = st.slider("Number of Epochs", 100, 5000, 2000, step=100, key="epochs_imageupload")
-            run_fe = st.checkbox("Run Finite Element Solver (compare results)", value=True, key="fe_imageupload")
-            if st.button("Run OTF Deep Learning Solver", key="solver_imageupload", disabled=st.session_state.running_solver):
-                cmd = [
-                    sys.executable,
-                    "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
-                    f"N={N_img}",
-                    f"ifol_num_epochs={epochs_upload}",
-                    f"fe_solver={run_fe}",
-                    "clean_dir=False"
-                ]
-                run_solver(cmd)
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
 
-            st.divider()
-            # --- Button 2: Run Pretrained NeoHookean DL Model ---
-            if st.button("Run Pre Trained NeoHookean Deep Learning Model", key="neo_imageupload", disabled=st.session_state.running_solver):
-                cmd = [
-                    sys.executable,
-                    "run_pretrained_neohookean.py",
-                    f"N={N_img}"
+    # ============================================================
+    # Viridis utilities
+    # ============================================================
+    viridis = cm.get_cmap("viridis")
+
+    def viridis_hex(x):
+        """x in [0,1] → hex color from Viridis colormap"""
+        r, g, b, _ = viridis(x)
+        return mcolors.to_hex((r, g, b))
+
+    # Canvas and microstructure resolution
+    N_paint = 20
+    canvas_size = 400
+
+    # ============================================================
+    # Background = Viridis(0.0)
+    # ============================================================
+    background_color = viridis_hex(0.0)
+    st.write(f"Canvas background color (Viridis 0.0): `{background_color}`")
+
+    # ============================================================
+    # Drawing options (Viridis brush)
+    # ============================================================
+    drawing_mode = st.selectbox(
+        "Choose Tool:",
+        ("freedraw", "line", "rect", "circle", "transform"),
+        format_func=lambda m: {
+            "freedraw": "✏️ Brush",
+            "line": "📏 Line",
+            "rect": "▭ Rectangle (filled)",
+            "circle": "◯ Circle (filled)",
+            "transform": "✥ Move / Rotate"
+        }[m],
+    )
+
+    brush_size = st.slider("Brush size", 1, 50, 20)
+
+    # Select scalar value → Viridis color
+    paint_value = st.slider("Paint Value (Viridis)", 0.0, 1.0, 1.0, 0.05)
+    stroke_color = viridis_hex(paint_value)
+
+    # Clear canvas button
+    if st.button("Clear Canvas"):
+        st.session_state["canvas_key"] = (st.session_state.get("canvas_key", 0) + 1) % 10000
+    else:
+        st.session_state.setdefault("canvas_key", 0)
+
+    # ============================================================
+    # Canvas
+    # ============================================================
+    from streamlit_drawable_canvas import st_canvas
+
+    canvas_result = st_canvas(
+        fill_color=stroke_color + "FF",     # filled shapes
+        stroke_width=brush_size,
+        stroke_color=stroke_color,
+        background_color=background_color,  # viridis background
+        height=canvas_size,
+        width=canvas_size,
+        drawing_mode=drawing_mode,
+        key=f"paint_canvas_{st.session_state['canvas_key']}",
+        update_streamlit=True,
+        display_toolbar=True,
+    )
+
+    # ============================================================
+    # Convert painting → Viridis scalar microstructure
+    # ============================================================
+    if st.button("Convert Painting to Microstructure Field"):
+        if canvas_result.image_data is None:
+            st.error("Draw something first!")
+        else:
+            # RGB image from canvas
+            img = canvas_result.image_data[:, :, :3].astype(float) / 255.0
+
+            # Resize to 20 × 20
+            small = cv2.resize(img, (N_paint, N_paint), interpolation=cv2.INTER_AREA)
+
+            # Reverse map RGB → scalar value ∈ [0, 1]
+            viridis_colors = viridis(np.linspace(0, 1, 256))[:, :3]
+
+            K_matrix = np.zeros((N_paint, N_paint))
+            for i in range(N_paint):
+                for j in range(N_paint):
+                    pixel = small[i, j, :]
+                    idx = ((viridis_colors - pixel) ** 2).sum(axis=1).argmin()
+                    K_matrix[i, j] = idx / 255.0
+            
+            K_matrix = 0.1 + 0.9 * K_matrix
+            st.session_state["paint_microstructure"] = K_matrix
+            np.save("K_matrix.npy", K_matrix.reshape(1, -1))
+
+            # ====================================================
+            # Show microstructure
+            # ====================================================
+            fig, ax = plt.subplots(figsize=(5, 5))
+            im = ax.imshow(K_matrix, cmap="viridis", origin="upper")
+            plt.colorbar(im, ax=ax)
+            st.pyplot(fig)
+
+            save_microstructure_image(
+                fig,
+                filename="microstructure.png",
+                folders=[
+                    "./meta_implicit_mechanical_2D",
+                    "./mechanical_2d_base_from_ifol_meta"
                 ]
-                run_solver(cmd, results_folder="./mechanical_2d_base_from_ifol_meta")
+            )
+            plt.close(fig)
+
+    # ============================================================
+    # Solver Controls
+    # ============================================================
+    if "paint_microstructure" in st.session_state:
+        st.divider()
+        st.subheader("Deep Learning & FE Solver")
+
+        epochs = st.slider("Number of Epochs", 100, 5000, 1500, 100)
+        run_fe = st.checkbox("Run FE solver", value=True)
+
+        if st.button("Run OTF DL Solver (Painted)", disabled=st.session_state.running_solver):
+            K_matrix = st.session_state["paint_microstructure"]
+            np.save("K_matrix.npy", K_matrix.reshape(1, -1))
+            cmd = [
+                sys.executable,
+                "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                f"N={N_paint}",
+                f"ifol_num_epochs={epochs}",
+                f"fe_solver={run_fe}",
+                "clean_dir=False"
+            ]
+            run_solver(cmd)
+
+        if st.button("Run Pretrained NeoHookean (Painted)", disabled=st.session_state.running_solver):
+            K_matrix = st.session_state["paint_microstructure"]
+            np.save("K_matrix.npy", K_matrix.reshape(1, -1))
+            cmd = [
+                sys.executable,
+                "run_pretrained_neohookean.py",
+                f"N={N_paint}"
+            ]
+            run_solver(cmd, results_folder="./mechanical_2d_base_from_ifol_meta")
