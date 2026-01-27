@@ -38,11 +38,11 @@ with open(os.path.join(os.path.dirname(__file__),f'nn_output_gt_cp/data_mixed_{m
     gt_dict_load_train_set = pickle.load(f)
 
 gt_dict_load_val_set = {}
-with open(os.path.join(os.path.dirname(__file__),f'nn_output_gt_cp/data_mixed_{model_settings["N"]}x{model_settings["N"]}_simulation_num_from_2000_to_2099.pkl'), 'rb') as f:
+with open(os.path.join(os.path.dirname(__file__),f'nn_output_gt_cp/data_mixed_{model_settings["N"]}x{model_settings["N"]}_simulation_num_from_2009_to_2252.pkl'), 'rb') as f:
     gt_dict_load_val_set = pickle.load(f)
 
 gt_dict_load_test_set = {}
-with open(os.path.join(os.path.dirname(__file__),f'nn_output_gt_cp/data_mixed_{model_settings["N"]}x{model_settings["N"]}_simulation_num_from_2100_to_2199.pkl'), 'rb') as f:
+with open(os.path.join(os.path.dirname(__file__),f'nn_output_gt_cp/data_mixed_{model_settings["N"]}x{model_settings["N"]}_simulation_num_from_2254_to_2498.pkl'), 'rb') as f:
     gt_dict_load_test_set = pickle.load(f)
 
 increments = []
@@ -55,6 +55,8 @@ K_current_val_set = gt_dict_load_val_set["increment_75"]
 K_next_val_set = gt_dict_load_val_set["increment_150"]
 K_current_test_set = gt_dict_load_test_set["increment_75"]
 K_next_test_set = gt_dict_load_test_set["increment_150"]
+sim_length = gt_dict_load_train_set["increment_75"].shape[0]
+increment_length = len(increments)
 for increment_current, increment_next in zip(increments[1:], increments[2:]):
     print(f"increment current: {increment_current}, increment next: {increment_next}")
     K_current_train_set = np.concatenate([K_current_train_set,gt_dict_load_train_set[f"increment_{increment_current}"]])
@@ -77,7 +79,7 @@ K_matrix_next_step_test_set = K_next_test_set
 for id in [0,5]:   # for test set
     random_sample_id = id
 
-    fig, ax = plt.subplots(1, 5, figsize=(24, 8))
+    fig, ax = plt.subplots(1, 6, figsize=(30, 8))
     N = model_settings["N"]
 
     # First sample
@@ -100,6 +102,11 @@ for id in [0,5]:   # for test set
 
     im04 = ax[4].imshow(K_matrix_current_step_train_set[random_sample_id, 4::5].reshape(N, N), cmap='coolwarm')
     ax[4].set_title(f"Current Step $alpha_{3}$ (Sample {random_sample_id})")
+    fig.colorbar(im04, ax=ax[4], fraction=0.046, pad=0.04)
+
+    fft_representive = np.fft.rfft2(K_matrix_current_step_train_set[random_sample_id, ::5].reshape(N, N))
+    # plt.imshow(np.log(np.abs(fft_representive) + 1e-8))
+    im05 = ax[5].imshow(np.log(np.abs(fft_representive) + 1e-8), cmap='viridis')
     fig.colorbar(im04, ax=ax[4], fraction=0.046, pad=0.04)
 
     # Layout & save
@@ -189,6 +196,17 @@ else:
     data_increment_delta_test_set = K_matrix_next_step_test_set - K_matrix_current_step_test_set
     nodal_unknowns = ["von_mises","Ori_0","Ori_1","Ori_2","Ori_3"]
 
+# reshape inputs to 5 channles
+reshape = False
+if reshape:
+    data_current_step_train_set = data_current_step_train_set.reshape(data_current_step_train_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+    data_current_step_val_set = data_current_step_val_set.reshape(data_current_step_val_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+    data_current_step_test_set = data_current_step_test_set.reshape(data_current_step_test_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+
+    data_increment_delta_train_set = data_increment_delta_train_set.reshape(data_increment_delta_train_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+    data_increment_delta_val_set = data_increment_delta_val_set.reshape(data_increment_delta_val_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+    data_increment_delta_test_set = data_increment_delta_test_set.reshape(data_increment_delta_test_set.shape[0],model_settings["N"],model_settings["N"],len(nodal_unknowns))
+
 
 # create identity control
 identity_control = IdentityControl("ident_control",num_vars=K_matrix_current_step_train_set.shape[1],control_settings={})
@@ -226,7 +244,7 @@ print(f"FNO trainable parameters:{total_params}")
 init_out = fno_model(data_current_step_train_set[0:8].reshape(8,model_settings["N"],model_settings["N"],len(nodal_unknowns)))
 
 
-num_epochs = 5
+num_epochs = 200
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-6, transition_steps=num_epochs)
 lr = 1e-5
 optimizer = optax.chain(optax.adam(lr))
@@ -241,17 +259,20 @@ dd_fno_pr_learning = DataDrivenFourierParametricOperatorLearning(name="dd_fno_pr
 dd_fno_pr_learning.Initialize()
 
 train_start_id = 0
-train_end_id = 80
+train_end_id = 10 #(increment_length - 2) * sim_length
 print(f"train end id: {train_end_id}")
+val_start_id = 0
+val_end_id = 10
 test_start_id = 0
 test_end_id = 10
 batch_size = 8
 dd_fno_pr_learning.Train(train_set=(data_current_step_train_set[train_start_id:train_end_id,:],data_increment_delta_train_set[train_start_id:train_end_id,:]),
-                         test_set=(data_current_step_val_set[test_start_id:test_end_id,:],data_increment_delta_val_set[test_start_id:test_end_id,:]),
+                        test_set=(data_current_step_val_set[test_start_id:test_end_id,:],data_next_step_val_set[test_start_id:test_end_id,:]),
                         batch_size=batch_size,
                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                        plot_settings={"plot_save_rate":100},
-                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                        plot_settings={"save_frequency":10},
+                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                        test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
                         working_directory=case_dir)
 
 # load the best model
@@ -270,7 +291,7 @@ for case_id in [0, 1, 4]:
 
     ground_truth, iFOL_pred, error = [], [], []
     ifol_current_step = data_current_step_train_set[case_id, :]
-    for eval_id in range(10):
+    for eval_id in range(11):
         
         iFOL_increment_to_the_next_step = np.array(dd_fno_pr_learning.Predict(ifol_current_step.reshape(-1, 1).T)).reshape(-1)
 
@@ -305,6 +326,7 @@ for case_id in [0, 1, 4]:
 
     output_name = list(type_index.keys())[list(type_index.values()).index(i)]
     von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,f'{output_name}_train_set')
+    radial_power_spectrum_plot(iFOL_pred,ground_truth,N,case_id,case_dir,f'{output_name}_RPS_train_set')
     plot_value_1d(pred_field_list=[iFOL_pred[1,:],iFOL_pred[4,:],iFOL_pred[-1,:]],
                   gt_field_list=[ground_truth[1,:],ground_truth[4,:],ground_truth[-1,:]],
                   y_eval_value_grid=64,time=['2','5','10'],case_dir=case_dir,filename=f"{output_name}_1d_train_case_{case_id}")
@@ -318,7 +340,7 @@ for case_id in [0, 1, 4]:
 
     ground_truth, iFOL_pred, error = [], [], []
     ifol_current_step = data_current_step_test_set[case_id, :]
-    for eval_id in range(10):
+    for eval_id in range(11):
         
         iFOL_increment_to_the_next_step = np.array(dd_fno_pr_learning.Predict(ifol_current_step.reshape(-1, 1).T)).reshape(-1)
 
@@ -352,6 +374,7 @@ for case_id in [0, 1, 4]:
     error = np.array(error)
 
     von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,f'{output_name}_test_set')
+    radial_power_spectrum_plot(iFOL_pred,ground_truth,N,case_id,case_dir,f'{output_name}_RPS_test_set')
     plot_value_1d(pred_field_list=[iFOL_pred[1,:],iFOL_pred[4,:],iFOL_pred[-1,:]],
                   gt_field_list=[ground_truth[1,:],ground_truth[4,:],ground_truth[-1,:]],
                   y_eval_value_grid=64,time=['2','5','10'],case_dir=case_dir,filename=f"{output_name}_1d_test_case_{case_id}")

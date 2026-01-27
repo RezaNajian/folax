@@ -685,3 +685,306 @@ def plot_value_1d(pred_field_list:list,gt_field_list:list,y_eval_value_grid:int,
     plt.tight_layout()
     plt.savefig(case_dir + f"/{filename}.png", dpi=200)
     plt.close(fig)
+
+
+    # ---------------------------------------------------------------
+# 1. Von Mises MAE and Relative L1
+# ---------------------------------------------------------------
+def compute_von_mises_metrics(vm_pred, vm_gt):
+    """
+    vm_pred, vm_gt : 2D arrays (H,W) in PHYSICAL units.
+
+    Returns
+    -------
+    mae : float
+    rel_l1 : float (%)
+    """
+    mae = np.mean(np.abs(vm_pred - vm_gt))
+
+    denom = np.mean(np.abs(vm_gt))
+    if denom < 1e-9:
+        denom = 1e-9
+
+    rel_l1 = (mae / denom) * 100.0
+    return mae, rel_l1
+
+
+# ---------------------------------------------------------------
+# 2. Slip Shear Combined Metrics (channels 1–4)
+# ---------------------------------------------------------------
+def compute_shear_metrics(shear_pred, shear_gt):
+    """
+    shear_pred, shear_gt : arrays shape (4, H, W)
+
+    Computes MAE over all four slip shear fields combined.
+
+    Returns
+    -------
+    mae : float
+    rel_l1 : float (%)
+    """
+    mae = np.mean(np.abs(shear_pred - shear_gt))
+
+    denom = np.mean(np.abs(shear_gt))
+    if denom < 1e-9:
+        denom = 1e-9
+
+    rel_l1 = (mae / denom) * 100.0
+    return mae, rel_l1
+
+
+# ---------------------------------------------------------------
+# 3. Quaternion Geodesic Error (channels 5–8)
+# ---------------------------------------------------------------
+def compute_quaternion_metrics(q_pred, q_gt):
+    """
+    q_pred, q_gt : arrays shape (4, H, W)
+                   q_gt MUST be unit-length per pixel.
+
+    Returns
+    -------
+    mean_theta_deg : float
+    median_theta_deg : float
+    p95_theta_deg : float
+    """
+
+    # Normalize prediction per pixel
+    norm = np.linalg.norm(q_pred, axis=0, keepdims=True) + 1e-12
+    q_pred_unit = q_pred / norm
+
+    # Dot product <q_pred, q_gt> at every pixel
+    dot = np.sum(q_pred_unit * q_gt, axis=0)
+
+    # q ~ -q ambiguity → take absolute value
+    dot = np.abs(dot)
+    dot = np.clip(dot, 0.0, 1.0)
+
+    # Geodesic angle on SO(3)
+    theta = 2.0 * np.arccos(dot)           # radians
+    theta_deg = np.degrees(theta)
+
+    return (
+        float(np.mean(theta_deg)),
+        float(np.median(theta_deg)),
+        float(np.percentile(theta_deg, 95)),
+    )
+
+
+# ---------------------------------------------------------------
+# 4. Optional utility: denormalize predictions & GT
+# ---------------------------------------------------------------
+def denormalize(arr, denorm_min, denorm_max):
+    """
+    arr        : np.array, shape (C,H,W)
+    denorm_min : array shape (C,)
+    denorm_max : array shape (C,)
+    """
+    mn = denorm_min[:, None, None]
+    mx = denorm_max[:, None, None]
+    return arr * (mx - mn) + mn
+
+
+
+## Usage exmaple
+"""
+# Suppose pred_np and gt_np are (C,H,W) arrays already in PHYSICAL units
+
+vm_pred = pred_np[0]
+vm_gt   = gt_np[0]
+mae_vm, rel_vm = compute_von_mises_metrics(vm_pred, vm_gt)
+
+shear_pred = pred_np[1:5]
+shear_gt   = gt_np[1:5]
+mae_shear, rel_shear = compute_shear_metrics(shear_pred, shear_gt)
+
+q_pred = pred_np[5:9]
+q_gt   = gt_np[5:9]
+th_mean, th_med, th_p95 = compute_quaternion_metrics(q_pred, q_gt)
+
+"""
+
+from typing import Dict, Tuple
+
+def compute_k_edges(Nx: int, Ny: int, Lx: float, Ly: float) -> Tuple[np.ndarray, float]:
+    """
+    Compute radial |k| bin edges and Nyquist frequency.
+
+    Parameters
+    ----------
+    Nx, Ny : int
+        Grid resolution.
+    Lx, Ly : float
+        Physical domain lengths.
+
+    Returns
+    -------
+    edges : np.ndarray
+        Bin edges for radial frequency histogram.
+    k_nyq : float
+        Nyquist frequency of the domain.
+    """
+    dx = Lx / Nx
+    dy = Ly / Ny
+
+    k_nyq = min(1.0 / (2.0 * dx), 1.0 / (2.0 * dy))  # isotropic Nyquist
+    dk = min(1.0 / Lx, 1.0 / Ly)                    # radial bin spacing
+
+    edges = np.arange(0.0, k_nyq + dk, dk)
+    return edges, k_nyq
+
+
+def radial_power_spectrum(
+    field: np.ndarray,
+    Lx: float,
+    Ly: float,
+    edges: np.ndarray,
+    use_window: bool = False,
+) -> Dict[str, np.ndarray]:
+    """
+    Compute radial power spectrum ρ(k) and its magnitude √ρ(k)
+    for a 2D real-valued field on a uniform grid.
+
+    Notes
+    -----
+    This implementation **exactly** mirrors the project's logic:
+      • float64 casting for FFT stability
+      • mean subtraction
+      • optional Hann window + compensation via window-energy gain
+      • FFT normalization: |F|² / (Nx*Ny)²
+      • histogram-bin averaging over |k|
+      • NaN/Inf → 0 via np.nan_to_num
+      • returns counts for later masking/filtering
+    """
+
+    assert field.ndim == 2
+    Ny, Nx = field.shape
+    dx = Lx / Nx
+    dy = Ly / Ny
+
+    # --- 1. Preprocess ------------------------------------------------------
+    data = field.astype(np.float64, copy=False)
+    data = data - np.mean(data)
+
+    if use_window:
+        wy = np.hanning(Ny)
+        wx = np.hanning(Nx)
+        w2d = np.outer(wy, wx)
+        gain2 = np.mean(w2d**2)
+        data = data * w2d
+    else:
+        gain2 = 1.0
+
+    # --- 2. FFT & 2D power spectrum ----------------------------------------
+    F = np.fft.fft2(data)
+    power2d = (np.abs(F) ** 2) / (Nx * Ny)**2
+
+    if gain2 > 0:
+        power2d = power2d / gain2
+
+    # --- 3. Build |k| array -------------------------------------------------
+    fx = np.fft.fftfreq(Nx, d=dx)
+    fy = np.fft.fftfreq(Ny, d=dy)
+    kx, ky = np.meshgrid(fx, fy, indexing="xy")
+    kr = np.sqrt(kx**2 + ky**2)
+
+    # Bin centers
+    edges = np.asarray(edges, dtype=float)
+    k_centers = 0.5 * (edges[:-1] + edges[1:])
+
+    # Flatten for histogramming
+    kr_flat = kr.ravel()
+    pw_flat = power2d.ravel()
+
+    # Weighted histogram (sum of power in each radial bin)
+    bin_power, _ = np.histogram(kr_flat, bins=edges, weights=pw_flat)
+    counts, _    = np.histogram(kr_flat, bins=edges)
+
+    # Avoid NaN/Inf from empty bins
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho_k = bin_power / counts
+
+    rho_k = np.nan_to_num(rho_k, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Magnitude spectrum
+    sqrt_rho_k = np.sqrt(rho_k)
+
+    return {
+        "k": k_centers,
+        "rho": rho_k,
+        "sqrt_rho": sqrt_rho_k,
+        "counts": counts.astype(np.int64, copy=False),
+    }
+
+
+
+## Usage exmaple
+"""
+k_edges, k_nyq = compute_k_edges(Nx=128, Ny=128, Lx=1.0, Ly=1.0)
+
+psd_gt = radial_power_spectrum(gt_field, 1.0, 1.0, k_edges)
+psd_pred = radial_power_spectrum(pred_field, 1.0, 1.0, k_edges)
+
+plt.plot(psd_gt["k"], psd_gt["sqrt_rho"], label="GT")
+plt.plot(psd_pred["k"], psd_pred["sqrt_rho"], label="Pred")
+plt.yscale("log")
+plt.legend()
+
+"""
+
+def radial_power_spectrum_plot(
+    pred_field,
+    gt_field,
+    N,
+    case_id,
+    case_dir,
+    filename,
+):
+    fig, axs = plt.subplots(1, 10, figsize=(30, 4), sharey=True)
+
+    # Frequency bins
+    k_edges, k_nyq = compute_k_edges(Nx=N, Ny=N, Lx=1.0, Ly=1.0)
+
+    for col in range(10):
+        gt   = gt_field[col, :]
+        pred = pred_field[col, :]
+        # err  = gt - pred  # signed error field
+
+        psd_gt   = radial_power_spectrum(gt,   1.0, 1.0, k_edges)
+        psd_pred = radial_power_spectrum(pred, 1.0, 1.0, k_edges)
+        # psd_err  = radial_power_spectrum(err,  1.0, 1.0, k_edges)
+
+        ax = axs[col]
+
+        ax.plot(psd_gt["k"],   psd_gt["sqrt_rho"],   label="GT")
+        ax.plot(psd_pred["k"], psd_pred["sqrt_rho"], label="Pred")
+        # ax.plot(psd_err["k"],  psd_err["sqrt_rho"],  label="Err")
+
+        ax.set_title(f"Strain {col+1}%", fontsize=10)
+        ax.set_yscale("log")
+        ax.grid(True, which="both", alpha=0.3)
+
+        # Optional: Nyquist line
+        ax.axvline(k_nyq, color="k", ls="--", alpha=0.3)
+
+    # Axis labels
+    axs[0].set_ylabel("Radial Spectrum √ρ(k)", fontsize=12)
+    for ax in axs:
+        ax.set_xlabel("|k|", fontsize=10)
+
+    # Single legend (outside)
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    plt.savefig(
+        f"{case_dir}/{filename}_case_{case_id}.png",
+        dpi=200,
+        bbox_inches="tight",
+    )
+    plt.close(fig)
