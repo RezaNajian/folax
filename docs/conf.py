@@ -133,3 +133,19 @@ html_theme_options = {
   },
   'show_navbar_depth': 1
 }
+
+
+# -- Options for myst ----------------------------------------------
+# uncomment line below to avoid running notebooks during development
+nb_execution_mode = os.environ.get("NB_EXECUTION_MODE", 'off')
+# Notebook cell execution timeout; defaults to 30.
+nb_execution_timeout = 100
+# List of patterns, relative to source directory, that match notebook
+# files that will not be executed.
+myst_enable_extensions = ['dollarmath']
+nb_execution_excludepatterns = [
+  'quick_start.ipynb'
+]
+# raise exceptions on execution so CI can catch errors
+nb_execution_allow_errors = False
+nb_execution_raise_on_error = True

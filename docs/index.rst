@@ -116,4 +116,5 @@ deep learning, FoLax provides a foundation for both **direct simulation** and
    :maxdepth: 3
 
    installation
+   quick_start
    api_reference/index
