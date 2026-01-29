@@ -5,109 +5,174 @@ Folax
 
    **F**\ inite **O**\ perator **L**\ earning (FOL) with **JAX**
 
+.. image:: https://img.shields.io/badge/Python-3.10%2B-blue
+   :alt: Python version
+
+.. image:: https://img.shields.io/badge/JAX-accelerated-orange
+   :alt: JAX accelerated
+
+.. image:: https://img.shields.io/badge/GPU%2FTPU-supported-green
+   :alt: GPU TPU support
+
+.. image:: https://img.shields.io/badge/License-MIT-yellow
+   :alt: License: MIT
 
 ----
 
-The **Folax** library is a unified Python framework for **solving partial
-differential equations (PDEs)** and for **learning surrogate operators**
-arising from them. It is designed at the intersection of
-**computational mechanics** and **modern operator learning**, enabling both classical numerical solutions
-and data-driven or physics-informed surrogate modeling within a single,
-coherent abstraction.
+🚀 What is Folax?
+-----------------
 
-At its core, FOL is built around the **weighted residual formulation**
-of PDEs. The same mathematical structure used to derive finite element
-residuals and tangent operators is reused to construct
-**label-free, unsupervised surrogate models**. As a result, FOL supports
-direct PDE solution and physics-informed operator learning without
-duplicating model logic or training pipelines.
+**Folax** is a high-performance Python library designed and developed for
+the **solution**, **optimization**, and **surrogate modeling** of
+**parametrized partial differential equations (PDEs)**.
 
-Weighted residual viewpoint
----------------------------
+It provides a unified computational framework that seamlessly integrates
+**classical numerical methods** (e.g. finite element and finite volume
+methods) with **modern operator-learning architectures**, including
+physics-informed and data-driven neural operators. This unified,
+mathematically principled abstraction enables smooth transitions from
+**direct PDE simulation** to **learned surrogate operators** without
+duplicating physical models or numerical formulations.
 
-Given a PDE operator :math:`\mathcal{N}(u, p) = 0`, Folax adopts a weighted
-residual formulation of the form
+Folax is intended for researchers and practitioners who require
+**numerical rigor**, **computational efficiency**, and **conceptual
+clarity**, supporting end-to-end workflows that span simulation,
+sensitivity analysis, and optimization within a single, coherent
+software ecosystem.
+
+----
+
+🧩 Core Idea: Weighted Residual Formulation
+-------------------------------------------
+
+At the core of Folax lies the **weighted residual formulation** of
+parametrized partial differential equations (PDEs), which serves as a
+unifying mathematical foundation for both **numerical discretization**
+and **operator learning**.
+
+Given a PDE operator
 
 .. math::
 
-   R(u, p; v) = \int_\Omega v \, \mathcal{N}(u, p)\, d\Omega = 0
+   \mathcal{N}(u, p) = 0,
 
-where :math:`u` is the solution field, :math:`p` denotes parameters or control
-variables, and :math:`v` is a test (weighting) function.
+Folax expresses the governing equations through the residual functional
 
-By appropriate choices of the test function :math:`v`, this single formulation
-recovers several classical and modern approaches:
+.. math::
+
+   R(u, p; v) = \int_\Omega v \, \mathcal{N}(u, p)\, \mathrm{d}\Omega = 0,
+
+where :math:`u` denotes the solution field, :math:`p` represents
+parameters or control variables, and :math:`v` is a test (weighting)
+function. The choice of the test function defines the numerical or
+learning paradigm, while preserving a common residual-based structure.
+
+By appropriate selection of :math:`v`, this single formulation recovers
+a broad class of established and modern methods:
 
 - **Finite Element Method (FEM)**
   Choosing the test function from the same space as the trial solution
-  (Galerkin choice, :math:`v = \phi_i`) yields the standard finite element weak
-  form, from which global residual vectors and tangent (Jacobian) matrices are
-  derived for Newton-based solvers.
+  (Galerkin choice, :math:`v = \phi_i`) yields the classical finite-element
+  weak form. This formulation enables the automatic construction of
+  global residual vectors and tangent (Jacobian) operators, supporting
+  Newton-based nonlinear solvers.
 
 - **Finite Volume Method (FVM)**
-  Choosing the test function as piecewise-constant characteristic functions
-  over control volumes leads to local integral balance laws, recovering
+  Selecting piecewise-constant test functions over control volumes
+  results in local integral balance laws, recovering conservative
   finite-volume discretizations based on flux conservation.
 
-- **Physics-informed operator learning**
-  Approximating the solution by a neural field :math:`u_\theta` and using the
-  weighted residual as a scalar functional yields a label-free, physics-based
-  loss. The predicted unknown fields serve simultaneously as trial and test
-  functions, and depending on the activation function, the neural field may
-  satisfy continuity requirements such as :math:`C^0` or even :math:`C^\infty`.
+- **Physics-Informed Operator Learning**
+  Approximating the solution using neural fields :math:`u_\theta` and
+  interpreting the weighted residual as a scalar functional yields
+  label-free, physics-based loss functions. In this setting, the neural
+  field acts simultaneously as trial and test function, and depending
+  on the activation functions employed, may satisfy continuity
+  requirements up to :math:`C^\infty`.
 
-Operator learning and surrogate modeling
-----------------------------------------
+All approaches are derived from the same residual formulation, allowing
+Folax to support classical solvers and learning-based surrogates without
+duplicating physical models, numerical logic, or training pipelines.
 
-Folax provides multiple operator-learning formulations built on top of the
-same numerical foundations:
+----
 
-- **Explicit parametric operator learning**, where networks directly
-  predict discretized fields.
-- **Implicit parametric operator learning**, where coordinate-based neural
-  fields represent the solution and are conditioned on parameters.
-- **DeepONet-based operator learning**, combining parametric conditioning
-  with coordinate evaluation.
-- **Fourier Neural Operator (FNO)-based learning**, operating on structured
-  grids with resolution-invariant inference.
-- **Meta-learning extensions**, including latent inner-loop adaptation and
-  learnable update rules for fast generalization across parameter regimes.
+🧠 Operator Learning Capabilities
+---------------------------------
+
+Folax supports multiple operator-learning paradigms:
+
+- **Explicit parametric operators**
+  Neural networks predict discretized solution fields directly
+
+- **Implicit neural fields**
+  Coordinate-based representations conditioned on parameters
+
+- **DeepONet architectures**
+  Branch–trunk operator learning with spatial evaluation
+
+- **Fourier Neural Operators (FNOs)**
+  Resolution-invariant learning on structured grids
+
+- **Meta-learning extensions**
+  Fast adaptation across parameter regimes using learnable inner loops
 
 All formulations support both **data-driven** and
-**physics-informed** training, with consistent handling of Dirichlet
-boundary conditions and discretized fields.
+**physics-informed** training, with consistent handling of boundary
+conditions and discretized fields.
 
-High-performance Python implementation
---------------------------------------
+----
 
-Folax is implemented entirely in **Python** and leverages **JAX**, **Flax**,
-and **Optax** for high-performance execution. All core operations,
-including matrix–vector products, residual evaluations, and gradient
-computations, are JIT-compiled and **GPU/TPU accelerated** when available.
+⚡ Performance by Design
+------------------------
 
-This design allows FOL to scale from classical FEM simulations to
-large-scale operator-learning workloads while maintaining a clean,
-research-friendly API.
+Folax is implemented entirely in **Python** and leverages:
 
-Scope and intent
-----------------
+- **JAX** for composable automatic differentiation and JIT compilation
+- **Flax** for flexible neural network definitions
+- **Optax** for scalable optimization
 
-FoLax is intended for researchers and practitioners who want to:
+Key features include:
 
-- Solve PDEs using **classical finite element methods** through a fully
-  **Python-based**, **GPU-accelerated** implementation, where users only need
-  to define element-level residuals.
-- Build **physics-informed or data-driven operator surrogates** for parametric
-  PDEs by combining **computational mechanics** and **machine learning** within
-  a principled and extensible framework.
-- Perform **sensitivity analysis and gradient-based optimization** using response
-  functionals evaluated on state and control fields, with automatic
-  differentiation support for state, control, and shape variables, and optional
-  adjoint-based gradients for large-scale problems.
+- End-to-end **JIT-compiled** execution
+- Native **GPU / TPU acceleration**
+- Differentiable residuals, solvers, and response functionals
 
-By unifying numerical discretization, physics-based modeling, and modern
-deep learning, FoLax provides a foundation for both **direct simulation** and
-**next-generation surrogate modeling** in scientific computing.
+This design allows Folax to scale from classical finite-element
+simulations to large-scale operator-learning workloads.
+
+----
+
+🎯 Who Is Folax For?
+--------------------
+
+Folax is designed for:
+
+- **Computational mechanics researchers**
+  Building FEM solvers fully in Python with minimal boilerplate
+
+- **Scientific machine learning practitioners**
+  Training physics-informed or data-driven operator surrogates
+
+- **Optimization and inverse-problem workflows**
+  Gradient-based optimization with respect to:
+
+  - state variables
+  - control parameters
+  - geometric or shape variables
+
+Adjoint-based gradients are supported for large-scale problems.
+
+----
+
+🌱 Philosophy
+-------------
+
+**One formulation. One codebase. Many paradigms.**
+
+By unifying numerical discretization, physics-based modeling, and
+modern deep learning, **Folax** provides a foundation for
+**next-generation scientific computing**, where simulation and learning
+are no longer separate worlds.
 
 ----
 

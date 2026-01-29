@@ -1,30 +1,37 @@
 Installation
 ^^^^^^^^^^^^
 
-Install FoLax using ``pip`` based on your intended use case.
+Folax can be installed using ``pip``. Choose the installation variant
+that best matches your intended use case and available hardware.
 
-CPU installation
+CPU Installation
 ----------------
-The CPU version is recommended for small-scale problems and for familiarizing
-yourself with the FoLax API.
+
+The CPU-only installation is recommended for **small- to medium-scale
+problems**, rapid prototyping, and for becoming familiar with the
+Folax API without requiring accelerator hardware.
 
 .. code-block:: bash
 
    pip install folax[cpu]
 
-GPU (CUDA) installation
+GPU (CUDA) Installation
 -----------------------
-The CUDA version enables GPU acceleration and is intended for high-performance,
-accelerated workloads and large-scale experiments.
+
+The CUDA-enabled installation provides **GPU acceleration** and is
+intended for **high-performance workloads**, large-scale simulations,
+and operator-learning experiments.
 
 .. code-block:: bash
 
    pip install folax[cuda]
 
-Developer installation
+Developer Installation
 ----------------------
-If you plan to develop FoLax, first clone the repository and then, from the
-project root directory, run:
+
+For development, experimentation with the source code, or contributing
+to Folax, clone the repository and install the package in editable mode.
+From the project root directory, run:
 
 .. code-block:: bash
 
