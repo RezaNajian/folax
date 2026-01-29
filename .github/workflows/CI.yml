@@ -58,7 +58,7 @@ jobs:
           sudo apt-get install libglu1-mesa
           python -m venv venv
           . venv/bin/activate
-          pip install -e .[docs]
+          pip install -e .[cpu,docs]
           # Run doctests inside documentation
           sphinx-build -M doctest docs docs/_build -T
 
