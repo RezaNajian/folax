@@ -198,17 +198,22 @@ class FiniteElementLoss(Loss):
 
         @jit
         def ConstructFullDofVector(known_dofs: jnp.array,unknown_dofs: jnp.array):
-            solution_vector = jnp.zeros(self.total_number_of_dofs)
-            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
-            return solution_vector
+            return self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
 
         @jit
         def ConstructFullDofVectorParametricLearning(known_dofs: jnp.array,unknown_dofs: jnp.array):
             solution_vector = jnp.zeros(self.total_number_of_dofs)
-            solution_vector = self.solution_vector.at[self.dirichlet_indices].set(known_dofs)
-            solution_vector = self.solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
-            return solution_vector  
-
+            solution_vector = solution_vector.at[self.non_dirichlet_indices].set(unknown_dofs)
+            solution_vector = solution_vector.at[self.dirichlet_indices].set(known_dofs)
+            return solution_vector
+        
+        @jit
+        def ConstructKnownVectorParametricLearning(known_dofs: jnp.array):
+            return known_dofs
+        
+        @jit
+        def ConstructKnownVector(*args):
+            return self.dirichlet_values 
         # if self.loss_settings.get("parametric_boundary_learning"):
         #     self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
         # else:
@@ -223,9 +228,11 @@ class FiniteElementLoss(Loss):
 
         if self.loss_settings.get("parametric_boundary_learning"):
             self.full_dof_vector_function = ConstructFullDofVectorParametricLearning
+            self.full_dirichlet_vector_function = ConstructKnownVectorParametricLearning
             self.full_control_vector_function = ConstructFullControlVectorParametricLearning
         else:
             self.full_dof_vector_function = ConstructFullDofVector
+            self.full_dirichlet_vector_function = ConstructKnownVector
             self.full_control_vector_function = ConstructFullControlVector
         
         self.initialized = True
@@ -237,6 +244,10 @@ class FiniteElementLoss(Loss):
     @partial(jit, static_argnums=(0,))
     def GetFullControlVector(self,control_params: jnp.array) -> jnp.array:
         return self.full_control_vector_function(control_params)
+    
+    @partial(jit, static_argnums=(0,))
+    def GetKnownVector(self,control_params: jnp.array) -> jnp.array:
+        return self.full_dirichlet_vector_function(control_params)
 
     def Finalize(self) -> None:
         pass
@@ -246,7 +257,10 @@ class FiniteElementLoss(Loss):
     
     def GetTotalNumberOfDOFs(self):
         return self.total_number_of_dofs
-
+    
+    def GetDOFs(self):
+        return self.dofs
+    
     @partial(jit, static_argnums=(0,))
     def ComputeElementJacobianIndices(self,nodes_ids:jnp.array):
         nodes_ids_1 = nodes_ids*self.number_first_dofs_per_node
@@ -294,9 +308,10 @@ class FiniteElementLoss(Loss):
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLoss(self,full_control_param:jnp.array,unknown_dofs:jnp.array):
         full_control_params = self.GetFullControlVector(full_control_param)
+        known_dofs = self.GetKnownVector(full_control_param)
         elems_energies_tuple = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.first_dofs_indices],
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.second_dofs_indices])
+                                                      self.GetFullDofVector(known_dofs,unknown_dofs)[self.first_dofs_indices],
+                                                      self.GetFullDofVector(known_dofs,unknown_dofs)[self.second_dofs_indices])
         elems_energies_1 = jnp.sum(elems_energies_tuple[0])
         elems_energies_2 = jnp.sum(elems_energies_tuple[1])
         elems_energies = (elems_energies_1+ elems_energies_2)
@@ -307,31 +322,14 @@ class FiniteElementLoss(Loss):
         phy1_elem_energy = jax.lax.stop_gradient((jnp.abs(elems_energies_1)))
         phy2_elem_energy = jax.lax.stop_gradient((jnp.abs(elems_energies_2)))
         return elems_energies,(min_elem_energy,max_elem_energy,avg_elem_energy,phy1_elem_energy,phy2_elem_energy)
-
-    @partial(jit, static_argnums=(0,))
-    def ComputeSingleLossFourier(self,full_control_param:jnp.array,unknown_dofs:jnp.array):
-        full_control_params = self.GetFullControlVector(full_control_param)
-        elems_energies_tuple = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.first_dofs_indices],
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.second_dofs_indices])
-        elems_energies_1 = jnp.sum(elems_energies_tuple[0])
-        elems_energies_2 = jnp.sum(elems_energies_tuple[1])
-        elems_energies = (elems_energies_1+ elems_energies_2)
-        # some extra calculation for reporting and not traced
-        avg_elem_energy = jax.lax.stop_gradient(jnp.mean(elems_energies))
-        max_elem_energy = jax.lax.stop_gradient(jnp.max(elems_energies))
-        min_elem_energy = jax.lax.stop_gradient(jnp.min(elems_energies))
-        phy1_elem_energy = jax.lax.stop_gradient((jnp.abs(elems_energies_1)))
-        phy2_elem_energy = jax.lax.stop_gradient((jnp.abs(elems_energies_2)))
-        return elems_energies,(min_elem_energy,max_elem_energy,avg_elem_energy,phy1_elem_energy,phy2_elem_energy)
-
 
     @partial(jit, static_argnums=(0,))
     def ComputeSingleLossStaggered(self,full_control_param:jnp.array,unknown_dofs:jnp.array):
         full_control_params = self.GetFullControlVector(full_control_param)
+        known_dofs = self.GetKnownVector(full_control_param)
         elems_energies_tuple = self.ComputeElementsEnergies(full_control_params.reshape(-1,1),
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.first_dofs_indices],
-                                                      self.GetFullDofVector(full_control_param,unknown_dofs)[self.second_dofs_indices])
+                                                      self.GetFullDofVector(known_dofs,unknown_dofs)[self.first_dofs_indices],
+                                                      self.GetFullDofVector(known_dofs,unknown_dofs)[self.second_dofs_indices])
         elems_energies_1 = jnp.sum(elems_energies_tuple[0])
         elems_energies_2 = jnp.sum(elems_energies_tuple[1])
         elems_energies = (elems_energies_1+ elems_energies_2)

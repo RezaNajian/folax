@@ -11,7 +11,8 @@ from jax import jit,vmap
 from functools import partial
 from optax import GradientTransformation
 from flax import nnx
-from .deep_network import DeepNetwork
+# from fol.deep_neural_networks.deep_network import DeepNetwork
+from deep_network_multiphysics import DeepNetwork
 from fol.tools.decoration_functions import *
 from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
@@ -45,34 +46,13 @@ class FourierParametricOperatorLearning(DeepNetwork):
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_control:jnp.ndarray):
-        mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes()**0.5)
+        mesh_size = int(round(self.loss_function.fe_mesh.GetNumberOfNodes() ** (1/3)))
         batch_size = batch_control.shape[0]
         batch_X = jax.vmap(self.control.ComputeControlledVariables)(batch_control)
-        batch_X = batch_X.reshape(batch_size,mesh_size,mesh_size,1)
+        batch_X = batch_X.reshape(batch_size,mesh_size,mesh_size,mesh_size,1)
         batch_Y =self.flax_neural_network(batch_X).reshape(batch_size,-1)[:,self.loss_function.non_dirichlet_indices]
         batch_X = batch_X.reshape(batch_size,-1)
         return jax.vmap(self.loss_function.GetFullDofVector)(batch_X,batch_Y)
-    
-    @print_with_timestamp_and_execution_time
-    def PredictDynamics(self,initial_u:jnp.ndarray,num_steps:int):
-        def predict_single_step(batch_control:jnp.ndarray):
-            mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes() ** (1/2))
-            batch_X = jax.vmap(self.control.ComputeControlledVariables)(batch_control)
-            batch_X = batch_X.reshape(1,mesh_size,mesh_size,1)
-            batch_Y =self.flax_neural_network(batch_X, rngs={}).reshape(1,-1)[:,self.loss_function.non_dirichlet_indices]
-            batch_X = batch_X.flatten()
-            batch_Y = batch_Y.flatten()
-            return self.loss_function.GetFullDofVector(batch_X,batch_Y)
-
-        parallel_predict_fn = jax.vmap(predict_single_step)
-
-        def scan_fn(u, _):
-            u_next = parallel_predict_fn(u)
-            return u_next, u_next
-
-        _, dynamic_u = jax.lax.scan(scan_fn, initial_u.reshape(-1,1).T, None, length=num_steps)
-
-        return jnp.vstack((initial_u.reshape(-1,1).T,jnp.squeeze(dynamic_u)))
 
     def Finalize(self):
         pass
@@ -82,8 +62,8 @@ class DataDrivenFourierParametricOperatorLearning(FourierParametricOperatorLearn
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         control_output = self.control.ComputeControlledVariables(x_set[0])
-        mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes()**0.5)
-        control_output = control_output.reshape(1,mesh_size,mesh_size,1)
+        mesh_size = int(round(self.loss_function.fe_mesh.GetNumberOfNodes() ** (1/3)))
+        control_output = control_output.reshape(1,mesh_size,mesh_size,mesh_size,1)
         nn_output = nn_model(control_output).flatten()[self.loss_function.non_dirichlet_indices]
         return self.loss_function.ComputeSingleLoss(x_set[1],nn_output)
     
@@ -92,6 +72,6 @@ class PhysicsInformedFourierParametricOperatorLearning(FourierParametricOperator
     @partial(nnx.jit, static_argnums=(0,))
     def ComputeSingleLossValue(self,x_set:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
         control_output = self.control.ComputeControlledVariables(x_set[0])
-        mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes()**0.5)
-        nn_output = nn_model(control_output.reshape(1,mesh_size,mesh_size,1)).flatten()[self.loss_function.non_dirichlet_indices]
+        mesh_size = int(round(self.loss_function.fe_mesh.GetNumberOfNodes() ** (1/3)))
+        nn_output = nn_model(control_output.reshape(1,mesh_size,mesh_size,mesh_size,1)).flatten()[self.loss_function.non_dirichlet_indices]
         return self.loss_function.ComputeSingleLoss(control_output.flatten(),nn_output)

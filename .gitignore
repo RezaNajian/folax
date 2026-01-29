@@ -9,6 +9,7 @@ build/
 dist/
 build/
 play_ground/
+play_ground_thermomech/
 flax_state/
 *-py-env
 *py-env
