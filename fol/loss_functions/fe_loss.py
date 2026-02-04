@@ -16,6 +16,19 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.tools.fem_utilities import *
 from fol.geometries import fe_element_dict
 
+"""
+Mapping from finite element types to the number of nodes per element.
+
+This mapping assumes first-order (linear) finite elements and is used
+for bookkeeping, validation, and element-level sizing.
+"""
+ELEMENT_TYPE_NUM_NODES = {
+    "tetra": 4,
+    "hexahedron": 8,
+    "quad": 4,
+    "triangle": 3,
+}
+
 class FiniteElementLoss(Loss):
     """
     Base class for finite element loss functionals.
