@@ -47,8 +47,8 @@ def run_solver(cmd, results_folder):
         proc = subprocess.run(cmd, capture_output=True, text=True)
 
     st.subheader("Solver Output")
-    # st.text_area("stdout", proc.stdout, height=200)
-    # st.text_area("stderr", proc.stderr, height=200)
+    st.text_area("stdout", proc.stdout, height=200)
+    st.text_area("stderr", proc.stderr, height=200)
 
     if proc.returncode != 0:
         st.error("Solver failed")
@@ -244,7 +244,7 @@ with tabs[0]:
                     run_solver(
                         [
                             sys.executable,
-                            "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                            "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                             f"N={N_voronoi}",
                             f"ifol_num_epochs={epochs}",
                             f"fe_solver={run_fe}",
@@ -336,7 +336,7 @@ with tabs[0]:
                 run_solver(
                     [
                         sys.executable,
-                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                         f"N={N_periodic}",
                         f"ifol_num_epochs={epochs_periodic}",
                         f"fe_solver={run_fe}",
@@ -359,14 +359,14 @@ with tabs[0]:
 
 
         # =========================================================
-        # Fourier 2D Microstructure (FIXED – USE LEFT/RIGHT COLUMNS)
+        # Fourier 2D Microstructure
         # =========================================================
         elif selection_2d == "Fourier":
 
             # ===============================
             # LEFT COLUMN — CONTROLS
             # ===============================
-            with controls:  # use the same 'controls' column defined at the top
+            with controls:  
                 L = 1.0
 
                 N_fourier = st.slider("Grid Size", 10, 100, 50, key="N_f")
@@ -489,7 +489,7 @@ with tabs[0]:
                         run_solver(
                             [
                                 sys.executable,
-                                "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                                "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                                 f"N={N_fourier}",
                                 f"ifol_num_epochs={epochs_fourier}",
                                 f"fe_solver={run_fe}",
@@ -591,33 +591,49 @@ with tabs[1]:
 
                 st.session_state['fourier_3d'] = (X, Y, Z, K3D_mapped)
 
+            # st.divider()
+
+            # fe_3d = st.checkbox(
+            #     "Run Finite Element Solver (compare results)",
+            #     value=True,
+            #     key="fe_3d"
+            # )
+
+            # epochs_3d = st.slider(
+            #     "Number of Epochs",
+            #     100, 2000, 1000,
+            #     step=100,
+            #     key="epochs_3d"
+            # )
+
+            # if st.button("Run OTF Deep Learning Solver", key="fol_3d"):
+            #     if 'fourier_3d' not in st.session_state:
+            #         st.error("Generate the 3D Fourier field first!")
+            #     else:
+            #         _, _, _, K3D_mapped = st.session_state['fourier_3d']
+            #         fol_result_3d = run_fol_async(
+            #             K3D_mapped,
+            #             fol_num_epochs=epochs_3d,
+            #             display_plot=True,
+            #             is_3d=True
+            #         )
+            #         st.session_state['fourier_3d_fol_result'] = fol_result_3d
             st.divider()
+            st.subheader("Deep Learning & Solver (3D)")
 
-            fe_3d = st.checkbox(
+            st.info(
+                "🚧 **3D solver is currently under development.**\n\n"
+                "Generation and visualization are enabled, but solver execution "
+                "will be available in a future release.\n\n"
+                "Stay tuned!"
+            )
+
+            # Disabled placeholders (visual only)
+            st.checkbox(
                 "Run Finite Element Solver (compare results)",
-                value=True,
-                key="fe_3d"
+                value=False,
+                disabled=True
             )
-
-            epochs_3d = st.slider(
-                "Number of Epochs",
-                100, 2000, 1000,
-                step=100,
-                key="epochs_3d"
-            )
-
-            if st.button("Run OTF Deep Learning Solver", key="fol_3d"):
-                if 'fourier_3d' not in st.session_state:
-                    st.error("Generate the 3D Fourier field first!")
-                else:
-                    _, _, _, K3D_mapped = st.session_state['fourier_3d']
-                    fol_result_3d = run_fol_async(
-                        K3D_mapped,
-                        fol_num_epochs=epochs_3d,
-                        display_plot=True,
-                        is_3d=True
-                    )
-                    st.session_state['fourier_3d_fol_result'] = fol_result_3d
 
         # ==============================
         # RIGHT: 3D VISUALIZATION
@@ -777,7 +793,7 @@ with tabs[2]:  # Image / VTK Upload tab
                     np.save("K_matrix.npy", K_slice.reshape(1, -1))
                     cmd = [
                         sys.executable,
-                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                        "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                         f"N={N_slice}",
                         f"ifol_num_epochs={epochs_vtk}",
                         f"fe_solver={run_fe_vtk}",
@@ -872,7 +888,7 @@ with tabs[2]:  # Image / VTK Upload tab
                         np.save("K_matrix.npy", K_matrix.reshape(1, -1))
                         cmd = [
                             sys.executable,
-                            "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                            "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                             f"N={N_img}",
                             f"ifol_num_epochs={epochs_img}",
                             f"fe_solver={run_fe_img}",
@@ -959,7 +975,7 @@ with tabs[3]:
     # Layout
     # -------------------------------
     left_col, right_col = st.columns([1, 1.2])
-
+    
     # -------------------------------
     # Canvas
     # -------------------------------
@@ -1065,7 +1081,7 @@ with tabs[3]:
 
             cmd = [
                 sys.executable,
-                "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
+                "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control.py",
                 f"N={N_paint}",
                 f"ifol_num_epochs={epochs}",
                 f"fe_solver={run_fe}",
@@ -1087,142 +1103,3 @@ with tabs[3]:
                 f"N={N_paint}"
             ]
             run_solver(cmd, results_folder="./mechanical_2d_base_from_ifol_meta")
-
-
-# with tabs[3]:
-#     st.subheader("Paint Your Own Microstructure")
-
-#     import matplotlib.cm as cm
-#     import matplotlib.colors as mcolors
-#     from streamlit_drawable_canvas import st_canvas
-
-#     viridis = cm.get_cmap("viridis")
-#     def viridis_hex(x):
-#         r, g, b, _ = viridis(x)
-#         return mcolors.to_hex((r, g, b))
-
-#     N_paint = 20
-#     canvas_size = 400
-#     background_color = viridis_hex(0.0)
-#     # st.write(f"Canvas background color: `{background_color}`")
-
-#     # -------------------------------
-#     # Unique keys for all widgets
-#     # -------------------------------
-#     drawing_mode = st.selectbox(
-#         "Choose Tool:",
-#         ("freedraw", "line", "rect", "circle", "transform"),
-#         format_func=lambda m: {
-#             "freedraw": "✏️ Brush",
-#             "line": "📏 Line",
-#             "rect": "▭ Rectangle (filled)",
-#             "circle": "◯ Circle (filled)",
-#             "transform": "✥ Move / Rotate"
-#         }[m],
-#         key="paint_tool_selectbox"
-#     )
-
-#     brush_size = st.slider("Brush size", 1, 50, 20, key="paint_brush_size")
-#     # paint_value = st.slider("Paint Value (Viridis)", 0.0, 1.0, 1.0, 0.05, key="paint_value_slider")
-#     paint_value = 1.0
-#     stroke_color = viridis_hex(paint_value)
-
-#     if st.button("Clear Canvas", key="paint_clear_canvas"):
-#         st.session_state["canvas_key"] = (st.session_state.get("canvas_key", 0) + 1) % 10000
-#     else:
-#         st.session_state.setdefault("canvas_key", 0)
-
-#     # -------------------------------
-#     # Layout: canvas left, preview right
-#     # -------------------------------
-#     left_col, right_col = st.columns([1, 1.2])
-
-#     # Canvas
-#     with left_col:
-#         canvas_result = st_canvas(
-#             fill_color=stroke_color + "FF",
-#             stroke_width=brush_size,
-#             stroke_color=stroke_color,
-#             background_color=background_color,
-#             height=canvas_size,
-#             width=canvas_size,
-#             drawing_mode=drawing_mode,
-#             key=f"paint_canvas_{st.session_state['canvas_key']}",
-#             update_streamlit=True,
-#             display_toolbar=True,
-#         )
-#         convert_btn = st.button("Convert Painting to Microstructure Field", key="paint_convert_btn")
-
-#     # Persistent placeholder for microstructure
-#     microstructure_placeholder = right_col.empty()
-
-#     # Conversion
-#     if convert_btn:
-#         if canvas_result.image_data is None:
-#             st.error("Draw something first!")
-#         else:
-#             img = canvas_result.image_data[:, :, :3].astype(float) / 255.0
-#             small = cv2.resize(img, (N_paint, N_paint), interpolation=cv2.INTER_AREA)
-
-#             viridis_colors = viridis(np.linspace(0, 1, 256))[:, :3]
-#             K_matrix = np.zeros((N_paint, N_paint))
-#             for i in range(N_paint):
-#                 for j in range(N_paint):
-#                     pixel = small[i, j, :]
-#                     idx = ((viridis_colors - pixel) ** 2).sum(axis=1).argmin()
-#                     K_matrix[i, j] = idx / 255.0
-#             K_matrix = 0.1 + 0.9 * K_matrix
-#             st.session_state["paint_microstructure"] = K_matrix
-#             np.save("K_matrix.npy", K_matrix.reshape(1, -1))
-
-#             # Show microstructure
-#             fig, ax = plt.subplots(figsize=(5, 5))
-#             im = ax.imshow(K_matrix, cmap="viridis", origin="upper")
-#             ax.axis("off")
-#             plt.colorbar(im, ax=ax)
-#             microstructure_placeholder.pyplot(fig)
-#             save_microstructure_image(
-#                 fig,
-#                 filename="microstructure.png",
-#                 folders=["./meta_implicit_mechanical_2D", "./mechanical_2d_base_from_ifol_meta"]
-#             )
-#             plt.close(fig)
-
-#     elif "paint_microstructure" in st.session_state:
-#         K_matrix = st.session_state["paint_microstructure"]
-#         fig, ax = plt.subplots(figsize=(5, 5))
-#         im = ax.imshow(K_matrix, cmap="viridis", origin="upper")
-#         ax.axis("off")
-#         plt.colorbar(im, ax=ax)
-#         microstructure_placeholder.pyplot(fig)
-#         plt.close(fig)
-
-#     # Solver Controls
-#     if "paint_microstructure" in st.session_state:
-#         st.divider()
-#         st.subheader("Deep Learning & FE Solver")
-#         epochs = st.slider("Number of Epochs", 100, 5000, 1500, 100, key="paint_epochs")
-#         run_fe = st.checkbox("Run FE solver", value=True, key="paint_run_fe")
-
-#         if st.button("Run OTF DL Solver (Painted)", disabled=st.session_state.running_solver, key="paint_run_otf"):
-#             K_matrix = st.session_state["paint_microstructure"]
-#             np.save("K_matrix.npy", K_matrix.reshape(1, -1))
-#             cmd = [
-#                 sys.executable,
-#                 "meta_alpha_implicit_pr_lr_mechanical_2D_identity_control2.py",
-#                 f"N={N_paint}",
-#                 f"ifol_num_epochs={epochs}",
-#                 f"fe_solver={run_fe}",
-#                 "clean_dir=False"
-#             ]
-#             run_solver(cmd, results_folder="./meta_implicit_mechanical_2D")
-
-#         if st.button("Run Pretrained NeoHookean (Painted)", disabled=st.session_state.running_solver, key="paint_run_neo"):
-#             K_matrix = st.session_state["paint_microstructure"]
-#             np.save("K_matrix.npy", K_matrix.reshape(1, -1))
-#             cmd = [
-#                 sys.executable,
-#                 "run_pretrained_neohookean.py",
-#                 f"N={N_paint}"
-#             ]
-#             run_solver(cmd, results_folder="./mechanical_2d_base_from_ifol_meta")
