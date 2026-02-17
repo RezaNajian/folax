@@ -99,6 +99,16 @@ class FourierParametricOperatorLearning(DeepNetwork):
         if not self.control.initialized:
             self.control.Initialize(reinitialize)
 
+        total_num_nodes = self.loss_function.fe_mesh.GetNumberOfNodes()
+        if self.loss_function.dim == 1:
+            self.spatial_shape = (int(total_num_nodes))
+        elif self.loss_function.dim == 2:
+            dim_mesh_size = jnp.sqrt(total_num_nodes)
+            self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size))
+        elif self.loss_function.dim == 3:
+            dim_mesh_size = jnp.cbrt(total_num_nodes)
+            self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size),int(dim_mesh_size))
+
         self.initialized = True
 
     def ComputeBatchPredictions(self,batch_X:jnp.ndarray,nn_model:nnx.Module):
@@ -128,9 +138,7 @@ class FourierParametricOperatorLearning(DeepNetwork):
                 inferred from the loss function.
         """
         batch_size = batch_X.shape[0]
-        mesh_size = int(self.loss_function.fe_mesh.GetNumberOfNodes()**0.5)
-        num_chs = int(batch_X.size/(mesh_size*mesh_size*batch_size))
-        return nn_model(batch_X.reshape(batch_size,mesh_size,mesh_size,num_chs)).reshape(batch_size,-1)
+        return nn_model(batch_X.reshape(batch_size,*self.spatial_shape,-1)).reshape(batch_size,-1)
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_control:jnp.ndarray):

@@ -407,6 +407,40 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       transpose_jac)
     
+    def ComputeElementEnergyVmapCompatible(self,
+                                           element_id:jnp.integer,
+                                           elements_nodes:jnp.array,
+                                           xyz:jnp.array,
+                                           full_control_vector:jnp.array,
+                                           full_dof_vector:jnp.array):
+        """
+        Vmap-compatible wrapper to compute an element scalar contribution.
+
+        This helper extracts element nodal coordinates, controls, and DOFs from
+        global arrays using ``element_id`` and then calls :meth:`ComputeElementEnergy`.
+
+        Args:
+            element_id (jax.numpy.integer):
+                Element index.
+            elements_nodes (jax.numpy.ndarray):
+                Connectivity array mapping element ids to node ids.
+            xyz (jax.numpy.ndarray):
+                Nodal coordinates array.
+            full_control_vector (jax.numpy.ndarray):
+                Global control/parameter values per node.
+            full_dof_vector (jax.numpy.ndarray):
+                Global DOF vector.
+
+        Returns:
+            float:
+                Scalar element contribution.
+        """
+        return self.ComputeElement(xyz[elements_nodes[element_id],:],
+                                         full_control_vector[elements_nodes[element_id]],
+                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
+                                         self.thermal_loss_settings["T0"][elements_nodes[element_id]])[0]
+    
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
     def ComputeHeatFlux(self,nodal_conductivity: jnp.array, nodal_temperature: jnp.array):
@@ -508,6 +542,8 @@ class ThermoMechanicsLoss(FiniteElementLoss):
 
         return nodal_flux_vector.reshape(-1,self.dim)
     
+    @print_with_timestamp_and_execution_time
+    @partial(jit, static_argnums=(0,))    
     def ComputeStress(self,
                       nodal_conductivity: jnp.array, 
                       nodal_tuvw: jnp.array):
