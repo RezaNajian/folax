@@ -90,8 +90,6 @@ class GridEmbeddingND(nnx.Module):
             grid_boundaries
         ), f"Error: expected grid_boundaries to be an iterable of length {self.dim}, received {grid_boundaries}"
         self.grid_boundaries = grid_boundaries
-        self._grid = None
-        self._res = None
 
     @property
     def out_channels(self) -> int:
@@ -99,7 +97,6 @@ class GridEmbeddingND(nnx.Module):
 
     def grid(self, spatial_dims: Sequence[int], dtype:jnp.dtype) -> jnp.ndarray:
         """grid generates ND grid needed for pos encoding
-        and caches the grid associated with MRU resolution
 
         Parameters
         ----------
@@ -113,13 +110,10 @@ class GridEmbeddingND(nnx.Module):
             output grids to concatenate
         """
 
-        if self._grid is None or self._res != spatial_dims:
-            grids_by_dim = regular_grid_nd(spatial_dims, grid_boundaries=self.grid_boundaries)
-            grid = nnx.data(jnp.stack(grids_by_dim, axis=-1).astype(dtype))
-            self._grid = grid
-            self._res = spatial_dims
+        grids_by_dim = regular_grid_nd(spatial_dims, grid_boundaries=self.grid_boundaries)
+        grid = (jnp.stack(grids_by_dim, axis=-1).astype(dtype))
+        return grid
 
-        return self._grid
 
     def __call__(self, data: jnp.ndarray, batched: bool = True) -> jnp.ndarray:
         """
