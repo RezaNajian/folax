@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax
 from flax import nnx
 
-from .embeddings import GridEmbeddingND
+from .embeddings import GridEmbeddingND, SinusoidalEmbedding
 from .spectral_convolution import SpectralConv
 from .padding import DomainPadding
 from .fno_block import FNOBlocks
@@ -85,7 +85,6 @@ class FNO(nnx.Module):
         - "grid": Appends a grid positional embedding with default settings to the last channels of raw input.
           Assumes the inputs are discretized over a grid with entry [0,0,...] at the origin and side lengths of 1.
         - GridEmbeddingND: Uses this module directly (see :mod:`neuralop.embeddings.GridEmbeddingND` for details).
-        - GridEmbedding2D: Uses this module directly for 2D cases.
         - None: Does nothing.
         Default: "grid"
     non_linearity : nn.Module, optional
@@ -208,6 +207,8 @@ class FNO(nnx.Module):
         separable: bool = False,
         preactivation: bool = False,
         conv_module: nnx.Module = SpectralConv,
+        L: int = 4,
+        parameter_embedding: str= None,
         *,
         rngs: nnx.Rngs
     ):
@@ -253,13 +254,6 @@ class FNO(nnx.Module):
                 dim=self.n_dim,
                 grid_boundaries=spatial_grid_boundaries,
             )
-        elif isinstance(positional_embedding, GridEmbedding2D):
-            if self.n_dim == 2:
-                self.positional_embedding = positional_embedding
-            else:
-                raise ValueError(
-                    f"Error: expected {self.n_dim}-d positional embeddings, got {positional_embedding}"
-                )
         elif isinstance(positional_embedding, GridEmbeddingND):
             self.positional_embedding = positional_embedding
         elif positional_embedding is None:
@@ -269,6 +263,16 @@ class FNO(nnx.Module):
                 f"Error: tried to instantiate FNO positional embedding with {positional_embedding},\
                               expected one of 'grid', GridEmbeddingND"
             )
+
+        ## Constant parameter embedding
+        # self.param_embedding = None
+        if parameter_embedding is not None:
+            self.param_embedding = SinusoidalEmbedding(
+                in_channels=self.n_dim,
+                num_frequencies=L,
+                embedding_type="nerf",    # "nerf" or "transformer"
+                modulation="amplitude",   # "frequency" or "amplitude"
+                )
 
         ## Domain padding
         if domain_padding is not None and (
@@ -322,6 +326,8 @@ class FNO(nnx.Module):
         lifting_in_channels = self.in_channels
         if self.positional_embedding is not None:
             lifting_in_channels += self.n_dim
+        if self.param_embedding is not None:
+            lifting_in_channels += self.param_embedding.out_channels
         self.lifting = ChannelMLP(
             in_channels=lifting_in_channels,
             out_channels=self.hidden_channels,
@@ -395,10 +401,27 @@ class FNO(nnx.Module):
         elif isinstance(output_shape, tuple):
             output_shape = [None] * (self.n_layers - 1) + [output_shape]
 
+        # Extract constant/sample parameter from raw input before any embeddings.
+        m = None
+        if self.param_embedding is not None:
+            param_channel = x[..., self.in_channels - 1]
+            if x.ndim == self.n_dim + 2:
+                reduce_axes = tuple(range(1, param_channel.ndim))
+            elif x.ndim == self.n_dim + 1:
+                reduce_axes = tuple(range(0, param_channel.ndim))
+            else:
+                raise ValueError(
+                    f"Expected input ndim {self.n_dim + 1} or {self.n_dim + 2}, got {x.ndim}"
+                )
+            m = jnp.mean(param_channel, axis=reduce_axes)
+
         # append spatial pos embedding if set
         if self.positional_embedding is not None:
             x = self.positional_embedding(x)
 
+        if self.param_embedding is not None:
+            x = self.param_embedding(x, m=m)
+            
         x = self.lifting(x)
 
         if self.domain_padding is not None:

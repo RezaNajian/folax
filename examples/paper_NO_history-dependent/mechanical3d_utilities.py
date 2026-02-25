@@ -5,6 +5,7 @@ import gmsh, os, math, random, meshio
 from fol.tools.usefull_functions import *
 from skimage.transform import resize
 from scipy.ndimage import zoom
+import pickle, h5py
 
 def create_gyroid(fe_mesh: Mesh, tpms_settings: dict):
     """
@@ -615,23 +616,24 @@ def downsample(arr_128:np.ndarray):
     # return zoom(arr_128, zoom=0.5)  # scale down by factor of 2
     return arr_128.reshape(64, 2, 64, 2).mean(axis=(1, 3))
 
-def von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,filename):
-    fig, axs = plt.subplots(3, 10, figsize=(30, 10))
+def von_mises_plot(model_pred,ground_truth,error,steps,N,case_id,case_dir,filename,start_id):
+    fig, axs = plt.subplots(3, steps, figsize=((3*steps), steps))
 
     # Define consistent color limits
-    vmin_ifol, vmax_ifol = iFOL_pred.min(), iFOL_pred.max()
+    vmin_model, vmax_model = model_pred.min(), model_pred.max()
     vmin_fft, vmax_fft = ground_truth.min(), ground_truth.max()
     vmin_err, vmax_err = error.min(), error.max()
 
-    for col in range(10):
-        field_ifol = iFOL_pred[col, :].reshape((N, N))
+    
+    for col in range(steps):
+        field_model = model_pred[col, :].reshape((N, N))
         field_fft = ground_truth[col, :].reshape((N, N))
         field_err = error[col, :].reshape((N, N))
 
         # Row 1
-        im0 = axs[0, col].imshow(field_ifol, cmap='viridis',
-                                vmin=vmin_fft, vmax=vmax_fft)
-        axs[0, col].set_title(f"Strain {col+1}%", fontsize=10)
+        im0 = axs[0, col].imshow(field_model, cmap='viridis',
+                                vmin=vmin_model, vmax=vmax_model)
+        axs[0, col].set_title(f"Strain {start_id+col+1}%", fontsize=10)
         axs[0, col].set_xticks([]); axs[0, col].set_yticks([])
 
         # Row 2
@@ -640,7 +642,7 @@ def von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,filename):
         axs[1, col].set_xticks([]); axs[1, col].set_yticks([])
 
         # Row 3
-        im2 = axs[2, col].imshow(field_err, cmap='inferno',
+        im2 = axs[2, col].imshow(field_err, cmap='gray',
                                 vmin=vmin_err, vmax=vmax_err)
         axs[2, col].set_xticks([]); axs[2, col].set_yticks([])
 
@@ -650,12 +652,12 @@ def von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,filename):
     cbar_ax2 = fig.add_axes([0.92, 0.40, 0.01, 0.2])  # Row 2
     cbar_ax3 = fig.add_axes([0.92, 0.10, 0.01, 0.2])  # Row 3
 
-    fig.colorbar(im0, cax=cbar_ax1, label='iFOL values')
+    fig.colorbar(im0, cax=cbar_ax1, label='FNO values')
     fig.colorbar(im1, cax=cbar_ax2, label='FFT values')
     fig.colorbar(im2, cax=cbar_ax3, label='Error')
 
     # --- Row labels ---
-    axs[0, 0].set_ylabel("Von Mises iFOL", fontsize=12)
+    axs[0, 0].set_ylabel("Von Mises FNO", fontsize=12)
     axs[1, 0].set_ylabel("Von Mises FFT", fontsize=12)
     axs[2, 0].set_ylabel("Abs. Error", fontsize=12)
 
@@ -663,7 +665,7 @@ def von_mises_plot(iFOL_pred,ground_truth,error,N,case_id,case_dir,filename):
     plt.savefig(case_dir + f"/{filename}_case_{case_id}.png", dpi=200)
     plt.close(fig)
 
-def plot_value_1d(pred_field_list:list,gt_field_list:list,y_eval_value_grid:int,time:list[str],case_dir:str,filename:str):
+def plot_value_1d(pred_field_list:list,gt_field_list:list,y_eval_value_grid:int,time:list[str],case_dir:str,filename:str,start_id):
     
     dim = int(pred_field_list[0].size**0.5)
     fig, axes = plt.subplots(1,3,figsize=(18,6))
@@ -676,7 +678,7 @@ def plot_value_1d(pred_field_list:list,gt_field_list:list,y_eval_value_grid:int,
         axes[i].plot(np.arange(len(y_value_gt)), y_value_gt, label='ground truth')
 
         axes[i].set_title(
-            f"strain: {time[i]}%"
+            f"strain: {int(time[i])+start_id}%"
         )
         axes[i].legend()
         axes[i].grid('on')
@@ -934,17 +936,19 @@ plt.legend()
 def radial_power_spectrum_plot(
     pred_field,
     gt_field,
+    steps,
     N,
     case_id,
     case_dir,
     filename,
+    start_id
 ):
-    fig, axs = plt.subplots(1, 10, figsize=(30, 4), sharey=True)
+    fig, axs = plt.subplots(1, steps, figsize=((3*steps), 4), sharey=True)
 
     # Frequency bins
     k_edges, k_nyq = compute_k_edges(Nx=N, Ny=N, Lx=1.0, Ly=1.0)
 
-    for col in range(10):
+    for col in range(steps):
         gt   = gt_field[col, :]
         pred = pred_field[col, :]
         # err  = gt - pred  # signed error field
@@ -959,7 +963,7 @@ def radial_power_spectrum_plot(
         ax.plot(psd_pred["k"], psd_pred["sqrt_rho"], label="Pred")
         # ax.plot(psd_err["k"],  psd_err["sqrt_rho"],  label="Err")
 
-        ax.set_title(f"Strain {col+1}%", fontsize=10)
+        ax.set_title(f"Strain {start_id+col+1}%", fontsize=10)
         ax.set_yscale("log")
         ax.grid(True, which="both", alpha=0.3)
 
@@ -988,3 +992,434 @@ def radial_power_spectrum_plot(
         bbox_inches="tight",
     )
     plt.close(fig)
+
+
+
+def rollout(model, x0, steps, N, C, w, case_dir):
+    """
+    Autoregressive rollout with window.
+
+    Parameters
+    ----------
+    model : trained nnx
+        Predicts increments of shape (N*N*C,)
+    x0 : ndarray
+        Initial state, shape (N*N*w*C,)
+    steps : int
+        Number of rollout steps
+    N : int
+        Grid size
+    C : int
+        Channels per time step || Ouput Channels
+    w : int
+        Window length
+
+    Returns
+    -------
+    outputs : ndarray
+        Shape (steps, N*N*w*C)
+    """
+
+    Cin = w * C
+    x = x0.copy()
+    outputs = []
+    for _ in range(steps):
+        # 1) Reshape to grid
+        x_grid = x.reshape(N, N, Cin)
+        
+        # 2) Extract last time slice u^t
+        u_t = x_grid[:, :, -C:]                                     # (N, N, C)
+
+        # 3) Predict increment Δu
+        dx = model.Predict(x.reshape(-1, 1).T).reshape(-1).reshape(N,N,C)            # (N, N, C)
+
+        # 4) Compute next state
+        u_next = u_t + dx                                           # (N, N, C)
+
+        # 5) Drop oldest time slice
+        x_grid_new = x_grid[:, :, C:]                               # remove first C channels
+
+        # 6) Append new time slice
+        x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (N, N, w*C)
+
+        # 7) Flatten for next iteration
+        x = x_grid_new.reshape(-1)
+
+        outputs.append(u_next.copy())
+
+    return np.array(outputs)
+
+
+
+def plot_to_check(train_set,N,window_lenght, channel_length,indices,case_dir,plot_name,scale=(1.,1.,1.)):
+    stride = channel_length * window_lenght
+    for id in indices:   # for test set
+        random_sample_id = id
+
+        fig, ax = plt.subplots(1, channel_length, figsize=((channel_length*5), 8))
+
+        # First sample
+        for i in range(channel_length):
+            if (channel_length % 5 == 0 or channel_length % 6 == 0) and i==0:
+                im = ax[i].imshow(scale[0] * train_set[random_sample_id, ::stride].reshape(N, N), cmap='viridis')
+                ax[i].set_title(f"Current Step Von-Mises Stress (Sample {random_sample_id})")
+                fig.colorbar(im, ax=ax[i], fraction=0.046, pad=0.04)
+            elif (channel_length % 6 == 0) and i==5:
+                im = ax[i].imshow(scale[2] * train_set[random_sample_id, i::stride].reshape(N, N), cmap='viridis')
+                ax[i].set_title(f"Current Step time difference (Sample {random_sample_id})")
+                fig.colorbar(im, ax=ax[i], fraction=0.046, pad=0.04)
+            else:
+                im = ax[i].imshow(scale[1] * train_set[random_sample_id, i::stride].reshape(N, N), cmap='viridis')
+                ax[i].set_title(f"Current Step $alpha_{i}$ (Sample {random_sample_id})")
+                fig.colorbar(im, ax=ax[i], fraction=0.046, pad=0.04)
+
+        # Layout & save
+        for a in ax.flat:
+            a.axis('off')
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(case_dir, f'{plot_name}_{N}_{id}.png'), dpi=300)
+        plt.close()
+
+
+def batch_rollout(model, x0, steps, N, C, w, case_dir):
+    """
+    Autoregressive rollout with window.
+
+    Parameters
+    ----------
+    model : trained nnx
+        Predicts increments of shape (B,N*N*C,)
+    x0 : ndarray
+        Initial state, shape (B,N*N*w*C)
+    steps : int
+        Number of rollout steps
+    N : int
+        Grid size
+    C : int
+        Channels per time step || Ouput Channels
+    w : int
+        Window length
+
+    Returns
+    -------
+    outputs : ndarray
+        Shape (steps, B, N*N*w*C)
+    """
+
+    Cin = w * C
+    x = x0.copy()
+    outputs = []
+    B = x0.shape[0]
+
+    for _ in range(steps):
+        # 1) Reshape to grid
+        x_grid = x.reshape(B, N, N, Cin)
+        
+        # 2) Extract last time slice u^t
+        u_t = x_grid[:, :, :, -C:]                                     # (B, N, N, C)
+
+        # 3) Predict increment Δu
+        dx = model.Predict(x.reshape(B,-1)).reshape(-1).reshape(B,N,N,C)            # (B, N, N, C)
+
+        # 4) Compute next state
+        u_next = u_t + dx                                           # (B, N, N, C)
+
+        # 5) Drop oldest time slice
+        x_grid_new = x_grid[:, :, :, C:]                               # remove first C channels
+
+        # 6) Append new time slice
+        x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (B, N, N, w*C)
+
+        # 7) Flatten for next iteration
+        x = x_grid_new.reshape(-1)
+
+        outputs.append(u_next.copy())
+
+    return np.array(outputs)
+
+def error_time_plot_(error_data_dict,which_channel,w,filename,case_dir):
+    # -----------------------------
+    # Parameters
+    # -----------------------------
+    channel = which_channel          # von Mises
+    step = 0             # choose which step to visualize
+    show_log = False     # optional
+
+    # -----------------------------
+    # Extract data
+    # -----------------------------
+    data = error_data_dict[f"step_{step}"]     # (B, N, N, C)
+    data_c = data[..., channel]                # (B, N, N)
+
+    B, N, _ = data_c.shape
+
+    # Flatten spatial dimensions
+    data_flat = data_c.reshape(B, -1)           # (B, N*N)
+
+    if show_log:
+        data_flat = np.log10(data_flat + 1e-12)
+
+    # -----------------------------
+    # Box plot
+    # -----------------------------
+    box_data = []
+
+    steps = sorted(error_data_dict.keys(), key=lambda x: int(x.split('_')[1]))
+
+    for step_key in steps:
+        data = error_data_dict[step_key][..., channel]   # (B, N, N)
+        box_data.append(data.reshape(-1))                # (B*N*N,)
+    final_step = int(w + len(steps))
+    plt.figure(figsize=(12, 5))
+    plt.boxplot(box_data, positions=np.arange(w,final_step), showfliers=False)
+    plt.xlabel("Time step")
+    plt.ylabel("Error (von Mises)")
+    plt.title("Error evolution over time")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(case_dir, f'{filename}.png'), dpi=300)
+    plt.close()
+
+
+def rollout_direct(model, x0, steps, N, C, w):
+    """
+    Autoregressive rollout with window.
+
+    Parameters
+    ----------
+    model : trained nnx
+        Predicts increments of shape (N*N*C,)
+    x0 : ndarray
+        Initial state, shape (N*N*w*C,)
+    steps : int
+        Number of rollout steps
+    N : int
+        Grid size
+    C : int
+        Channels per time step || Ouput Channels
+    w : int
+        Window length
+
+    Returns
+    -------
+    outputs : ndarray
+        Shape (steps, B, N, N, C)
+    """
+
+    Cout = C
+    x = x0.copy()
+    outputs = []
+    if x0.ndim==2:
+        B = x0.shape[0]
+    else:
+        x0 = x0[None,:]
+        B = 1
+
+    # 1) Reshape to grid
+    x_grid = x.reshape(B, N, N, C)
+    # 2) Extract last time slice u^t
+    u_t = x_grid.copy()                                     # (B, N, N, C)
+    t_init = np.ones((B,N,N,1))                              # (B, N, N)
+    
+    for t in range(steps):
+
+        t_channel = ((t+1)/steps) * t_init
+        x_grid = np.concatenate((u_t,t_channel),axis=-1)
+
+        # 3) Predict increment Δu
+        dx = model.Predict(x_grid).reshape(-1).reshape(B,N,N,Cout)            # (B, N, N, C)
+
+        # 4) Compute next state
+        u_next = u_t + dx                                           # (B, N, N, C)
+
+        outputs.append(u_next.copy())
+
+    return np.array(outputs)
+
+
+def data_loader_hdf5(which:str='von_Mises_stress',sim_id:int=0,increment:int=75,path:str="Cu_textured_dataset.hdf5",excluded_idx:list[int]=None):
+    
+    """
+    The following is borrowed from load_data from `damask_data_utilities.py` with some modification.
+
+    Load HDF5 simulation data into a nested dictionary.
+
+    Parameters
+    ----------
+    which : str
+        String of top-level groups (data types) to load from the HDF5 file.
+        Valid strings are as follows: `gamma_slip_(-1-11)`, `gamma_slip_(-11-1)`, `gamma_slip_(1-1-1)`, `gamma_slip_(111)`, `von_Mises_stress`, `orientations`
+    increments : int
+        Index of increments to load.
+    ids : int
+        Index of simulation IDs to load.
+    path : str, optional
+        Path to the HDF5 file.
+
+    Returns
+    -------
+    Tuple: [numpy.ndarray, dict] | [None,None]
+        Numpy 1DArray and an auxilary dictionary with structure:
+        (numpy.array, {`"sim_id"`: id, `"increment"`: increment id, 
+        `"data"`: which string, `"max"`: max(numpy.array), `"min"`: min(numpy.array)})
+    """
+    
+    if not os.path.exists(path):
+        print(f"File not found: {path}")
+        return None, None
+
+    with h5py.File(path, "r") as f:
+        
+        if sim_id not in excluded_idx:
+            inc_key = f"increment_{increment}"
+            sim_key = f"simulation_{sim_id}"
+            h5_key = f"{which}/{inc_key}/{sim_key}"
+            if h5_key in f:
+                data = f[h5_key][...]
+            else:
+                raise ValueError(f"Missing dataset: {h5_key}")
+            if data.ndim == 2:
+                data = data[:,:,None]
+        
+        return data, {"sim_id": sim_id, "increment":increment, "data":which, "max":np.max(data), "min":np.min(data)}
+    
+
+def create_autoregressive_set(window_length:int, sim_ids:Tuple[int,int], increments:list[int], which_data:list[str], N:int=128, excluded_idx:list[int]=None,
+                              path:str="Cu_textured_dataset.hdf5", dtype:np.dtype=np.float64, normalize:bool= True | False):
+    
+    excluded_idx = excluded_idx or []
+    valid_sim_ids = [s for s in range(*sim_ids) if s not in excluded_idx]
+    sim_len = len(valid_sim_ids)
+    time_steps = len(increments) - window_length
+    x_data_all = np.zeros((sim_len*time_steps,N*N,len(which_data)*window_length),dtype=dtype)
+    y_data_all = np.zeros((sim_len*time_steps,N*N,len(which_data)),dtype=dtype)
+    x_aux_all = []
+    y_aux_all = []
+    for incr in range(time_steps):
+        for sim_index, sim_id in enumerate(valid_sim_ids):
+            for w in range(window_length):
+                for channel_id, which in enumerate(which_data):
+                    
+                    sample_id = incr * sim_len + sim_index
+                    channel = w * len(which_data) + channel_id
+
+                    x_arr, _ = data_loader_hdf5(which,sim_id,increments[incr+w],path,excluded_idx=[])
+                    assert x_arr.shape[:2] == (N, N)
+                    x_data_all[sample_id,:,channel] = x_arr.flatten()
+
+                    # x_aux_all.append(x_aux_dict)
+                    if w == 0:
+                        y_arr, _ = data_loader_hdf5(which,sim_id,increments[incr+window_length],path,excluded_idx=[])
+                        assert y_arr.shape[:2] == (N, N)
+                        y_data_all[sample_id,:,channel_id] = y_arr.flatten()
+                        # y_aux_all.append(y_aux_dict)
+
+    
+    if normalize:
+        C = len(which_data)
+        x_view = x_data_all.reshape(x_data_all.shape[0], N, N, window_length, C)
+        x_scale = np.max(np.abs(x_view), axis=(0, 1, 2, 3))
+        y_view = y_data_all.reshape(y_data_all.shape[0], N, N, C)
+        y_scale = np.max(np.abs(y_view), axis=(0, 1, 2))
+        scales = np.maximum(x_scale, y_scale)
+        scales[scales == 0] = 1.0
+
+        x_data_all = (x_view / scales[None, None, None, None, :]).reshape(x_data_all.shape)
+        y_data_all = (y_view / scales[None, None, None, :]).reshape(y_data_all.shape)
+    else:
+        scales = np.ones((1,C))
+    return x_data_all.reshape(x_data_all.shape[0], -1), y_data_all.reshape(y_data_all.shape[0], -1), scales
+
+def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_data:list[str], N:int=128, excluded_idx:list[int]=None,
+                              path:str="Cu_textured_dataset.hdf5", dtype:np.dtype=np.float64,normalize:bool=True | False):
+    
+    excluded_idx = excluded_idx or []
+    valid_sim_ids = [s for s in range(*sim_ids) if s not in excluded_idx]
+    time_steps = len(increments)
+    # Create all (t1, t2) index pairs
+    data_index = []
+    for sim_idx in valid_sim_ids:
+        for t1 in range(time_steps - 1):
+            for t2 in range(t1 + 1, time_steps):
+                data_index.append((sim_idx, t1, t2))
+
+
+    def get_item(index):
+        sim_idx, t1, t2 = data_index[index]
+
+        def load_frame(t_idx):
+            arr = np.zeros((N,N,len(which_data)),dtype=dtype)
+            # Load and normalize stress
+            for channel, which in enumerate(which_data):
+                x_arr, _ = data_loader_hdf5(which,sim_idx,increments[t_idx],path,excluded_idx=[])
+                if x_arr is None:
+                    raise ValueError(f"x_arr passed as {type(x_arr)}, it should be of type {type(np.array([]))}")
+
+                arr[:,:,channel] = x_arr.squeeze()
+            return arr
+
+        x = load_frame(t1)
+        y = load_frame(t2)
+
+        dt = (increments[t2] - increments[t1]) / (increments[-1] - increments[0])  # normalized time difference
+        inputs_t = np.ones((N, N, 1), dtype=dtype) * dt
+        x_with_time = np.concatenate((x, inputs_t), axis=-1)  # shape: (N, N, C+1)
+
+        return x_with_time, y
+    
+    x_arr = np.zeros((len(data_index), N, N, len(which_data) + 1), dtype=dtype)
+    y_arr = np.zeros((len(data_index), N, N, len(which_data)), dtype=dtype)
+    # dt_arr = np.zeros((len(data_index), N, N, 1), dtype=dtype)
+    for idx in range(len(data_index)):
+        x_arr[idx,:,:,:], y_arr[idx,:,:,:]= get_item(idx)
+
+    if normalize:
+        C = len(which_data)
+
+        x_view = x_arr.reshape(x_arr.shape[0], N, N, C + 1)
+        y_view = y_arr.reshape(y_arr.shape[0], N, N, C)
+
+        x_phys = x_view[..., :C]
+        x_time = x_view[..., C:]
+
+        x_phys_scale = np.max(np.abs(x_phys), axis=(0, 1, 2))
+        y_phys_scale = np.max(np.abs(y_view), axis=(0, 1, 2))
+
+        phys_scales = np.maximum(x_phys_scale, y_phys_scale)
+        phys_scales[phys_scales == 0] = 1.0
+
+        time_scale = np.max(np.abs(x_time))
+        if time_scale == 0:
+            time_scale = 1.0
+
+    else:
+        phys_scales = np.ones(5,)
+        time_scale = 1.
+
+    x_phys = x_phys / phys_scales[None, None, None, :]
+    y_view = y_view / phys_scales[None, None, None, :]
+    x_time = x_time / time_scale
+
+    x_view = np.concatenate([x_phys, x_time], axis=-1)
+    x_arr = x_view.reshape(x_arr.shape)
+    y_arr = y_view.reshape(y_arr.shape)
+
+
+    scales = {"physical": phys_scales,  # shape (C,)
+                "time": time_scale}        # scalar
+
+    return x_arr.reshape(len(data_index), -1), y_arr.reshape(len(data_index), -1), scales
+
+def gt_loader(which_data:list[str],sim_id:int,increments:list[int],path:str,excluded_idx:list[int],N:int):
+    
+    assert sim_id not in excluded_idx, f'simulation id is missing! please pick another!'
+    time_steps = len(increments)
+    channels = len(which_data)
+    gt = np.zeros((time_steps,N*N,channels))
+        
+    for idx, incr in enumerate(increments):
+        for ch, which in enumerate(which_data):
+            arr,_ = data_loader_hdf5(which,sim_id,incr,path,excluded_idx=[])
+            gt[idx,:,ch] = arr.flatten()
+    return gt.reshape(time_steps,-1)
