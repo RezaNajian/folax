@@ -14,27 +14,22 @@ from fol.loss_functions.fe_loss import FiniteElementLoss
 
 class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBasedSolver):
     """
-    Nonlinear finite element solver implementing an incremental, residual-based 
-    Newton–Raphson method.
+    Nonlinear residual-based finite element solver using incremental Newton–Raphson.
 
-    This class extends `FiniteElementLinearResidualBasedSolver` to support nonlinear 
-    problems by repeatedly assembling the tangent stiffness matrix (Jacobian) and 
-    residual vector at each Newton iteration. Load is applied incrementally, and 
-    convergence is monitored using absolute residual tolerance, relative DOF update 
-    tolerance, and a maximum number of Newton iterations.
+    This solver extends :class:`~fol.solvers.fe_linear_residual_based_solver.FiniteElementLinearResidualBasedSolver`
+    to support nonlinear problems by repeatedly assembling the tangent (Jacobian)
+    matrix and residual vector and applying Newton–Raphson updates to the global
+    degrees of freedom (DOFs).
 
-    The solver is intended for problems where the global residual depends 
-    nonlinearly on the displacement field, such as:
-        • geometric nonlinearities
-        • material nonlinearities (hyperelasticity, plasticity, damage, etc.)
-        • boundary-condition-dependent nonlinearities
+    Loading is applied incrementally according to
+    ``self.nonlinear_solver_settings["load_incr"]``. For each load step, the solver
+    iterates until convergence is detected or the maximum number of Newton
+    iterations is reached. Convergence history (residual norms and update norms)
+    is stored per load step and can optionally be plotted via :meth:`PlotHistoryDict`.
 
-    Features
-    --------
-    • Incremental load stepping based on `nonlinear_solver_settings["load_incr"]`
-    • Newton–Raphson iterations with user-configurable tolerances
-    • Detection of NaN residuals with informative diagnostic output
-    • Optional plotting of convergence history (`PlotHistoryDict`)
+    Typical applications include problems with geometric nonlinearities, nonlinear
+    material behavior (e.g., hyperelasticity, plasticity, damage), or nonlinear
+    boundary-condition effects.
     """
 
     @print_with_timestamp_and_execution_time
@@ -46,7 +41,15 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
 
     @print_with_timestamp_and_execution_time
     def Initialize(self) -> None:
-        super().Initialize() 
+        """
+        Initialize the solver and merge nonlinear and plotting settings.
+
+        This method calls the base class initialization and updates the
+        nonlinear solver settings from ``fe_solver_settings["nonlinear_solver_settings"]``
+        if provided. It also merges the user-specified history plotting settings
+        with the default plotting configuration.
+        """
+        super().Initialize()
         if "nonlinear_solver_settings" in self.fe_solver_settings.keys():
             self.nonlinear_solver_settings = UpdateDefaultDict(self.nonlinear_solver_settings,
                                                                 self.fe_solver_settings["nonlinear_solver_settings"])
@@ -57,7 +60,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
         if self.history_plot_settings["plot"]:
             plot_dict = {key: [] for key in self.history_plot_settings["criteria"]}
             for plot_criterion,plot_values in plot_dict.items():
-                for step,step_dict in history_dict.items(): 
+                for step,step_dict in history_dict.items():
                     plot_values.extend(step_dict[plot_criterion])
 
             plt.figure(figsize=(10, 5))
@@ -75,38 +78,39 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
     @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars:jnp.array,current_dofs_np:jnp.array):
         """
-        Solve the nonlinear finite element system using an incremental,
-        residual-based Newton–Raphson method.
+        Solve the nonlinear FE system using incremental Newton–Raphson iterations.
 
-        The load is applied in a prescribed number of increments and, for each
-        load step, a Newton–Raphson loop is performed. At each iteration the
-        global residual vector and tangent (Jacobian) matrix are assembled via
-        `fe_loss_function.ComputeJacobianMatrixAndResidualVector`, the linear
-        system is solved, and the DOFs are updated until convergence criteria
-        are satisfied or the maximum number of iterations is reached.
+        The load is applied over ``load_incr`` steps. For each load step, Dirichlet
+        boundary conditions are applied at the current load factor, the Jacobian
+        and residual are assembled via the loss function, and a Newton update is
+        computed using :meth:`LinearSolve`. The DOFs are updated until convergence
+        is detected or the iteration limit is reached. Convergence metrics are
+        recorded per load step and can be plotted via :meth:`PlotHistoryDict`.
 
-        Parameters
-        ----------
-        current_control_vars : jax.numpy.ndarray
-            Array of control variables (e.g., load parameters, material or
-            design variables) passed to the FE loss function. Shape is
-            problem-dependent.
+        Convergence is considered achieved when at least one of the following
+        conditions is satisfied:
+        - Residual norm < ``abs_tol``
+        - Update norm < ``rel_tol``
+        - Iteration count reaches ``maxiter``
 
-        current_dofs_np : jax.numpy.ndarray
-            Initial displacement (DOF) vector at the beginning of the analysis.
-            This is converted to a JAX array internally.
-            Shape: (n_dofs,).
+        Args:
+            current_control_vars (jax.numpy.ndarray):
+                Control variables passed to the loss function (e.g., material or
+                design parameters).
+            current_dofs_np (jax.numpy.ndarray):
+                Initial DOF vector. Converted to a JAX array internally.
 
-        Returns
-        -------
-        current_dofs : jax.numpy.ndarray
-            Converged displacement vector at the end of all load increments.
-            Shape: (n_dofs,).
+        Returns:
+            jax.numpy.ndarray:
+                Converged DOF vector at the end of the final load step.
 
+        Raises:
+            ValueError:
+                If the residual norm becomes NaN during Newton iterations.
         """
         current_dofs = jnp.asarray(current_dofs_np)
         current_control_vars = jnp.asarray(current_control_vars)
-        num_load_steps = self.nonlinear_solver_settings["load_incr"] 
+        num_load_steps = self.nonlinear_solver_settings["load_incr"]
         convergence_history = {}
         for load_step in range(1,num_load_steps+1):
             load_step_value = (load_step)/num_load_steps
@@ -117,7 +121,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             for i in range(1,self.nonlinear_solver_settings["maxiter"]+1):
                 BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,current_dofs)
-                
+
                 # check residuals norm
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
                 if jnp.isnan(res_norm):
@@ -135,7 +139,7 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
                     )
                     raise ValueError("Residual norm contains NaN values.")
 
-                # linear solve and calculate nomrs 
+                # linear solve and calculate nomrs
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,current_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
 
@@ -158,13 +162,13 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
 
                 convergence_history[load_step]["res_norm"].append(res_norm)
                 convergence_history[load_step]["delta_dofs_norm"].append(delta_norm)
-                
+
                 if newton_converged:
                     break
-                
+
                 # if not converged update
                 current_dofs = current_dofs.at[:].add(delta_dofs)
-            
+
             self.PlotHistoryDict(convergence_history)
 
         return current_dofs

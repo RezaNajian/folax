@@ -1,8 +1,7 @@
 """
- Authors: Yusuke Yamazaki
-          Reza Najian Asl, https://github.com/RezaNajian
- Date: May, 2025
- License: FOL/LICENSE
+Authors: Yusuke Yamazaki; Reza Najian Asl (https://github.com/RezaNajian)
+Date: May, 2025
+License: FOL/LICENSE
 """
 from  .thermal import ThermalLoss
 import jax
@@ -14,12 +13,65 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
 
 class TransientThermalLoss(ThermalLoss):
+    """
+    Transient thermal energy functional with implicit time integration.
+
+    This class defines an energy-based loss functional for transient heat
+    conduction problems. The total loss value represents the total discrete
+    thermal energy of the system at a time step and is assembled by summing
+    element-level energy contributions over all finite elements in the mesh.
+
+    For each element, a scalar energy contribution is computed using Gaussian
+    quadrature based on the current and next nodal temperatures. The global
+    energy is obtained by accumulating these element energies across the
+    computational domain.
+
+    In addition to the scalar energy contribution, the class provides the
+    element residual vector and Jacobian matrix associated with the discrete
+    system used for implicit time stepping. The default time integration method
+    is implicit Euler and is configured through
+    ``loss_settings["time_integration_dict"]``.
+
+    The thermal conductivity may depend on temperature through the parameters
+    ``beta`` and ``c`` and through a nodal heterogeneity field ``k0``.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing material parameters and time integration
+            settings. Expected entries include a ``"material_dict"`` with
+            material properties and a ``"time_integration_dict"`` specifying
+            the time step.
+        fe_mesh (Mesh):
+            Finite element mesh over which the energy functional is defined.
+    """
 
     @print_with_timestamp_and_execution_time
-    def Initialize(self,reinitialize=False) -> None:  
+    def Initialize(self,reinitialize=False) -> None:
+        """
+        Initialize material and time-integration settings.
+
+        This method initializes the base thermal loss and then configures
+        material parameters and time integration settings. If the instance is
+        already initialized and ``reinitialize`` is ``False``, the method
+        returns without modifying the current configuration.
+
+        Args:
+            reinitialize (bool, optional):
+                If ``True``, forces reinitialization even if the object is
+                already initialized. Default is ``False``.
+
+        Raises:
+            ValueError:
+                If the provided nodal conductivity field ``k0`` does not match
+                the number of mesh nodes.
+            ValueError:
+                If ``time_integration_dict["time_step"]`` is not provided.
+        """
         if self.initialized and not reinitialize:
             return
-        super().Initialize() 
+        super().Initialize()
 
         self.default_material_settings = {"rho":1.0,"cp":1.0,"k0":np.ones((self.fe_mesh.GetNumberOfNodes())),"beta":0.0,"c":1.0}
         self.default_time_integration_settings = {"method":"implicit-euler","time_step":None}
@@ -38,8 +90,43 @@ class TransientThermalLoss(ThermalLoss):
         self.time_integration_settings = UpdateDefaultDict(self.default_time_integration_settings,self.loss_settings["time_integration_dict"])
         if self.time_integration_settings["time_step"] == None:
             fol_error("time step should be provided in the time_integration_dict ")
-    
+
     def ComputeElement(self,xyze,Te_c,Te_n,Ke):
+        """
+        Compute element-level energy, residual, and Jacobian contributions.
+
+        This method evaluates the discrete transient thermal energy contribution
+        of a single finite element using Gaussian quadrature. The returned
+        scalar value represents the energy contribution of this element to the
+        total system energy. The total energy is obtained by summing element
+        energies over all elements in the mesh.
+
+        The element residual vector and Jacobian matrix correspond to the
+        discrete system used for implicit time integration. The residual has
+        the form of a backward-Euler update using the element mass and
+        conductivity operators constructed from the current and next
+        temperatures.
+
+        Args:
+            xyze:
+                Element nodal coordinates.
+            Te_c:
+                Element nodal temperatures at the current (previous) time step.
+                Expected shape is compatible with the element node count.
+            Te_n:
+                Element nodal temperatures at the next (unknown) time step.
+                Expected shape is compatible with the element node count.
+            Ke:
+                Element nodal conductivity/heterogeneity field (e.g., nodal
+                values of ``k0``) used to interpolate conductivity to Gauss
+                points.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, jax.numpy.ndarray, jax.numpy.ndarray]:
+                - Scalar element thermal energy contribution.
+                - Element residual vector for the time-discrete system.
+                - Element Jacobian matrix associated with the residual.
+        """
         Te_c = Te_c.reshape(-1,1)
         Te_n = Te_n.reshape(-1,1)
         Ke = Ke.reshape(-1,1)
@@ -48,7 +135,7 @@ class TransientThermalLoss(ThermalLoss):
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
             T_at_gauss_n = jnp.dot(N_vec.reshape(1,-1), Te_n)
             T_at_gauss_c = jnp.dot(N_vec.reshape(1,-1), Te_c)
-            K_at_gauss = jnp.dot(N_vec, Ke.squeeze()) * (1 + 
+            K_at_gauss = jnp.dot(N_vec, Ke.squeeze()) * (1 +
                                     self.material_settings["beta"]*(T_at_gauss_n)**self.thermal_loss_settings["c"])
             DN_DX = self.fe_element.ShapeFunctionsLocalGradients(gp_point)
             J = self.fe_element.Jacobian(xyze,gp_point)
@@ -56,10 +143,10 @@ class TransientThermalLoss(ThermalLoss):
             invJ = jnp.linalg.inv(J)
             B_mat = jnp.dot(invJ,DN_DX.T)
             gp_stiffness = B_mat.T @ B_mat*K_at_gauss * detJ * gp_weight
-            gp_mass = self.material_settings["rho"] * self.material_settings["cp"]* jnp.outer(N_vec, N_vec) * detJ * gp_weight 
+            gp_mass = self.material_settings["rho"] * self.material_settings["cp"]* jnp.outer(N_vec, N_vec) * detJ * gp_weight
             gp_t = self.material_settings["rho"] * self.material_settings["cp"] * 0.5/(self.time_integration_settings["time_step"])*gp_weight  * detJ *(T_at_gauss_n-T_at_gauss_c)**2
             dk_dT = jnp.dot(N_vec, Ke.squeeze()) * self.material_settings["beta"] * self.thermal_loss_settings["c"] * T_at_gauss_n ** (self.thermal_loss_settings["c"] - 1)
-            gp_dR = (dk_dT * jnp.outer(N_vec, (B_mat@Te_n).T@B_mat) + K_at_gauss *B_mat.T @ B_mat)* detJ * gp_weight 
+            gp_dR = (dk_dT * jnp.outer(N_vec, (B_mat@Te_n).T@B_mat) + K_at_gauss *B_mat.T @ B_mat)* detJ * gp_weight
             return gp_stiffness,gp_mass, gp_t, gp_dR
 
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
@@ -67,7 +154,7 @@ class TransientThermalLoss(ThermalLoss):
         Se = jnp.sum(k_gps, axis=0)
         Me = jnp.sum(m_gps, axis=0)
         Se_dR = jnp.sum(dR_gps, axis=0)
-        Te = jnp.sum(t_gps) 
+        Te = jnp.sum(t_gps)
         element_residuals = jax.lax.stop_gradient((Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c)
         # element_weighted_residual_loss  = ((Te_n.T @ element_residuals)[0,0])
         return  0.5*Te_n.T@Se@Te_n + Te, (Me+self.time_integration_settings["time_step"]*Se)@Te_n - Me@Te_c, (Me+self.time_integration_settings["time_step"]*Se_dR)
@@ -78,7 +165,7 @@ class TransientThermalLoss(ThermalLoss):
                              elem_next_temps:jnp.array,
                              elem_heterogeneity:jnp.array) -> float:
         return self.ComputeElement(elem_xyz,elem_current_temps,elem_next_temps,elem_heterogeneity)[0]
-    
+
     def ComputeElementEnergyVmapCompatible(self,
                                            element_id:jnp.integer,
                                            elements_nodes:jnp.array,
@@ -92,7 +179,19 @@ class TransientThermalLoss(ThermalLoss):
                                          nodal_heterogeneity[elements_nodes[element_id]])
 
     def ComputeElementsEnergies(self,nodal_current_temps:jnp.array,nodal_next_temps:jnp.array):
-        # parallel calculation of energies
+        """
+        Compute element energy contributions for all elements in parallel.
+
+        Args:
+            nodal_current_temps (jax.numpy.ndarray):
+                Current-step nodal temperatures.
+            nodal_next_temps (jax.numpy.ndarray):
+                Next-step nodal temperatures.
+
+        Returns:
+            jax.numpy.ndarray:
+                Array of per-element energy contributions.
+        """
         return jax.vmap(self.ComputeElementEnergyVmapCompatible,(0,None,None,None,None,None)) \
                         (self.fe_mesh.GetElementsIds(self.element_type),
                         self.fe_mesh.GetElementsNodes(self.element_type),
@@ -100,7 +199,7 @@ class TransientThermalLoss(ThermalLoss):
                         nodal_current_temps,
                         nodal_next_temps,
                         self.material_settings["k0"])
-    
+
     def ComputeElementResidualAndJacobian(self,
                                           elem_xyz:jnp.array,
                                           elem_current_temps:jnp.array,
@@ -109,6 +208,36 @@ class TransientThermalLoss(ThermalLoss):
                                           elem_BC:jnp.array,
                                           elem_mask_BC:jnp.array,
                                           transpose_jac:bool):
+        """
+        Compute element residual and Jacobian with Dirichlet boundary conditions.
+
+        This method computes the element residual and Jacobian from
+        :meth:`ComputeElement`, optionally transposes the Jacobian, and applies
+        element-level Dirichlet boundary conditions using the provided boundary
+        condition vectors and masks.
+
+        Args:
+            elem_xyz (jax.numpy.ndarray):
+                Element nodal coordinates.
+            elem_current_temps (jax.numpy.ndarray):
+                Element nodal temperatures at the current time step.
+            elem_next_temps (jax.numpy.ndarray):
+                Element nodal temperatures at the next time step.
+            elem_heterogeneity (jax.numpy.ndarray):
+                Element nodal heterogeneity/conductivity field.
+            elem_BC (jax.numpy.ndarray):
+                Element Dirichlet boundary condition vector.
+            elem_mask_BC (jax.numpy.ndarray):
+                Element boundary condition mask.
+            transpose_jac (bool):
+                If ``True``, the element Jacobian is transposed before applying
+                boundary conditions.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, jax.numpy.ndarray]:
+                Element residual vector and Jacobian matrix after applying
+                Dirichlet boundary conditions.
+        """
         _,re,ke = self.ComputeElement(elem_xyz,elem_current_temps,elem_next_temps,elem_heterogeneity)
 
        # Convert transpose_jac (bool) to an integer index (0 = False, 1 = True)
@@ -133,6 +262,33 @@ class TransientThermalLoss(ThermalLoss):
                                                         full_dirichlet_BC_vec:jnp.array,
                                                         full_mask_dirichlet_BC_vec:jnp.array,
                                                         transpose_jac:bool):
+        """
+        VMAP-compatible wrapper to compute element residual and Jacobian by element id.
+
+        Args:
+            element_id (jax.numpy.ndarray):
+                Element index.
+            elements_nodes (jax.numpy.ndarray):
+                Element connectivity array.
+            xyz (jax.numpy.ndarray):
+                Nodal coordinate array.
+            nodal_current_temps (jax.numpy.ndarray):
+                Current-step nodal temperatures.
+            nodal_next_temps (jax.numpy.ndarray):
+                Next-step nodal temperatures.
+            full_dirichlet_BC_vec (jax.numpy.ndarray):
+                Global Dirichlet boundary condition vector.
+            full_mask_dirichlet_BC_vec (jax.numpy.ndarray):
+                Global boundary condition mask vector.
+            transpose_jac (bool):
+                If ``True``, the element Jacobian is transposed before applying
+                boundary conditions.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, jax.numpy.ndarray]:
+                Element residual vector and Jacobian matrix after applying
+                Dirichlet boundary conditions.
+        """
         return self.ComputeElementResidualAndJacobian(xyz[elements_nodes[element_id],:],
                                                       nodal_current_temps[elements_nodes[element_id]],
                                                       nodal_next_temps[elements_nodes[element_id]],
@@ -143,31 +299,101 @@ class TransientThermalLoss(ThermalLoss):
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       transpose_jac)
 class TransientThermalLoss3DTetra(TransientThermalLoss):
+    """
+    Transient thermal loss for 3D tetrahedral finite elements.
+
+    This class configures :class:`TransientThermalLoss` for three-dimensional
+    problems discretized with tetrahedral elements. The temperature field has a
+    single DOF per node (``T``), and the total energy is assembled by summing
+    element energy contributions defined in the base class.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and ``time_integration_dict``.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"tetra"},fe_mesh)
-        
+
 class TransientThermalLoss3DHexa(TransientThermalLoss):
+    """
+    Transient thermal loss for 3D hexahedral finite elements.
+
+    This class configures :class:`TransientThermalLoss` for three-dimensional
+    problems discretized with hexahedral elements. The temperature field has a
+    single DOF per node (``T``), and the total energy is assembled by summing
+    element energy contributions defined in the base class.
+
+    If the number of Gauss points is not specified in the loss settings, a
+    default value of ``num_gp = 2`` is used.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and ``time_integration_dict``.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"hexahedron"},fe_mesh)
 
 class TransientThermalLoss2DQuad(TransientThermalLoss):
+    """
+    Transient thermal loss for 2D quadrilateral finite elements.
+
+    This class configures :class:`TransientThermalLoss` for two-dimensional
+    problems discretized with quadrilateral elements. The temperature field has
+    a single DOF per node (``T``), and the total energy is assembled by summing
+    element energy contributions defined in the base class.
+
+    If the number of Gauss points is not specified in the loss settings, a
+    default value of ``num_gp = 2`` is used.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and ``time_integration_dict``.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"quad"},fe_mesh)
-        
+
 class TransientThermalLoss2DTri(TransientThermalLoss):
+    """
+    Transient thermal loss for 2D triangular finite elements.
+
+    This class configures :class:`TransientThermalLoss` for two-dimensional
+    problems discretized with triangular elements. The temperature field has a
+    single DOF per node (``T``), and the total energy is assembled by summing
+    element energy contributions defined in the base class.
+
+    Args:
+        name (str):
+            Name identifier for the loss instance.
+        loss_settings (dict):
+            Dictionary containing ``material_dict`` and ``time_integration_dict``.
+        fe_mesh (Mesh):
+            Finite element mesh associated with the loss.
+    """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T"],  
+                               "ordered_dofs": ["T"],
                                "element_type":"triangle"},fe_mesh)

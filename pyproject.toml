@@ -12,7 +12,7 @@ keywords = ["Numerical-Simulation-Optimization", "PDE-Solver", "Scientific Machi
 
 dependencies = [
     'flax==0.12.0',
-    'optax',   
+    'optax',
     'meshio',
     'gmsh',
     'matplotlib',
@@ -21,20 +21,36 @@ dependencies = [
     'scipy',
     'h5py',
     'zarr<3',
-    'dask',         
-    'pyvista'       
+    'dask',
+    'pyvista'
 ]
 [project.optional-dependencies]
 cpu = [
   'jax==0.8.0'
 ]
+
 cuda = [
   'jax[cuda12]==0.8.0'
 ]
+
 dev = [
   'pytest',
   'pytest-cov',
   'pytest-xdist'
+]
+
+docs = [
+    "sphinx==6.2.1",
+    "sphinx-book-theme",
+    "Pygments>=2.6.1",
+    "ipykernel",
+    "myst_nb",
+    "nbstripout",
+    "recommonmark",
+    "ipython_genutils",
+    "sphinx-design",
+    "jupytext==1.13.8",
+    "docutils"
 ]
 
 [build-system]

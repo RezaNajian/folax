@@ -10,80 +10,120 @@ from fol.loss_functions.fe_loss import FiniteElementLoss
 from fol.tools.decoration_functions import *
 
 class DirichletControl(Control):
-
     """
-    Implements a Dirichlet boundary condition control mechanism for Finite Element
-    simulations. This class identifies a set of Dirichlet DOFs (degrees of freedom)
-    specified by the user, maps them to global indices, and provides functionality to
-    update these controlled Dirichlet values based on a given vector of control
-    variables.
+    Dirichlet boundary-condition control for finite element problems.
 
-    Parameters
-    ----------
-    control_name : str
-        Name of the control object.
-    control_settings : dict
-        Dictionary defining control configuration. Must contain the key
-        "learning_boundary", which maps DOF names to the boundary names over which
-        they are controlled.
-    fe_mesh : Mesh
-        Finite element mesh object from which boundary node sets are extracted.
-    fe_loss : FiniteElementLoss
-        Loss function object providing Dirichlet DOF information and initial values.
+    This control maps a user-defined set of *learnable* Dirichlet boundary DOFs
+    to the global Dirichlet arrays owned by a :class:`fol.loss_functions.fe_loss.FiniteElementLoss`.
+    It provides a JAX-friendly mechanism to overwrite selected Dirichlet values
+    from a vector of control variables (e.g., during optimization or inverse problems).
 
-    Attributes
-    ----------
-    settings : dict
-        Configuration dictionary passed from the constructor.
-    fe_mesh : Mesh
-        Finite element mesh reference.
-    loss_function : FiniteElementLoss
-        Reference to the FE loss function.
-    dirichlet_values : jnp.ndarray
-        Initial Dirichlet values for all DOFs in the system.
-    dirichlet_indices : jnp.ndarray
-        Global indices of DOFs that are subject to Dirichlet boundary conditions.
-    learning_dirichlet_starts : jnp.ndarray
-        Starting offsets for each controlled variable’s segment in the flattened
-        `learning_dirichlet_indices` array.
-    learning_dirichlet_sizes : jnp.ndarray
-        Number of Dirichlet DOFs controlled by each control variable.
-    learning_dirichlet_indices : jnp.ndarray
-        Flattened list of all Dirichlet DOF indices that are controlled by the
-        current control settings.
-    num_control_vars : int
-        Number of control variables (e.g., DOFs × boundaries that are learnable).
-    num_controlled_vars : int
-        Total number of individual Dirichlet DOFs affected by the controller.
-    initialized : bool
-        Whether initialization has been performed.
+    The control settings define which DOF components (e.g., ``"Ux"``, ``"Uy"``, ``"T"``)
+    are controlled on which boundary node sets. During :meth:`Initialize`, the class:
+
+    1. Ensures the associated FE loss is initialized.
+    2. Reads the global Dirichlet indices and values from the FE loss.
+    3. Builds a flattened index map (into the FE loss Dirichlet arrays) for the
+       subset of Dirichlet DOFs that are controlled.
+    4. Stores segment offsets and sizes so the control vector can be broadcast
+       to the corresponding controlled DOFs efficiently.
+
+    Args:
+        control_name (str):
+            Name identifier for the control instance.
+        control_settings (dict):
+            Control configuration dictionary. Must contain the key
+            ``"learning_boundary"`` mapping DOF names to a list of boundary node-set
+            names. Example::
+
+                {
+                    "learning_boundary": {
+                        "Ux": ["left", "right"],
+                        "Uy": ["top"]
+                    }
+                }
+
+        fe_mesh (Mesh):
+            Finite element mesh used to resolve boundary node sets via
+            :meth:`fol.mesh_input_output.mesh.Mesh.GetNodeSet`.
+        fe_loss (FiniteElementLoss):
+            FE loss providing the global Dirichlet index/value arrays and the DOF
+            ordering used to compute DOF indices per node.
+
+    Attributes:
+        settings (dict):
+            Control configuration dictionary.
+        fe_mesh (Mesh):
+            Mesh reference used for boundary node set queries.
+        loss_function (FiniteElementLoss):
+            Associated FE loss object.
+        dirichlet_values (jax.numpy.ndarray):
+            Copy of the FE loss Dirichlet values array (one value per Dirichlet DOF).
+        dirichlet_indices (jax.numpy.ndarray):
+            Copy of the FE loss Dirichlet global DOF indices.
+        learning_dirichlet_indices (jax.numpy.ndarray):
+            Indices into ``dirichlet_indices`` / ``dirichlet_values`` for the subset
+            of Dirichlet DOFs that are controlled.
+        learning_dirichlet_starts (jax.numpy.ndarray):
+            Segment start offsets for each (dof, boundary) block appended into
+            ``learning_dirichlet_indices`` during initialization.
+        learning_dirichlet_sizes (jax.numpy.ndarray):
+            Segment sizes (number of controlled Dirichlet DOFs) for each (dof, boundary)
+            block appended into ``learning_dirichlet_indices``.
+        num_control_vars (int):
+            Number of DOF components listed in ``control_settings["learning_boundary"]``.
+        num_controlled_vars (int):
+            Total number of individual Dirichlet DOFs affected by this controller.
+        initialized (bool):
+            Whether :meth:`Initialize` has been executed.
+
+    Notes:
+        - The control vector passed to :meth:`ComputeControlledVariables` is expanded
+          by repeating each control entry according to ``learning_dirichlet_sizes``.
+          This implies the control vector is interpreted as one scalar per controlled
+          (dof, boundary) block, broadcast to all nodes in that block.
+        - This class does not modify the FE loss object directly. It returns an updated
+          Dirichlet value array that can be used by downstream code.
     """
-    
+
     def __init__(self,control_name: str,control_settings: dict, fe_mesh: Mesh,fe_loss:FiniteElementLoss):
         super().__init__(control_name)
         self.settings = control_settings
         self.fe_mesh = fe_mesh
         self.loss_function = fe_loss
-        
+
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
-
         """
-        Initializes the Dirichlet control structure by identifying all Dirichlet DOFs
-        that are designated as learnable according to `control_settings`. This method
-        constructs flattened index mappings that allow fast and JAX-friendly control
-        updates during optimization.
+        Initialize index mappings for learnable Dirichlet DOFs.
 
-        The method builds:
-        - `learning_dirichlet_starts` : segment start indices
-        - `learning_dirichlet_sizes`  : segment sizes
-        - `learning_dirichlet_indices`: flattened list of all controlled DOF indices
-        
+        This method constructs the internal flattened index structures that map
+        controlled Dirichlet DOFs to entries of the FE loss Dirichlet arrays.
+
+        It populates:
+        - ``learning_dirichlet_indices``: flattened indices into the FE loss Dirichlet list
+        - ``learning_dirichlet_starts``: start offsets per (dof, boundary) block
+        - ``learning_dirichlet_sizes``: sizes per (dof, boundary) block
+
+        Args:
+            reinitialize (bool, optional):
+                If ``True``, forces rebuilding the mappings even if already initialized.
+                Defaults to ``False``.
+
+        Returns:
+            None
+
+        Raises:
+            KeyError:
+                If ``"learning_boundary"`` is missing from ``control_settings``.
+            ValueError:
+                If a DOF name in ``"learning_boundary"`` is not present in
+                ``fe_loss.GetDOFs()``.
         """
 
         if self.initialized and not reinitialize:
             return
-        
+
         self.loss_function.Initialize()
 
         self.dirichlet_values = self.loss_function.dirichlet_values
@@ -111,9 +151,30 @@ class DirichletControl(Control):
 
     def ComputeControlledVariables(self,variable_vector:jnp.array):
         """
-        Computes the updated Dirichlet boundary values given a vector of control
-        variables. Each control variable applies to a specific segment of
-        Dirichlet DOFs defined during initialization.
+        Compute an updated Dirichlet value array from control variables.
+
+        The returned array has the same shape as ``dirichlet_values``. Only the
+        entries corresponding to ``learning_dirichlet_indices`` are overwritten.
+
+        Broadcasting rule:
+            Each entry in ``variable_vector`` is repeated according to
+            ``learning_dirichlet_sizes`` and assigned to the corresponding segment
+            in ``learning_dirichlet_indices``.
+
+        Args:
+            variable_vector (jax.numpy.ndarray):
+                Control variables to assign. Expected to be a 1D array whose length
+                matches the number of (dof, boundary) blocks created during
+                initialization (i.e., ``len(learning_dirichlet_sizes)``).
+
+        Returns:
+            jax.numpy.ndarray:
+                Updated Dirichlet values array with controlled entries overwritten.
+
+        Raises:
+            ValueError:
+                If ``Initialize`` has not been called, or if ``variable_vector`` has
+                an incompatible length for the configured segments.
         """
         dirichlet_values = jnp.copy(self.dirichlet_values)
         values_per_index = jnp.repeat(variable_vector, self.learning_dirichlet_sizes)
@@ -121,4 +182,14 @@ class DirichletControl(Control):
 
     @print_with_timestamp_and_execution_time
     def Finalize(self) -> None:
+        """
+        Finalize the control.
+
+        This method is provided for API consistency with the base
+        :class:`fol.controls.control.Control`. The default implementation performs
+        no action.
+
+        Returns:
+            None
+        """
         pass

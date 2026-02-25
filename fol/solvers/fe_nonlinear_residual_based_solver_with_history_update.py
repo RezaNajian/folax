@@ -11,66 +11,65 @@ from fol.tools.usefull_functions import *
 
 class FiniteElementNonLinearResidualBasedSolverWithStateUpdate(FiniteElementNonLinearResidualBasedSolver):
     """
-    Nonlinear finite element solver with incremental Newton–Raphson iterations
-    and Gauss-point state variable updates.
+    Nonlinear residual-based finite element solver with Gauss-point state updates.
 
-    This solver extends `FiniteElementNonLinearResidualBasedSolver` by performing
-    a coupled global–local update:
-    
-    • Global Newton–Raphson iterations solve for global DOFs.
-    • Local Gauss-point state variables (e.g., internal variables, history fields)
-      are updated each iteration and committed upon convergence.
-    • Load is applied incrementally according to `nonlinear_solver_settings["load_incr"]`.
-    • Convergence is checked using absolute residual tolerance, relative update 
-      tolerance, and maximum Newton iterations.
-    • Convergence history (residual norms, ΔDOF norms) is recorded for every load step.
-    • Returns either the final load step only or the full history over all steps.
+    This solver extends
+    :class:`~fol.solvers.fe_nonlinear_residual_based_solver.FiniteElementNonLinearResidualBasedSolver`
+    by coupling global Newton–Raphson iterations for the degrees of freedom
+    with local updates of Gauss-point (integration-point) state variables
+    such as internal or history-dependent quantities.
 
-    This class is suitable for nonlinear problems requiring history-dependent 
-    state updates (e.g., elastoplasticity, damage, viscoelasticity, etc.).
+    The solution procedure is performed using incremental load steps defined
+    by ``nonlinear_solver_settings["load_incr"]``. For each load step, the
+    solver applies boundary conditions, performs Newton iterations, updates
+    local state variables, and records convergence information.
 
+    This class is intended for nonlinear, history-dependent problems such as
+    elastoplasticity, damage, or viscoelasticity, where consistent updates of
+    integration-point state variables are required.
     """
     @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars:jnp.array,current_dofs:jnp.array,current_state:jnp.array=None,return_all_steps:bool=False):
         """
-        Solve the nonlinear finite element system using an incremental,
-        residual-based Newton–Raphson procedure with internal state updates.
+        Solve the nonlinear finite element system using incremental loading.
 
-        The algorithm applies load in increments, performs Newton iterations
-        for each load step, updates Gauss-point state variables, and records
-        convergence metrics.
+        The solver advances the solution through a sequence of load steps.
+        Within each load step, Newton–Raphson iterations are performed to
+        enforce global equilibrium. At every Newton iteration, the Jacobian
+        matrix, residual vector, and updated Gauss-point state variables are
+        assembled by the loss function.
 
-        Parameters
-        ----------
-        current_control_vars : jax.numpy.ndarray
-            Array of control variables (e.g., material parameters like heterogeneity).
-        
-        current_dofs : jax.numpy.ndarray
-            Initial solution vector (or DOF vector). Shape: (n_dofs,).
+        Convergence is declared when at least one of the following conditions
+        is satisfied: the residual norm falls below the absolute tolerance,
+        the update norm falls below the relative tolerance, or the maximum
+        number of Newton iterations is reached.
 
-        current_state : jax.numpy.ndarray, optional
-            Initial Gauss-point state variables of shape:
-                (n_elements, n_gauss_points, n_state_vars)
-            If None, a zero state field is initialized.
+        Args:
+            current_control_vars (jax.numpy.ndarray):
+                Control variables used to assemble the system (e.g., material
+                parameters).
+            current_dofs (jax.numpy.ndarray):
+                Initial degrees of freedom representing the current global
+                state.
+            current_state (jax.numpy.ndarray, optional):
+                Initial Gauss-point state variables. If not provided, a zero
+                state field is initialized based on the element type and
+                integration scheme.
+            return_all_steps (bool, optional):
+                If ``False`` (default), only the final load step solution and
+                state are returned. If ``True``, the solution and state for
+                all load steps are returned.
 
-        return_all_steps : bool, optional (default=False)
-            Controls what is returned:
-            • If False : returns only the final load step DOFs and state.
-            • If True  : returns a stacked array of solutions and states for
-                         every load step.
+        Returns:
+            Tuple[jax.numpy.ndarray, jax.numpy.ndarray, dict]:
+                The updated degrees of freedom, the corresponding Gauss-point
+                state variables, and a dictionary containing convergence
+                history for each load step.
 
-        Notes
-        -----
-        • Convergence is detected when:
-              - residual norm < abs_tol
-              - update norm   < rel_tol
-              - iteration count reaches maxiter
-        • Severe mesh distortion or invalid material response may result in
-          a NaN residual; the solver detects this and raises an informative
-          error.
-        • Uses `LinearSolve()` to solve the Newton system.
-        • Dirichlet boundary conditions are applied incrementally per load step.
-
+        Raises:
+            ValueError:
+                If the residual norm becomes NaN during the Newton iterations,
+                indicating a breakdown of the nonlinear solve.
         """
         current_dofs = jnp.asarray(current_dofs)
         current_control_vars = jnp.asarray(current_control_vars)
@@ -96,7 +95,7 @@ class FiniteElementNonLinearResidualBasedSolverWithStateUpdate(FiniteElementNonL
             for i in range(1,self.nonlinear_solver_settings["maxiter"]+1):
                 new_state,BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
                                                                     current_control_vars,current_dofs,old_state_gps=current_state)
-                
+
                 # check residuals norm
                 res_norm = jnp.linalg.norm(BC_applied_r,ord=2)
                 if jnp.isnan(res_norm):
@@ -114,7 +113,7 @@ class FiniteElementNonLinearResidualBasedSolverWithStateUpdate(FiniteElementNonL
                     )
                     raise ValueError("Residual norm contains NaN values.")
 
-                # linear solve and calculate nomrs 
+                # linear solve and calculate nomrs
                 delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,current_dofs)
                 delta_norm = jnp.linalg.norm(delta_dofs,ord=2)
 
@@ -137,10 +136,10 @@ class FiniteElementNonLinearResidualBasedSolverWithStateUpdate(FiniteElementNonL
 
                 solution_history_dict[load_step]["res_norm"].append(res_norm)
                 solution_history_dict[load_step]["delta_dofs_norm"].append(delta_norm)
-                
+
                 if newton_converged:
                     break
-                
+
                 # if not converged update
                 current_dofs = current_dofs.at[:].add(delta_dofs)
                 current_state = new_state
@@ -157,7 +156,7 @@ class FiniteElementNonLinearResidualBasedSolverWithStateUpdate(FiniteElementNonL
                 # Always only return the last step
                 load_steps_solutions = jnp.copy(current_dofs)
                 load_steps_states = jnp.copy(current_state)
-            
+
             self.PlotHistoryDict(solution_history_dict)
 
         return load_steps_solutions, load_steps_states, solution_history_dict

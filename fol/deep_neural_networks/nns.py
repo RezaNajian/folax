@@ -18,18 +18,38 @@ def layer_init_factopry(key:Array,
                         in_dim:int,
                         out_dim:int,
                         activation_settings:dict):
-    
+
     """
-    Initializes weights and biases for a layer based on activation settings.
+    Initialize a layer weight matrix and bias vector.
+
+    This helper selects an initialization scheme based on the requested
+    activation type. For sinusoidal activations it delegates to :func:`siren_init`.
+    For other activations it chooses a standard initializer commonly used for
+    stable training.
 
     Args:
-        key (Array): PRNG key for random initialization.
-        in_dim (int): Number of input features.
-        out_dim (int): Number of output features.
-        activation_settings (dict): Dictionary containing activation configuration, including type.
+        key (Array):
+            PRNG key used to sample random initial parameters.
+        in_dim (int):
+            Input feature dimension of the layer.
+        out_dim (int):
+            Output feature dimension of the layer.
+        activation_settings (dict):
+            Activation configuration dictionary. Must include the key ``"type"``.
+            For ``"type" == "sin"``, the settings must also include the SIREN
+            parameters required by :func:`siren_init`.
 
     Returns:
-        Tuple[Array, Array]: Initialized weights and biases.
+        Tuple[Array, Array]:
+            A tuple ``(weights, biases)`` where ``weights`` has shape
+            ``(in_dim, out_dim)`` and ``biases`` has shape ``(out_dim,)``.
+
+    Raises:
+        KeyError:
+            If ``"type"`` is missing from ``activation_settings`` or if required
+            SIREN keys are missing when ``type == "sin"``.
+        ValueError:
+            If ``in_dim`` or ``out_dim`` is not positive.
     """
 
     if activation_settings["type"]=="sin":
@@ -47,29 +67,42 @@ def layer_init_factopry(key:Array,
 
 def siren_init(key:Array,in_dim:int,out_dim:int,activation_settings:dict):
     """
-    Custom initialization method for SIREN layers.
+    Initialize weights and biases for a SIREN (sinusoidal) layer.
 
-    This initialization method is designed to support sinusoidal representation networks (SIRENs), 
-    which use periodic activation functions. The approach is inspired by the following papers:
+    This initializer is designed for sinusoidal representation networks and
+    chooses a uniform distribution bound that depends on the layer index and the
+    SIREN frequency parameter (omega). The behavior matches common SIREN
+    initialization practice and supports gain scaling strategies.
 
-    - Sitzmann, V., Martel, J., Bergman, A., Lindell, D., & Wetzstein, G. (2020). 
-      Implicit neural representations with periodic activation functions. 
-      Advances in Neural Information Processing Systems, 33, 7462-7473.
-    - Yeom, T., Lee, S., & Lee, J. (2024). Fast Training of Sinusoidal Neural Fields 
-      via Scaling Initialization. arXiv preprint arXiv:2410.04779.
+    References:
+        Sitzmann et al. (2020), "Implicit neural representations with periodic
+        activation functions", NeurIPS.
+        Yeom et al. (2024), "Fast Training of Sinusoidal Neural Fields via
+        Scaling Initialization", arXiv:2410.04779.
 
     Args:
-        key (Array): PRNG key for random initialization.
-        in_dim (int): Number of input features.
-        out_dim (int): Number of output features.
-        activation_settings (dict): Dictionary containing SIREN-specific initialization parameters:
-            - "current_layer_idx": Index of the current layer.
-            - "total_num_layers": Total number of layers.
-            - "initialization_gain": Weight scale for initialization.
-            - "prediction_gain": Omega factor for SIREN layers.
+        key (Array):
+            PRNG key used to sample random initial parameters.
+        in_dim (int):
+            Input feature dimension of the layer.
+        out_dim (int):
+            Output feature dimension of the layer.
+        activation_settings (dict):
+            Dictionary containing SIREN initialization parameters. Required keys
+            are ``"current_layer_idx"``, ``"total_num_layers"``,
+            ``"initialization_gain"``, and ``"prediction_gain"``.
 
     Returns:
-        Tuple[Array, Array]: Initialized weights and biases.
+        Tuple[Array, Array]:
+            A tuple ``(weights, biases)`` where ``weights`` has shape
+            ``(in_dim, out_dim)`` and ``biases`` has shape ``(out_dim,)``.
+
+    Raises:
+        KeyError:
+            If any required key is missing from ``activation_settings``.
+        ValueError:
+            If ``in_dim`` or ``out_dim`` is not positive, or if
+            ``total_num_layers`` is inconsistent with ``current_layer_idx``.
     """
 
     weight_key, bias_key = random.split(key)
@@ -81,98 +114,79 @@ def siren_init(key:Array,in_dim:int,out_dim:int,activation_settings:dict):
     if current_layer_idx == 0: weight_variance = weight_scale / in_dim
     elif current_layer_idx == total_num_layers-2: weight_variance = jnp.sqrt(6 / in_dim) / omega
     else: weight_variance = weight_scale * jnp.sqrt(6 / in_dim) / omega
-    
+
     init_weights = random.uniform(weight_key, (in_dim, out_dim), jnp.float32, minval=-weight_variance, maxval=weight_variance)
     init_biases = jnp.zeros(out_dim)
     return init_weights,init_biases
 
 class MLP(nnx.Module):
     """
-    A flexible multi-layer perceptron (MLP) supporting customizable activation functions, 
-    skip connections, Fourier feature mappings, and initialization strategies.
+    General-purpose multi-layer perceptron (MLP) building block.
 
-    This module allows you to configure both the architectural and functional aspects of the 
-    neural network, including input/output dimensions, hidden layer sizes, activation function 
-    properties, and frequency-based feature embeddings (Fourier features) to improve the 
-    network's ability to represent high-frequency variations.
+    This module can be used to construct a wide range of MLP-based architectures,
+    including neural fields, DeepONets, and standard feed-forward networks. It
+    supports a variety of activation functions such as ``"relu"``, ``"leaky_relu"``,
+    ``"elu"``, and ``"tanh"``, with a sinusoidal activation (SIREN-style ``"sin"``)
+    as the default option. The sinusoidal activation is particularly suited for
+    neural fields and implicit representations that must capture high-frequency
+    behavior.
+
+    In addition to standard dense layers, the MLP can:
+
+    1. Use optional skip connections with a configurable frequency to improve
+       gradient flow and expressivity.
+    2. Apply Fourier feature mappings at the input layer, optionally with
+        learnable Fourier frequencies, to better represent high-frequency
+        signals in coordinate-based models.
+
+    These capabilities make the class suitable as a reusable backbone for
+    conditional neural fields, operator-learning networks such as DeepONets,
+    and other coordinate-based models.
 
     Args:
-        name (str): Name of the MLP instance.
-        input_size (int): Number of input features.
-        output_size (int): Number of output features.
-        hidden_layers (list): List of integers specifying the number of units in each hidden layer.
-        activation_settings (dict, optional): Configuration for activation functions. Defaults to:
-            - "type": Activation type (e.g., "sin", "relu", etc.).
-            - "prediction_gain": Gain for scaling activations (default 30 for "sin").
-            - "initialization_gain": Gain for weight initialization (default 1).
-        use_bias (bool, optional): Whether to include biases in the layers. Defaults to True.
-        skip_connections_settings (dict, optional): Configuration for skip connections. Defaults to:
-            - "active": Whether to enable skip connections.
-            - "frequency": Frequency of skip connections (in layers).
-        fourier_feature_settings (dict, optional): Configuration for Fourier feature mapping. Defaults to:
-            - "active": Whether to enable Fourier feature transformation. Defaults to `False`.
-            - "type": Type of Fourier mapping (currently only `"Gaussian"` is implemented).
-            - "size": Number of Fourier feature dimensions (default equals `input_size`).
-            - "frequency_scale": Scaling factor for frequency sampling. Defaults to `1.0`.
-            - "learn_frequency": Whether to learn Fourier frequencies during training. Defaults to `False`.
+        name (str):
+            Name identifier for the network instance.
+        input_size (int, optional):
+            Number of input features. Default is ``0``.
+        output_size (int, optional):
+            Number of output features. If ``0``, the network can be configured as
+            a feature extractor without a final output layer. Default is ``0``.
+        hidden_layers (list, optional):
+            Hidden layer widths. Default is ``[]``.
+        activation_settings (dict, optional):
+            Activation configuration dictionary. Common keys include ``"type"``,
+            ``"prediction_gain"``, and ``"initialization_gain"``. Missing entries
+            are filled using internal defaults. Default is ``{}``.
+        use_bias (bool, optional):
+            If ``True``, create trainable biases. If ``False``, biases are fixed
+            zeros. Default is ``True``.
+        skip_connections_settings (dict, optional):
+            Skip connection configuration dictionary. Expected keys are
+            ``"active"`` and ``"frequency"``. Missing entries are filled using
+            internal defaults. Default is ``{}``.
+        fourier_feature_settings (dict, optional):
+            Fourier feature mapping configuration dictionary. Expected keys are
+            ``"active"``, ``"type"``, ``"size"``, ``"frequency_scale"``, and
+            ``"learn_frequency"``. Missing entries are filled using internal
+            defaults. Default is ``{}``.
 
-    Attributes:
-        name (str): Name of the MLP instance.
-        in_features (int): Number of input features.
-        out_features (int): Number of output features.
-        hidden_layers (list): Configuration of hidden layers.
-        activation_settings (dict): Activation function settings.
-        use_bias (bool): Whether biases are used in the layers.
-        skip_connections_settings (dict): Skip connection configuration.
-        fourier_feature_settings (dict): Fourier feature mapping configuration.
-        nn_params (list): List of network parameters (weights and biases).
-        act_func (Callable): Activation function used in the MLP.
-        act_func_gain (float): Gain applied to activation function outputs.
-        fw_func (Callable): Forward pass function (with or without skip connections).
-        total_num_weights (int): Total number of weights in the network.
-        total_num_biases (int): Total number of biases in the network.
-
-    Notes:
-        - When `fourier_feature_settings["active"]` is `True`, the input is first transformed 
-          via a Fourier mapping before being passed to the MLP. This enhances the model’s ability 
-          to capture high-frequency signals, often used in implicit neural representations (INRs) 
-          and coordinate-based networks.
-        - Skip connections and Fourier features can be used together for better gradient flow 
-          and representational capacity.
-
+    Raises:
+        KeyError:
+            If required activation configuration keys are missing after defaults
+            are applied.
+        ValueError:
+            If any provided dimension (input, output, hidden) is negative or if
+            Fourier feature settings are inconsistent.
     """
     @print_with_timestamp_and_execution_time
-    def __init__(self,name:str,  
+    def __init__(self,name:str,
                       input_size:int=0,
-                      output_size: int=0, 
+                      output_size: int=0,
                       hidden_layers:list=[],
                       activation_settings:dict={},
                       use_bias:bool=True,
                       skip_connections_settings:dict={},
                       fourier_feature_settings:dict={}):
-        """
-        Initializes the MLP with specified parameters and configurations.
-
-        Args:
-            name (str): Name of the MLP instance.
-            input_size (int): Number of input features.
-            output_size (int): Number of output features.
-            hidden_layers (list): List of integers specifying the number of units in each hidden layer.
-            activation_settings (dict, optional): Configuration for activation functions. Defaults to:
-                - "type": Type of activation (e.g., `"sin"`, `"relu"`, etc.).
-                - "prediction_gain": Scaling factor for activations (default `30` for `"sin"`).
-                - "initialization_gain": Gain used during weight initialization (default `1`).
-            use_bias (bool, optional): Whether to include biases in the layers. Defaults to `True`.
-            skip_connections_settings (dict, optional): Configuration for skip connections. Defaults to:
-                - "active": Whether to enable skip connections. Defaults to `False`.
-                - "frequency": Frequency of skip connections (applied every N layers). Defaults to `1`.
-            fourier_feature_settings (dict, optional): Configuration for Fourier feature mapping. Defaults to:
-                - "active": Whether to enable Fourier feature transformation. Defaults to `False`.
-                - "type": Type of Fourier mapping (currently only `"Gaussian"` is implemented).
-                - "size": Number of Fourier feature dimensions (default equals `input_size`).
-                - "frequency_scale": Scaling factor for frequency sampling. Defaults to `1.0`.
-                - "learn_frequency": Whether to learn Fourier frequencies during training. Defaults to `False`.
-        """
         self.name = name
         self.in_features=input_size
         self.out_features=output_size
@@ -187,18 +201,18 @@ class MLP(nnx.Module):
                                     "initialization_gain":1}
         self.activation_settings = UpdateDefaultDict(default_activation_settings,
                                                      self.activation_settings)
-        
+
         default_skip_connections_settings = {"active":False,"frequency":1}
         self.skip_connections_settings = UpdateDefaultDict(default_skip_connections_settings,
-                                                            self.skip_connections_settings) 
-        
+                                                            self.skip_connections_settings)
+
         default_fourier_feature_settings = {"active":False,
                                             "type":"Gaussian",
                                             "size":int(self.in_features),
                                             "frequency_scale":1.0,
                                             "learn_frequency":False}
         self.fourier_feature_settings = UpdateDefaultDict(default_fourier_feature_settings,
-                                                            self.fourier_feature_settings)         
+                                                            self.fourier_feature_settings)
 
         self.InitialNetworkParameters()
 
@@ -212,8 +226,8 @@ class MLP(nnx.Module):
         if act_name=="sin":
             self.act_func_gain = self.activation_settings["prediction_gain"]
         else:
-            self.act_func_gain = 1 
-        
+            self.act_func_gain = 1
+
         if self.skip_connections_settings["active"]:
             self.fw_func = self.ForwardSkip
         else:
@@ -221,8 +235,30 @@ class MLP(nnx.Module):
 
     def InitialNetworkParameters(self):
         """
-        Initializes the weights and biases of the MLP based on layer sizes and 
-        activation settings, with support for skip connections.
+        Initialize network parameters and optional Fourier feature mapping.
+
+        This method constructs the layer size list, initializes each layer weight
+        matrix and bias vector using :func:`layer_init_factopry`, and stores the
+        parameters in ``self.nn_params``. When Fourier features are enabled, it also
+        creates the frequency matrix ``B`` and defines ``self.input_mapping`` to map
+        the input coordinates to sinusoidal features.
+
+        The initialization accounts for skip connections by increasing the input
+        dimension of layers that receive concatenated inputs.
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        Raises:
+            KeyError:
+                If required entries are missing from ``activation_settings`` or
+                ``fourier_feature_settings``.
+            ValueError:
+                If hidden layer sizes are invalid or if Fourier feature dimensions
+                are inconsistent with ``input_size``.
         """
         layer_sizes = [2*self.fourier_feature_settings["size"] if self.fourier_feature_settings["active"] else self.in_features] + self.hidden_layers
 
@@ -245,7 +281,7 @@ class MLP(nnx.Module):
                 init_weights,init_biases = layer_init_factopry(keys[i],in_dim+self.in_features,out_dim,activation_settings)
             else:
                 init_weights,init_biases = layer_init_factopry(keys[i],in_dim,out_dim,activation_settings)
-            
+
             self.total_num_weights += init_weights.size
             if self.use_bias:
                 self.nn_params.append((nnx.Param(init_weights),nnx.Param(init_biases)))
@@ -267,83 +303,142 @@ class MLP(nnx.Module):
 
     def GetName(self):
         """
-        Retrieves the name of the MLP instance.
+        Return the name identifier of this MLP instance.
+
+        Args:
+            None
 
         Returns:
-            str: Name of the MLP instance.
+            str:
+                Name of the network instance.
+
+        Raises:
+            None
         """
         return self.name
-    
+
     def CountTrainableParams(self):
         """
-        Compute the total number of trainable parameters in this NNX module.
+        Count trainable parameters registered as ``nnx.Param`` in this module.
 
-        This method collects all parameters marked as `nnx.Param` within the module's
-        state and sums their element counts to produce the total number of
-        trainable parameters.
+        This method extracts the module parameter state and sums the number of
+        scalar entries across all leaves to compute the total number of trainable
+        parameters.
+
+        Args:
+            None
 
         Returns:
-            int: Total count of trainable parameters.
+            int:
+                Total number of trainable scalar parameters.
+
+        Raises:
+            None
         """
         params = nnx.state(self, nnx.Param)
-        return  sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))  
+        return  sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
 
     def ComputeX(self,w:nnx.Param,prev_x:jax.Array,b:nnx.Param):
         """
-        Computes the output of a layer without skip connections.
+        Compute an affine layer output without skip connections.
 
         Args:
-            w (nnx.Param): Weight matrix.
-            prev_x (jax.Array): Input to the layer.
-            b (nnx.Param): Bias vector.
+            w (nnx.Param):
+                Weight matrix for the current layer.
+            prev_x (jax.Array):
+                Input activations to the current layer.
+            b (nnx.Param):
+                Bias vector for the current layer.
 
         Returns:
-            jax.Array: Output of the layer.
+            jax.Array:
+                Layer pre-activation output computed as ``prev_x @ w + b``.
+
+        Raises:
+            ValueError:
+                If the input dimensions are incompatible for matrix multiplication.
         """
         return prev_x @ w + b
-    
+
     def Forward(self,x: jax.Array,nn_params:list[tuple[nnx.Param, nnx.Param]]):
         """
-        Performs a forward pass through the MLP without skip connections.
+        Forward pass through the MLP without skip connections.
+
+        For each hidden layer, this method applies an affine transform followed by
+        the configured activation function (and gain if applicable). The final layer
+        is applied as a linear transform without an activation.
 
         Args:
-            x (jax.Array): Input to the network.
-            nn_params (list[tuple[nnx.Param, nnx.Param]]): List of layer parameters (weights and biases).
+            x (jax.Array):
+                Input array to the network.
+            nn_params (list[tuple[nnx.Param, nnx.Param]]):
+                Sequence of ``(weights, biases)`` for each layer.
 
         Returns:
-            jax.Array: Output of the network.
+            jax.Array:
+                Network output after applying all layers.
+
+        Raises:
+            ValueError:
+                If parameter shapes do not match the input activation shapes.
         """
         for (w, b) in nn_params[:-1]:
             x = self.ComputeX(w,x,b)
             x = self.act_func(self.act_func_gain*x)
         final_w, final_b = nn_params[-1]
         return self.ComputeX(final_w,x,final_b)
-    
+
     def ComputeXSkip(self,w:nnx.Param,prev_x:jax.Array,in_x:jax.Array,b:nnx.Param):
         """
-        Computes the output of a layer with skip connections.
+        Compute an affine layer output with a skip connection.
+
+        This method concatenates the current activation ``prev_x`` with the original
+        network input ``in_x`` along the feature axis and applies an affine transform.
 
         Args:
-            w (nnx.Param): Weight matrix.
-            prev_x (jax.Array): Input to the current layer.
-            in_x (jax.Array): Original input to the network for skip connection.
-            b (nnx.Param): Bias vector.
+            w (nnx.Param):
+                Weight matrix for the current layer.
+            prev_x (jax.Array):
+                Current layer activations.
+            in_x (jax.Array):
+                Original input to the network that is injected via a skip path.
+            b (nnx.Param):
+                Bias vector for the current layer.
 
         Returns:
-            jax.Array: Output of the layer.
+            jax.Array:
+                Layer pre-activation output computed from the concatenated input.
+
+        Raises:
+            ValueError:
+                If concatenation or matrix multiplication dimensions are incompatible.
         """
         return jnp.hstack((prev_x,in_x.copy())) @ w + b
-    
+
     def ForwardSkip(self,x:jax.Array,nn_params:list[tuple[nnx.Param, nnx.Param]]):
         """
-        Performs a forward pass through the MLP with skip connections.
+        Forward pass through the MLP with periodic skip connections.
+
+        Skip connections are applied by concatenating the original input to the
+        network with the current activation every ``skip_connections_settings["frequency"]``
+        layers (after the first layer). Hidden layers apply the configured activation,
+        while the last layer remains linear.
 
         Args:
-            x (jax.Array): Input to the network.
-            nn_params (list[tuple[nnx.Param, nnx.Param]]): List of layer parameters (weights and biases).
+            x (jax.Array):
+                Input array to the network (before Fourier mapping if enabled).
+            nn_params (list[tuple[nnx.Param, nnx.Param]]):
+                Sequence of ``(weights, biases)`` for each layer.
 
         Returns:
-            jax.Array: Output of the network.
+            jax.Array:
+                Network output after applying all layers with skip connections.
+
+        Raises:
+            KeyError:
+                If ``"frequency"`` is missing from ``skip_connections_settings``.
+            ValueError:
+                If parameter shapes do not match the concatenated activation shapes.
         """
         in_x = x.copy()
         layer_num = 0
@@ -364,54 +459,60 @@ class MLP(nnx.Module):
 
     def __call__(self, x: jax.Array):
         """
-        Executes a forward pass through the MLP using the configured forward method.
+        Evaluate the MLP on an input array.
+
+        This method first applies the configured input mapping. If Fourier features
+        are enabled, the input is mapped to sinusoidal features; otherwise it is
+        passed through unchanged. The mapped input is then propagated using the
+        selected forward function (with or without skip connections).
 
         Args:
-            x (jax.Array): Input to the network.
+            x (jax.Array):
+                Input array to evaluate.
 
         Returns:
-            jax.Array: Output of the network.
+            jax.Array:
+                Network output.
+
+        Raises:
+            ValueError:
+                If the input mapping or forward pass encounters incompatible shapes.
         """
         return self.fw_func(self.input_mapping(x),self.nn_params)
 
 class HyperNetwork(nnx.Module):
     """
-    A configurable hypernetwork that integrates a modulator network and a synthesizer 
-    network with support for various coupling mechanisms. 
+    Hypernetwork that modulates a synthesizer MLP using a modulator MLP.
 
-    The hypernetwork enables dynamic parameter generation and modulation for the synthesizer 
-    network based on the output of the modulator network. It is designed for tasks requiring 
-    flexible and adaptive parameter sharing between neural networks.
+    The hypernetwork couples a modulator network to a synthesizer network and
+    applies modulation during the synthesizer forward pass. In this
+    implementation, the supported coupled variable is a bias-like shift that is
+    added to synthesizer layer activations.
 
-    Attributes:
-        name (str): Name of the hypernetwork module.
-        modulator_nn (MLP): The modulator neural network responsible for generating parameters 
-            that influence the synthesizer network.
-        synthesizer_nn (MLP): The synthesizer neural network responsible for task-specific 
-            computations.
-        in_features (int): Number of input features for the modulator network.
-        out_features (int): Number of output features for the synthesizer network.
-        coupling_settings (dict): A dictionary specifying the coupling mechanism configuration. 
-            Includes:
-            - "coupled_variable": Specifies the variable to couple (default is "shift").
-            - "modulator_to_synthesizer_coupling_mode": Defines the coupling mode between 
-              modulator and synthesizer networks. Options: "all_to_all", "last_to_all", 
-              "one_modulator_per_synthesizer_layer".
-        total_num_weights (int): Total number of weights in the combined hypernetwork.
-        total_num_biases (int): Total number of biases in the combined hypernetwork.
-        fw_func (function): The forward propagation function, determined by the selected 
-            coupling mode.
+    Coupling modes supported by ``coupling_settings["modulator_to_synthesizer_coupling_mode"]`` are:
 
-    Coupling Modes:
-        - "all_to_all": Every layer of the modulator network is coupled to every layer of the 
-          synthesizer network. Requires identical hidden layer configurations in both networks.
-        - "last_to_all": The last layer of the modulator network is coupled to all layers of 
-          the synthesizer network.
-        - "one_modulator_per_synthesizer_layer": Each layer of the synthesizer network is 
-          modulated by a dedicated modulator network.
+    1. ``"all_to_all"``: layer-wise coupling between modulator and synthesizer.
+    2. ``"last_to_all"``: modulator final output is injected into every synthesizer layer.
+    3. ``"one_modulator_per_synthesizer_layer"``: a separate modulator is created per synthesizer layer.
+
+    Args:
+        name (str):
+            Name identifier for the hypernetwork instance.
+        modulator_nn (MLP):
+            Modulator network producing conditioning signals.
+        synthesizer_nn (MLP):
+            Synthesizer network producing task outputs.
+        coupling_settings (dict, optional):
+            Coupling configuration dictionary. Common keys are
+            ``"coupled_variable"`` and ``"modulator_to_synthesizer_coupling_mode"``.
+            Default is ``{}``.
 
     Raises:
-        ValueError: If invalid or unsupported coupling settings are provided.
+        KeyError:
+            If required entries are missing from ``coupling_settings``.
+        ValueError:
+            If an unsupported coupling mode is requested or if network shapes
+            are inconsistent with the chosen coupling mode.
     """
     @print_with_timestamp_and_execution_time
     def __init__(self,name:str,
@@ -424,9 +525,9 @@ class HyperNetwork(nnx.Module):
 
         self.in_features = self.modulator_nn.in_features
         self.out_features = self.synthesizer_nn.out_features
-        
+
         self.coupling_settings = {"coupled_variable":"shift",
-                                  "modulator_to_synthesizer_coupling_mode":"all_to_all"} # other coupling options: last_to_all,last_to_last                  
+                                  "modulator_to_synthesizer_coupling_mode":"all_to_all"} # other coupling options: last_to_all,last_to_last
 
         self.coupling_settings = UpdateDefaultDict(self.coupling_settings,coupling_settings)
 
@@ -450,7 +551,7 @@ class HyperNetwork(nnx.Module):
             self.modulator_nn.out_features = synthesizer_modulated_biases
             fol_info(f" the out_features of modulator network is changed from {modulator_original_out_features} to \
                         the total number of the modulated biases of the synthesizer network {synthesizer_modulated_biases}")
-            
+
             self.modulator_nn.InitialNetworkParameters()
             fol_info(f"the modulator network is re-initialized by {self.modulator_nn.total_num_weights} weights and {self.modulator_nn.total_num_biases} biases !")
             self.fw_func = self.last_to_all_fw
@@ -489,76 +590,85 @@ class HyperNetwork(nnx.Module):
 
     def GetName(self):
         """
-        Retrieves the name of the hypernetwork module.
+        Return the name identifier of this hypernetwork instance.
+
+        Args:
+            None
 
         Returns:
-            str: The name of the hypernetwork module.
+            str:
+                Name of the hypernetwork instance.
+
+        Raises:
+            None
         """
         return self.name
-    
+
     def CountTrainableParams(self):
         """
-        Compute the total number of trainable parameters in this NNX module.
+        Count trainable parameters registered as ``nnx.Param`` in this module.
 
-        This method collects all parameters marked as `nnx.Param` within the module's
-        state and sums their element counts to produce the total number of
-        trainable parameters.
+        Args:
+            None
 
         Returns:
-            int: Total count of trainable parameters.
+            int:
+                Total number of trainable scalar parameters.
+
+        Raises:
+            None
         """
         params = nnx.state(self, nnx.Param)
-        return  sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))      
+        return  sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
 
     def all_to_all_fw(self,latent_array:jax.Array,coord_matrix:jax.Array,
                             modulator_nn:MLP,synthesizer_nn:MLP):
         """
-        Implements the "all-to-all" forward propagation coupling mechanism.
+        Forward pass for the ``"all_to_all"`` coupling mode.
 
-        In this coupling mode, each layer of the modulator network is coupled with 
-        the corresponding layer of the synthesizer network. This mode requires that 
-        the modulator and synthesizer networks have identical architectures, including 
-        the same number and sizes of hidden layers.
+        In this mode, the modulator and synthesizer networks are assumed to have
+        identical layer structures. At each layer, the modulator activation is
+        added to the synthesizer activation (shift coupling), and both networks
+        apply their respective activation functions.
 
-        The forward pass integrates the modulator's influence into the synthesizer network 
-        by adding the modulator's output to the synthesizer's values at each layer, 
-        followed by the application of activation functions.
+        The computation proceeds as follows.
+
+        Step 1:
+            Reshape ``latent_array`` to a row-vector input for the modulator
+            network and initialize synthesizer activations using
+            ``coord_matrix``.
+
+        Step 2:
+            For each coupled layer, compute the modulator pre-activation (with
+            optional skip connections), compute the synthesizer pre-activation
+            (with optional skip connections), add the modulator output to the
+            synthesizer activations, and apply the activation functions for
+            both networks.
+
+        Step 3:
+            Apply the final synthesizer linear layer to the last synthesizer
+            activations and return the resulting output.
 
         Args:
-            latent_array (jax.Array): The input to the modulator network, provided as a flat 
-                array that is reshaped internally for processing.
-            coord_matrix (jax.Array): The input to the synthesizer network, typically 
-                representing task-specific coordinates or features.
-            modulator_nn (MLP): The modulator neural network, which generates modulating 
-                parameters for the synthesizer network.
-            synthesizer_nn (MLP): The synthesizer neural network, which computes the primary 
-                task-specific outputs.
+            latent_array (jax.Array):
+                Conditioning input for the modulator network.
+            coord_matrix (jax.Array):
+                Coordinate or feature input for the synthesizer network.
+            modulator_nn (MLP):
+                Modulator network providing per-layer conditioning.
+            synthesizer_nn (MLP):
+                Synthesizer network producing the final output.
 
         Returns:
-            jax.Array: The output of the synthesizer network after applying the "all-to-all" 
-            coupling mechanism, integrating the influence of the modulator network.
-
-        Process:
-            1. Reshape `latent_array` to prepare it as input to the modulator network.
-            2. Perform layer-by-layer computations:
-            - Compute layer for the modulator network.
-            - Compute layer for the synthesizer network.
-            - Add the modulator's output to the synthesizer's layer values.
-            - Apply activation functions to both modulator and synthesizer outputs.
-            3. At the final layer, compute only the synthesizer's output using the 
-            modulated activations.
-
-        Notes:
-            - Skip connections are supported in both networks if configured. They are 
-            applied periodically based on the specified frequency in the network's 
-            settings.
-            - Activation functions are applied layer-wise with scaling gains, as specified 
-            in the respective networks.
+            jax.Array:
+                Output of the synthesizer network after applying all-to-all
+                coupling.
 
         Raises:
-            ValueError: If there is a mismatch in the architectures of the modulator 
-            and synthesizer networks when using "all-to-all" coupling.
-        """    
+            ValueError:
+                If the modulator and synthesizer architectures are incompatible
+                for layer-wise coupling.
+        """
 
         x_modul = latent_array.reshape(-1,1).T
         x_synth = coord_matrix
@@ -567,13 +677,13 @@ class HyperNetwork(nnx.Module):
             x_modul_init = x_modul.copy()
 
         if synthesizer_nn.skip_connections_settings["active"]:
-            x_synth_init = x_synth.copy()        
+            x_synth_init = x_synth.copy()
 
         layer_num = 0
         for i in range(len(modulator_nn.nn_params)):
             (w_modul, b_modul) = modulator_nn.nn_params[i]
             (w_synth, b_synth) = synthesizer_nn.nn_params[i]
-            
+
             # first compute x_modul
             if layer_num>0 and modulator_nn.skip_connections_settings["active"] and layer_num%modulator_nn.skip_connections_settings["frequency"]==0:
                 x_modul = modulator_nn.ComputeXSkip(w_modul,x_modul,x_modul_init,b_modul)
@@ -599,55 +709,57 @@ class HyperNetwork(nnx.Module):
         final_w_synth, final_b_synth = synthesizer_nn.nn_params[-1]
 
         if layer_num>0 and synthesizer_nn.skip_connections_settings["active"] and layer_num%synthesizer_nn.skip_connections_settings["frequency"]==0:
-            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)   
+            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)
         else:
-            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth)   
+            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth)
 
     def last_to_all_fw(self,latent_array:jax.Array,coord_matrix:jax.Array,
                             modulator_nn:MLP,synthesizer_nn:MLP):
         """
-        Implements the "last-to-all" forward propagation coupling mechanism.
+        Forward pass for the ``"last_to_all"`` coupling mode.
 
-        In this coupling mode, the final output of the modulator network is added 
-        to the activations of every layer of the synthesizer network during forward 
-        propagation. This allows the modulator network's influence to span all layers 
-        of the synthesizer network.
+        In this mode, the modulator is first evaluated once to produce a single
+        modulation vector. That vector is then split into chunks matching the bias
+        sizes of the synthesizer hidden layers, and each chunk is added to the
+        corresponding synthesizer layer activations (shift coupling).
+
+        The computation proceeds as follows.
+
+        Step 1:
+            Forward propagate ``latent_array`` through the modulator network to
+            produce a global modulation vector ``x_modul``.
+
+        Step 2:
+            Initialize synthesizer activations using ``coord_matrix``.
+
+        Step 3:
+            For each synthesizer hidden layer, compute the layer pre-activation
+            (with optional skip connections), take the slice of ``x_modul``
+            matching that layer width, add this slice to the synthesizer
+            activations, and apply the synthesizer activation function.
+
+        Step 4:
+            Apply the final synthesizer linear layer and return the output.
 
         Args:
-            latent_array (jax.Array): The input to the modulator network, provided as 
-                a flat array that is reshaped internally for processing.
-            coord_matrix (jax.Array): The input to the synthesizer network, typically 
-                representing task-specific coordinates or features.
-            modulator_nn (MLP): The modulator neural network, which computes the 
-                modulating output.
-            synthesizer_nn (MLP): The synthesizer neural network, which computes 
-                the primary task-specific outputs.
+            latent_array (jax.Array):
+                Conditioning input for the modulator network.
+            coord_matrix (jax.Array):
+                Coordinate or feature input for the synthesizer network.
+            modulator_nn (MLP):
+                Modulator network producing a global modulation vector.
+            synthesizer_nn (MLP):
+                Synthesizer network producing the final output.
 
         Returns:
-            jax.Array: The output of the synthesizer network after applying the 
-            "last-to-all" coupling mechanism.
-
-        Process:
-            1. Forward propagate `latent_array` through the modulator network to produce 
-            its final output (`x_modul`).
-            2. Initialize the input for the synthesizer network (`x_synth`) using 
-            `coord_matrix`.
-            3. For each layer of the synthesizer network:
-            - Compute the layer output of the synthesizer network (`x_synth`).
-            - Add the corresponding part of `x_modul` to the layer biases.
-            - Apply the synthesizer's activation function to the updated outputs.
-            4. At the final layer, compute the output of the synthesizer network 
-            without adding modulator outputs, unless configured otherwise.
-
-        Notes:
-            - Skip connections are supported in the synthesizer network if configured, 
-            and are applied periodically based on the specified frequency.
-            - The coupling is done by splitting `x_modul` into chunks that match the 
-            biases of each synthesizer layer.
+            jax.Array:
+                Output of the synthesizer network after applying last-to-all
+                coupling.
 
         Raises:
-            ValueError: If the size of `x_modul` does not match the total biases in 
-            the synthesizer network when using "last-to-all" coupling.
+            ValueError:
+                If the modulator output size does not match the total number of
+                modulated synthesizer hidden biases.
         """
 
         # first modulator fw
@@ -655,7 +767,7 @@ class HyperNetwork(nnx.Module):
         x_synth = coord_matrix
 
         if synthesizer_nn.skip_connections_settings["active"]:
-            x_synth_init = x_synth.copy()  
+            x_synth_init = x_synth.copy()
 
         # now synthesizer fw with shift modulation coupling
         x_modul_itr = 0
@@ -682,59 +794,57 @@ class HyperNetwork(nnx.Module):
         # now apply last linear layer
         final_w_synth, final_b_synth = synthesizer_nn.nn_params[-1]
         if layer_num>0 and synthesizer_nn.skip_connections_settings["active"] and layer_num%synthesizer_nn.skip_connections_settings["frequency"]==0:
-            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)   
+            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)
         else:
-            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth) 
-        
+            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth)
+
     def one_modulator_per_synthesizer_layer_fw(self,latent_array:jax.Array,coord_matrix:jax.Array,
                                                modulator_nns:list[MLP],synthesizer_nn:MLP):
         """
-        Implements the "one-modulator-per-synthesizer-layer" forward propagation coupling mechanism.
+        Forward pass for ``"one_modulator_per_synthesizer_layer"`` coupling.
 
-        In this coupling mode, each layer of the synthesizer network is modulated by a 
-        dedicated modulator network. This allows for fine-grained control and layer-specific 
-        modulation, where each modulator network processes the `latent_array` independently 
-        to compute the modulation for its corresponding synthesizer layer.
+        In this mode, each synthesizer hidden layer has a dedicated modulator network
+        that is evaluated on the same ``latent_array``. The resulting modulation vector
+        is added to the corresponding synthesizer layer activations (shift coupling).
+
+        The computation proceeds as follows.
+
+        Step 1:
+            Initialize synthesizer activations using ``coord_matrix``.
+
+        Step 2:
+            For each synthesizer hidden layer, compute the synthesizer layer
+            pre-activation (with optional skip connections), evaluate the corresponding
+            modulator to obtain a modulation vector of matching size, add this modulation
+            to the synthesizer activations, and apply the synthesizer activation
+            function.
+
+        Step 3:
+            Apply the final synthesizer linear layer and return the output.
 
         Args:
-            latent_array (jax.Array): The input to all modulator networks, provided as a flat 
-                array that is reshaped internally for processing.
-            coord_matrix (jax.Array): The input to the synthesizer network, typically representing 
-                task-specific coordinates or features.
-            modulator_nns (list[MLP]): A list of modulator networks, with each modulator corresponding 
-                to a specific layer of the synthesizer network.
-            synthesizer_nn (MLP): The synthesizer neural network, which computes the primary 
-                task-specific outputs.
+            latent_array (jax.Array):
+                Conditioning input shared across all modulators.
+            coord_matrix (jax.Array):
+                Coordinate or feature input for the synthesizer network.
+            modulator_nns (list[MLP]):
+                List of modulator networks, one per synthesizer hidden layer.
+            synthesizer_nn (MLP):
+                Synthesizer network producing the final output.
 
         Returns:
-            jax.Array: The output of the synthesizer network after applying the 
-            "one-modulator-per-synthesizer-layer" coupling mechanism.
-
-        Process:
-            1. Initialize the input for the synthesizer network (`x_synth`) using `coord_matrix`.
-            2. For each layer of the synthesizer network:
-            - Compute the layer output of the synthesizer network (`x_synth`).
-            - Compute the modulation for the layer using the corresponding modulator network.
-            - Add the modulator's output to the layer's biases in `x_synth`.
-            - Apply the synthesizer's activation function to the updated layer output.
-            3. At the final layer, compute the output of the synthesizer network 
-            without modulation from the modulator networks.
-            4. If skip connections are enabled in the synthesizer network, apply them 
-            based on the configured frequency.
-
-        Notes:
-            - Skip connections are supported in the synthesizer network and are applied 
-            periodically based on the specified frequency.
-            - The number of modulator networks (`modulator_nns`) must match the number 
-            of layers in the synthesizer network, excluding the final layer.
+            jax.Array:
+                Output of the synthesizer network after applying per-layer
+                modulator coupling.
 
         Raises:
-            ValueError: If the number of modulator networks does not match the number 
-            of layers in the synthesizer network.
+            ValueError:
+                If the number of modulators does not match the number of synthesizer
+                hidden layers.
         """
         x_synth = coord_matrix
         if synthesizer_nn.skip_connections_settings["active"]:
-            x_synth_init = x_synth.copy()  
+            x_synth_init = x_synth.copy()
 
         layer_num = 0
         for i in range(len(synthesizer_nn.nn_params)-1):
@@ -756,11 +866,36 @@ class HyperNetwork(nnx.Module):
         # now apply last linear layer
         final_w_synth, final_b_synth = synthesizer_nn.nn_params[-1]
         if layer_num>0 and synthesizer_nn.skip_connections_settings["active"] and layer_num%synthesizer_nn.skip_connections_settings["frequency"]==0:
-            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)   
+            return synthesizer_nn.ComputeXSkip(final_w_synth,x_synth,x_synth_init,final_b_synth)
         else:
-            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth) 
-    
+            return synthesizer_nn.ComputeX(final_w_synth,x_synth,final_b_synth)
+
     def __call__(self, latent_array: jax.Array,coord_matrix: jax.Array):
+        """
+        Evaluate the hypernetwork for a batch of latent inputs and shared coordinates.
+
+        This method vectorizes the selected coupling forward function over the first
+        axis of ``latent_array`` using ``jax.vmap``. The coordinate input is mapped
+        using the synthesizer's input mapping (e.g., Fourier features) before being
+        passed into the coupling function.
+
+        Args:
+            latent_array (jax.Array):
+                Batch of latent conditioning vectors. The first axis is treated as
+                the batch dimension.
+            coord_matrix (jax.Array):
+                Coordinate/features array shared across the batch of latents.
+
+        Returns:
+            jax.Array:
+                Batched synthesizer outputs, one per latent vector.
+
+        Raises:
+            KeyError:
+                If the configured coupling mode is missing from ``coupling_settings``.
+            ValueError:
+                If inputs have incompatible shapes for the selected coupling mode.
+        """
         if self.coupling_settings["modulator_to_synthesizer_coupling_mode"] == "one_modulator_per_synthesizer_layer":
             return jax.vmap(self.fw_func,in_axes=(0, None, None, None))(latent_array,self.synthesizer_nn.input_mapping(coord_matrix),self.modulator_nns,self.synthesizer_nn)
         else:

@@ -16,15 +16,51 @@ import numpy as np
 
 class FiniteElementResponse(Response):
     """
-    A derived class that represents a finite element response in numerical optimization.
+    Finite element response evaluator and sensitivity calculator.
 
-    This class extends the `Response` base class and provides functionalities for handling
-    finite element loss computations, control parameters, and response evaluations using JAX.
+    This class evaluates a scalar response functional over a finite element mesh
+    using Gaussian quadrature. The response integrand is provided by the user as
+    a Python expression string via ``response_formula`` and is compiled during
+    :meth:`Initialize` into a JAX-jittable callable.
+
+    The user provides only the scalar integrand expression as a string; the rest
+    is handled automatically by this class:
+    interpolation of nodal control values to Gauss points, interpolation of nodal
+    DOFs (state) to Gauss points, quadrature weighting using the Jacobian
+    determinant, element-wise accumulation, and global summation.
+
+    The compiled integrand callable is evaluated as::
+
+        phi(d_gp, u_gp)
+
+    where ``d_gp`` is the interpolated control value at a Gauss point and ``u_gp`` is
+    the vector of interpolated DOFs at that Gauss point.
+
+    Args:
+        name (str):
+            Name identifier for the response instance.
+        response_formula (str):
+            Scalar-valued integrand expression as a string. The expression must be
+            JAX compatible and evaluate to a scalar. The symbol ``jnp`` is
+            available inside the expression namespace.
+        fe_loss (FiniteElementLoss):
+            Finite element loss object that provides mesh, element type, Gauss
+            integration utilities, DOF layout, and residual/Jacobian assembly
+            methods.
+        control (Control):
+            Control object that defines how optimization variables map to the
+            nodal (or element) control field used by the response.
 
     Attributes:
-        response_formula (str): The formula used to compute the response.
-        fe_loss (FiniteElementLoss): The finite element loss object containing DOFs and problem settings.
-        control (Control): The control object representing optimization parameters.
+        response_formula (str):
+            User-provided integrand expression string.
+        fe_loss (FiniteElementLoss):
+            Reference to the FE loss object.
+        control (Control):
+            Reference to the control object.
+        jit_response_function (callable):
+            JAX-jitted callable compiled from ``response_formula`` during
+            :meth:`Initialize`. It is used at Gauss points during integration.
     """
 
     def __init__(self, name: str, response_formula: str, fe_loss: FiniteElementLoss, control: Control):
@@ -57,7 +93,7 @@ class FiniteElementResponse(Response):
 
         if self.initialized and not reinitialize:
             return
-        
+
         self.fe_loss.Initialize()
         self.control.Initialize()
 
@@ -83,17 +119,17 @@ class FiniteElementResponse(Response):
 
         num_dofs = self.fe_loss.number_dofs_per_node
         N_mat = jnp.zeros((num_dofs,  num_dofs * N_vec.size))
-        indices = jnp.arange(num_dofs)[:, None] 
-        cols = jnp.arange(N_vec.size) * num_dofs 
+        indices = jnp.arange(num_dofs)[:, None]
+        cols = jnp.arange(N_vec.size) * num_dofs
         N_mat = N_mat.at[indices, cols + indices].set(N_vec)
         return N_mat
-    
+
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValue(self,xyze,de,uvwe):
         """
         Computes the response value for a single finite element.
 
-        This method calculates the response contribution from a single element by integrating 
+        This method calculates the response contribution from a single element by integrating
         over the element's Gauss points.
 
         Args:
@@ -112,13 +148,13 @@ class FiniteElementResponse(Response):
             gp_dofs = (N_mat @ uvwe).flatten()
             gp_d = jnp.dot(N_vec, de.squeeze())
             J = self.fe_loss.fe_element.Jacobian(xyze,gp_point)
-            detJ = jnp.linalg.det(J)            
+            detJ = jnp.linalg.det(J)
             return gp_weight * detJ * self.jit_response_function(gp_d,gp_dofs)
 
         gp_points,gp_weights = self.fe_loss.fe_element.GetIntegrationData()
         v_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0))(gp_points,gp_weights)
         return  jnp.sum(v_gps)
-    
+
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueStateGrad(self,xyze,de,uvwe):
         """
@@ -134,7 +170,7 @@ class FiniteElementResponse(Response):
         """
 
         return jax.grad(self.ComputeResponseElementValue,argnums=2)(xyze,de,uvwe)
-    
+
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueControlGrad(self,xyze,de,uvwe):
         """
@@ -150,7 +186,7 @@ class FiniteElementResponse(Response):
         """
 
         return jax.grad(self.ComputeResponseElementValue,argnums=1)(xyze,de,uvwe)
-    
+
     @partial(jit, static_argnums=(0,))
     def ComputeResponseElementValueShapeGrad(self,xyze,de,uvwe):
         """
@@ -220,7 +256,7 @@ class FiniteElementResponse(Response):
         """
         Computes the RHS vector for a single element in a vectorized-compatible manner.
 
-        The element RHS vector is obtained as the gradient of the response with respect to 
+        The element RHS vector is obtained as the gradient of the response with respect to
         the element's state variables.
 
         Args:
@@ -245,8 +281,8 @@ class FiniteElementResponse(Response):
         """
         Computes the adjoint Jacobian matrix and RHS vector for the finite element system.
 
-        The RHS vector is computed by summing element-wise contributions, applying Dirichlet 
-        boundary conditions, and scaling appropriately. The adjoint Jacobian matrix is obtained from 
+        The RHS vector is computed by summing element-wise contributions, applying Dirichlet
+        boundary conditions, and scaling appropriately. The adjoint Jacobian matrix is obtained from
         the finite element loss function, which is transpose of the state Jacobian matrix.
 
         Args:
@@ -265,7 +301,7 @@ class FiniteElementResponse(Response):
                                                              self.fe_loss.fe_mesh.GetNodesCoordinates(),
                                                              nodal_control_values,
                                                              nodal_dof_values)
-        
+
         # first compute the global rhs vector
         rhs_vector = jnp.zeros((self.fe_loss.total_number_of_dofs))
         for dof_idx in range(self.fe_loss.number_dofs_per_node):
@@ -274,10 +310,10 @@ class FiniteElementResponse(Response):
         # apply dirichlet bcs
         rhs_vector = rhs_vector.at[self.fe_loss.dirichlet_indices].set(0.0)
 
-        # multiple by -1 
+        # multiple by -1
         rhs_vector *= -1
 
-        # get the jacobian of the loss with transpose flag 
+        # get the jacobian of the loss with transpose flag
         sparse_jacobian,_ = self.fe_loss.ComputeJacobianMatrixAndResidualVector(nodal_control_values,nodal_dof_values,True)
 
         return sparse_jacobian,rhs_vector
@@ -289,7 +325,7 @@ class FiniteElementResponse(Response):
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array):
         """
-        Computes the local nodal shape derivatives of the response function for a given element 
+        Computes the local nodal shape derivatives of the response function for a given element
         in a vectorized-compatible manner.
 
         Args:
@@ -313,7 +349,7 @@ class FiniteElementResponse(Response):
         """
         Computes the adjoint-based shape gradient of the loss function for a given finite element.
 
-        This function calculates the sensitivity of the loss function with respect to 
+        This function calculates the sensitivity of the loss function with respect to
         nodal coordinates using automatic differentiation (jacobian of the residual) and adjoint vars.
 
         Args:
@@ -358,7 +394,7 @@ class FiniteElementResponse(Response):
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                                     jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1),
                                                     full_adj_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                                    jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1)                                                                    
+                                                                    jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1)
                                                                     )
 
     @print_with_timestamp_and_execution_time
@@ -378,7 +414,7 @@ class FiniteElementResponse(Response):
 
         Returns:
             jnp.array: The assembled global shape derivative vector.
-        """        
+        """
 
         response_elements_local_shape_derv = jax.vmap(self.ComputeResponseLocalNodalShapeDerivativesVmapCompatible,(0,None,None,None,None)) \
                                                             (self.fe_loss.fe_mesh.GetElementsIds(self.fe_loss.element_type),
@@ -411,7 +447,7 @@ class FiniteElementResponse(Response):
                                             full_control_vector:jnp.array,
                                             full_dof_vector:jnp.array):
         """
-        Computes the local nodal control derivatives of the response function for a given element 
+        Computes the local nodal control derivatives of the response function for a given element
         in a vectorized-compatible manner.
 
         Args:
@@ -424,7 +460,7 @@ class FiniteElementResponse(Response):
         Returns:
             jnp.array: The computed control derivatives for the given element.
         """
-        
+
         return self.ComputeResponseElementValueControlGrad(xyz[elements_nodes[element_id],:],
                                                     full_control_vector[elements_nodes[element_id]],
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
@@ -479,7 +515,7 @@ class FiniteElementResponse(Response):
                                                     full_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                                     jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1),
                                                     full_adj_dof_vector[((self.fe_loss.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
-                                                                    jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1)                                                                    
+                                                                    jnp.arange(self.fe_loss.number_dofs_per_node))].reshape(-1,1)
                                                                     )
 
     @print_with_timestamp_and_execution_time
@@ -515,7 +551,7 @@ class FiniteElementResponse(Response):
                                                              nodal_control_values,
                                                              nodal_dof_values,
                                                              nodal_adj_dof_values)
-        
+
         total_elem_control_grads = response_elements_local_control_derv + elements_residuals_adj_control_derv
         # compute the global derivative vector
         grad_vector = jnp.zeros((self.control.num_controlled_vars))
@@ -524,12 +560,43 @@ class FiniteElementResponse(Response):
             grad_vector = grad_vector.at[number_controls_per_node*self.fe_loss.fe_mesh.GetElementsNodes(self.fe_loss.element_type)+control_idx].add(jnp.squeeze(total_elem_control_grads[:,control_idx::number_controls_per_node]))
 
         return grad_vector
-    
+
     @print_with_timestamp_and_execution_time
     def ComputeFDNodalControlDerivatives(self,nodal_control_values:jnp.array,
                                               fe_solver:FiniteElementSolver,
                                               fd_step_size:float=1e-4,
                                               fd_mode="FWD"):
+        """
+        Compute finite-difference sensitivities with respect to nodal control values.
+
+        This routine perturbs one entry of ``nodal_control_values`` at a time,
+        re-solves the FE problem using the provided solver, and estimates the
+        derivative of the total response value.
+
+        Supported modes:
+        - ``"FWD"``: forward difference,
+        - ``"CD"``: central difference.
+
+        Args:
+            nodal_control_values (jax.numpy.ndarray):
+                Global nodal control field (1D array).
+            fe_solver (FiniteElementSolver):
+                Solver used to compute state DOFs for each perturbed control.
+            fd_step_size (float, optional):
+                Perturbation step size. Default is 1e-4.
+            fd_mode (str, optional):
+                Finite-difference scheme. Supported values are ``"FWD"`` and
+                ``"CD"``. Default is ``"FWD"``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Finite-difference gradient vector with the same shape as
+                ``nodal_control_values``.
+
+        Raises:
+            Exception:
+                If an unsupported ``fd_mode`` is requested.
+        """
         # solve for the unperturbed controls
         unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
 
@@ -549,7 +616,7 @@ class FiniteElementResponse(Response):
             fw_res_val = self.ComputeValue(nodal_control_values,fw_dofs)
             if fd_mode=="FWD":
                 FD_sens = (fw_res_val-unpert_res_val)/fd_step_size
-            
+
             # remove pert
             nodal_control_values = nodal_control_values.at[control_idx].add(-fd_step_size)
 
@@ -573,6 +640,38 @@ class FiniteElementResponse(Response):
                                             fe_solver:FiniteElementSolver,
                                             fd_step_size:float=1e-4,
                                             fd_mode="FWD"):
+        """
+        Compute finite-difference sensitivities with respect to nodal coordinates (shape).
+
+        This routine perturbs nodal coordinates of the FE mesh (in-place) and
+        recomputes the response to estimate shape derivatives. The FE state is
+        re-solved for each perturbation using the provided solver.
+
+        Supported modes:
+        - ``"FWD"``: forward difference,
+        - ``"CD"``: central difference.
+
+        Args:
+            nodal_control_values (jax.numpy.ndarray):
+                Global nodal control field used for all perturbations.
+            fe_solver (FiniteElementSolver):
+                Solver used to compute state DOFs for each perturbed mesh.
+            fd_step_size (float, optional):
+                Perturbation step size. Default is 1e-4.
+            fd_mode (str, optional):
+                Finite-difference scheme. Supported values are ``"FWD"`` and
+                ``"CD"``. Default is ``"FWD"``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Flattened shape derivative vector with shape
+                ``(num_nodes*3,)`` (the implementation stores 3 components per
+                node, even if the FE problem dimension is smaller).
+
+        Raises:
+            Exception:
+                If an unsupported ``fd_mode`` is requested.
+        """
         # solve for the unperturbed controls
         unpert_dofs = fe_solver.Solve(nodal_control_values,jnp.zeros(self.fe_loss.number_dofs_per_node*self.fe_loss.fe_mesh.GetNumberOfNodes()))
 
@@ -602,7 +701,7 @@ class FiniteElementResponse(Response):
             FD_sens = jnp.zeros((3))
             for component in range(self.fe_loss.dim):
                 FD_sens = FD_sens.at[component].set(pert_and_compute(node_idx,component))
-            
+
             FD_grad_vector = FD_grad_vector.at[node_idx].set(FD_sens)
 
             pbar.set_postfix({f"Node:":node_idx,f"{fd_mode} shape sensitivity:":FD_sens})
