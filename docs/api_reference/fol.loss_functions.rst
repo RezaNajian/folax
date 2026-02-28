@@ -201,6 +201,32 @@ Allen–Cahn phase-field loss functions
    :members:
    :show-inheritance:
 
+Thermo-mechanical loss functions
+-------------------------------------
+
+.. automodule:: fol.loss_functions.thermo_mechanics
+.. currentmodule:: fol.loss_functions.thermo_mechanics
+
+.. autoclass:: ThermoMechanicsLoss
+   :members:
+   :show-inheritance:
+
+.. autoclass:: ThermoMechanicsLoss2DQuad
+   :members:
+   :show-inheritance:
+
+.. autoclass:: ThermoMechanicsLoss2DTri
+   :members:
+   :show-inheritance:
+
+.. autoclass:: ThermoMechanicsLoss3DHexa
+   :members:
+   :show-inheritance:
+
+.. autoclass:: ThermoMechanicsLoss3DTetra
+   :members:
+   :show-inheritance:
+
 Regression loss function
 -------------------------
 

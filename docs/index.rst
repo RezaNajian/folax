@@ -183,3 +183,4 @@ are no longer separate worlds.
    installation
    quick_start
    api_reference/index
+   3D_thermo_mechanics_example

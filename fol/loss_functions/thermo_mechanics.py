@@ -13,6 +13,8 @@ from fol.tools.decoration_functions import *
 from fol.tools.fem_utilities import *
 from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
+from jax.experimental.sparse import BCOO
+from jax.scipy.sparse.linalg import cg
 
 class ThermoMechanicsLoss(FiniteElementLoss):
     """
@@ -39,15 +41,18 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         None
 
     Attributes:
-        thermal_loss_settings (dict): Runtime thermal configuration including material
-            response parameters and initial nodal temperatures.
+        thermal_loss_settings (dict): Runtime thermal configuration 
+                                      including material response parameters and initial temperature.
         elem_t_local_ids (jnp.ndarray): Local element DOF indices corresponding to temperature.
         elem_uvw_local_ids (jnp.ndarray): Local element DOF indices corresponding to displacement.
         CalculateNMatrix (callable): Dimension-specific N-matrix constructor.
         CalculateBMatrix (callable): Dimension-specific B-matrix constructor.
         D (jnp.ndarray): Constitutive matrix for linear elasticity in 2D or 3D.
         body_force (jnp.ndarray): Body force vector in global coordinates.
-        thermal_st_vec (jnp.ndarray): Thermal strain selector vector for the active dimension.
+        thermal_st_vec (jnp.ndarray): Thermal strain selector vector for the active dimension. 
+                                      Under the assumption of an isotropic material, 
+                                      this should only has influence on the volumetric part of the thermal strain 
+                                      and is set to 1 for normal strains and 0 for shear strains.
     """
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:  
@@ -69,24 +74,32 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             return
         super().Initialize() 
 
-        self.thermal_loss_settings = {"beta":1,"c":1,"alpha":1,"T0":jnp.zeros((self.fe_mesh.GetNumberOfNodes()))}
+        self.thermal_loss_settings = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5,
+                                      "T0":jnp.zeros((self.fe_mesh.GetNumberOfNodes()))}
+        self.mechanical_loss_settings = {"e1":1.0,"e2":-0.6}
 
-        if "beta" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["beta"] = self.loss_settings["thermal_dict"]["beta"]
-        if "c" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["c"] = self.loss_settings["thermal_dict"]["c"]
-        if "alpha" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["alpha"] = self.loss_settings["thermal_dict"]["alpha"]        
+        if "k1" in self.loss_settings["thermal_dict"].keys():
+            self.thermal_loss_settings["k1"] = self.loss_settings["thermal_dict"]["k1"]
+        if "k2" in self.loss_settings["thermal_dict"].keys():
+            self.thermal_loss_settings["k2"] = self.loss_settings["thermal_dict"]["k2"]
+        if "k3" in self.loss_settings["thermal_dict"].keys():
+            self.thermal_loss_settings["k3"] = self.loss_settings["thermal_dict"]["k3"]
+        if "k4" in self.loss_settings["thermal_dict"].keys():
+            self.thermal_loss_settings["k4"] = self.loss_settings["thermal_dict"]["k4"]
+        if "e1" in self.loss_settings["mechanical_dict"].keys():
+            self.mechanical_loss_settings["e1"] = self.loss_settings["mechanical_dict"]["e1"]
+        if "e2" in self.loss_settings["mechanical_dict"].keys():
+            self.mechanical_loss_settings["e2"] = self.loss_settings["mechanical_dict"]["e2"]
         if "T0" in self.loss_settings["material_dict"].keys():
-            self.thermal_loss_settings["T0"] = jnp.asarray(self.loss_settings["material_dict"]["T0"])
-
+            self.thermal_loss_settings["T0"] = self.loss_settings["material_dict"]["T0"]
+            
         if self.dim == 2:
             self.CalculateNMatrix = n_matrix_2d
             self.CalculateBMatrix = b_matrix_2d
             self.D = d_matrix_2d(self.loss_settings["material_dict"]["young_modulus"],
                                  self.loss_settings["material_dict"]["poisson_ratio"])
             self.body_force = jnp.zeros((2,1))
-            self.thermal_st_vec = jnp.array([[1.0], [1.0], [0.0]]) # @Yusuke: Please exaplain what thermal_st_vec is and if it can be an input to the loss
+            self.thermal_st_vec = jnp.array([[1.0], [1.0], [0.0]]) 
             if "body_force" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_force"])
         else:
@@ -95,7 +108,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             self.D = d_matrix_3d(self.loss_settings["material_dict"]["young_modulus"],
                                  self.loss_settings["material_dict"]["poisson_ratio"])
             self.body_force = jnp.zeros((3,1))
-            self.thermal_st_vec = jnp.array([[1.0], [1.0], [1.0], [0.0], [0.0], [0.0]]) # @Yusuke: the same here Please exaplain what thermal_st_vec is and if it can be an input to the loss
+            self.thermal_st_vec = jnp.array([[1.0], [1.0], [1.0], [0.0], [0.0], [0.0]])
             if "body_force" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_force"])
 
@@ -105,7 +118,6 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         self.elem_uvw_local_ids = elem_dof_local_ids[(jnp.arange(elem_dof_local_ids.shape[0]) % self.number_dofs_per_node) != 0]
 
     def ComputeElementThermal(self,xyze,de,te,body_force=0):
-         # # @Yusuke: Please clean the function from commented lines and hard coded stuff
         """
         Compute thermal contribution to element loss, residual, and tangent matrix.
 
@@ -128,28 +140,23 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 ``residual`` is the element thermal residual vector (shape ``(nnode, 1)``),
                 and ``tangent`` is the thermal tangent matrix (shape ``(nnode, nnode)``).
         """
-        # Thermal loss
-        # de: conductivity/stiffness
-        # te: temperature
         de = jax.lax.stop_gradient(de.reshape(-1,1))
         te = te.reshape(-1,1)
-        # se = jax.lax.stop_gradient(se.reshape(-1,1))
         def compute_at_gauss_point(gp_point,gp_weight):
-            # Thermal part
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
-            # conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), de) \
-            # * (1 + self.thermal_loss_settings["beta"]*(jnp.dot(N_vec,te.squeeze())**self.thermal_loss_settings["c"]))
             temp_at_gauss = jnp.dot(N_vec,te.squeeze())
             conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), de) \
-            * (0.5+0.5*(1/(1+jnp.exp(20*(temp_at_gauss-0.5)))))
+            * (self.thermal_loss_settings["k1"]+1/self.thermal_loss_settings["k2"]*\
+               (1/(1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))))
             DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze,gp_point)
             J = self.fe_element.Jacobian(xyze,gp_point)
             detJ = jnp.linalg.det(J)
             grad_T = DN_DX.T @ te
             gp_loss_t = 0.5*(grad_T.T@grad_T) * conductivity_at_gauss * detJ *gp_weight
-            # dk_dT = jnp.dot(N_vec.reshape(1,-1), de) * self.thermal_loss_settings["beta"] * \
-            #                self.thermal_loss_settings["c"] *((jnp.dot(N_vec,te.squeeze()))** (self.thermal_loss_settings["c"] - 1))
-            dk_dT = jnp.dot(N_vec.reshape(1,-1), de)*(-10.0*jnp.exp(20*(temp_at_gauss-0.5)))/((1+jnp.exp(20*(temp_at_gauss-0.5)))**2)
+            dk_dT = jnp.dot(N_vec.reshape(1,-1), de)*\
+                (-self.thermal_loss_settings["k3"]/self.thermal_loss_settings["k2"]\
+                 *jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))\
+                /((1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))**2)
             gp_stiffness = conductivity_at_gauss * (DN_DX @ DN_DX.T) * detJ * gp_weight 
             gp_stiffness_thermal = dk_dT* ((DN_DX@grad_T)@N_vec.reshape(1,-1)) * detJ * gp_weight 
             gp_f = gp_weight * detJ * body_force *  N_vec.reshape(-1,1) 
@@ -200,12 +207,6 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 (shape ``(nnode*ndof_u, nnode)`` when assembled with local IDs).
         """
         # Mechanics loss
-        # de: conductivity/stiffness
-        # te: temperature
-        # ke: stiffness
-        # se: displacement
-        # te_init: initial temperature
-        # te = te.reshape(-1,1)
         ke = de.reshape(-1,1)
         se = se.reshape(-1,1)
         te = jax.lax.stop_gradient(te.reshape(-1,1))
@@ -223,17 +224,14 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             thermal_strain_vec = 1.0\
                 * (temp_at_gauss - jnp.dot(N_vec, te_init.squeeze())) * self.thermal_st_vec
             elastic_strain = total_strain_at_gauss - thermal_strain_vec
-            # e_at_gauss = jnp.dot(N_vec, ke.squeeze())\
-            # * (3.0 - self.thermal_loss_settings["beta"]*(temp_at_gauss**self.thermal_loss_settings["c"]))
-            e_at_gauss = jnp.dot(N_vec, ke.squeeze())* (1-0.6*temp_at_gauss) # # @Yusuke: what is this hard coded relation with 0.6 ?! generalize it if it is not a special case
+            e_at_gauss = jnp.dot(N_vec, ke.squeeze())* \
+                (self.mechanical_loss_settings["e1"]+self.mechanical_loss_settings["e2"]*temp_at_gauss)
             
             gp_loss_m = 0.5 * elastic_strain.T @ self.D @ elastic_strain *e_at_gauss * detJ * gp_weight
             gp_stiffness = gp_weight * detJ * e_at_gauss * (B_mat.T @ (self.D @ B_mat))
             gp_lhs = gp_weight * detJ * e_at_gauss * B_mat.T @ self.D @ elastic_strain
-            # gp_f_thermal = gp_weight * detJ * e_at_gauss * B_mat.T @ self.D @ thermal_strain_vec
             gp_f = gp_weight * detJ * (N_mat.T @ self.body_force)
-            # de_dT = - jnp.dot(N_vec, ke.squeeze())*self.thermal_loss_settings["beta"]*self.thermal_loss_settings["c"]*((temp_at_gauss)**(self.thermal_loss_settings["c"]-1))
-            de_dT = jnp.dot(N_vec, ke.squeeze())*(-0.6) # # @Yusuke: what is this hard coded relation with 0.6 ?! generalize it if it is not a special case
+            de_dT = jnp.dot(N_vec, ke.squeeze())*(self.mechanical_loss_settings["e2"]) 
             gp_stiffness_thermal = gp_weight * detJ * B_mat.T @ self.D @\
                 (elastic_strain*de_dT - e_at_gauss*(1.0) *self.thermal_st_vec).reshape(-1,1) @ N_vec.reshape(1,-1)
             return gp_loss_m, gp_stiffness, gp_f, gp_stiffness_thermal,gp_lhs
@@ -242,16 +240,11 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         Loss_m_e = jnp.sum(loss_m_gps)
         Se = jnp.sum(s_gps, axis=0)
         Fe = jnp.sum(f_gps, axis=0)
-        # Fe_thermal = jnp.sum(ft_gps)
         Se_t = jnp.sum(st_gps, axis=0)
         LHSe = jnp.sum(lhs_gps,axis=0)
         def compute_elem_res(Se,se ,Fe, Fe_thermal):
-            # se = jax.lax.stop_gradient(se)
             return (Se @ se - Fe - Fe_thermal)
-        # element_residuals = compute_elem_res(Se,se ,Fe, Fe_t)
         element_residuals = LHSe - Fe
-        # Se_t = jax.jacrev(compute_elem_res, argnums=1)(Se,se ,Fe, Fe_t)
-        # jax.debug.print("elem_res_mech = {}", element_residuals.shape)
         return  se.T@jax.lax.stop_gradient(LHSe - Fe), element_residuals, Se, Se_t
     
     def ComputeElement(self,xyze,de,tuvwe,t0e):
@@ -514,14 +507,20 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             def compute_at_gauss_point(gp_point, gp_weight):
                 DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze, gp_point)
                 N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
-                conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1),ke)
+                J = self.fe_element.Jacobian(xyze, gp_point)
+                detJ = jnp.linalg.det(J)
+                Jw = jnp.abs(detJ) * gp_weight                
+                temp_at_gauss = jnp.dot(N_vec, te.squeeze())
+                conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), ke) \
+                * (self.thermal_loss_settings["k1"]+1/self.thermal_loss_settings["k2"]*\
+               (1/(1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))))
                 temp_grad = DN_DX.T @ te
                 q = -conductivity_at_gauss * temp_grad  # Fourier's law
-                return N_vec,q.squeeze()
+                return N_vec,q.squeeze(), Jw
             gp_points, gp_weights = self.fe_element.GetIntegrationData()
-            N_g,q_g = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
-            N_g_T_N_g = N_g.T @ N_g
-            N_g_T_q_g = N_g.T @ q_g
+            N_g,q_g,Jw = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
+            N_g_T_N_g = N_g.T @ (N_g*Jw[:, jnp.newaxis])  
+            N_g_T_q_g = N_g.T @ (q_g*Jw[:, jnp.newaxis])
             return jnp.linalg.inv(N_g_T_N_g) @ N_g_T_q_g
 
         def ComputeElementNodalHeatFlux(element_nodes):
@@ -531,9 +530,11 @@ class ThermoMechanicsLoss(FiniteElementLoss):
 
         element_fluxes = jax.vmap(ComputeElementNodalHeatFlux)(self.fe_mesh.GetElementsNodes(self.element_type))
         nodal_flux_vector = jnp.zeros((self.fe_mesh.GetNumberOfNodes()*self.dim))
+        contribution_count = jnp.zeros(self.fe_mesh.GetNumberOfNodes()*self.dim)
         for dim_idx in range(self.dim):
             nodal_flux_vector = nodal_flux_vector.at[self.dim*self.fe_mesh.GetElementsNodes(self.element_type)+dim_idx].add(jnp.squeeze(element_fluxes[:,dim_idx::self.dim]))
-
+            contribution_count = contribution_count.at[self.dim*self.fe_mesh.GetElementsNodes(self.element_type)+dim_idx].add(1)
+        nodal_flux_vector = nodal_flux_vector / contribution_count  # Average contributions at shared nodes
         # -------------------------------------------------
         # Restore original integration rule if modified
         # -------------------------------------------------
@@ -639,17 +640,22 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze,gp_point)
                 B_mat = self.CalculateBMatrix(DN_DX)
                 temp_at_gauss = jnp.dot(N_vec,te.squeeze())
+
+                J = self.fe_element.Jacobian(xyze, gp_point)
+                detJ = jnp.linalg.det(J)
+                Jw = jnp.abs(detJ) * gp_weight
                 total_strain_at_gauss = B_mat@uvwe
                 thermal_strain_vec = 1.0\
                     * (temp_at_gauss - jnp.dot(N_vec, te_init.squeeze())) * self.thermal_st_vec
                 elastic_strain = total_strain_at_gauss - thermal_strain_vec
-                k_at_gauss = jnp.dot(N_vec, ke.squeeze())* (1-0.6*temp_at_gauss)
+                k_at_gauss = jnp.dot(N_vec, ke.squeeze()) * \
+                            (self.mechanical_loss_settings["e1"]+self.mechanical_loss_settings["e2"]*temp_at_gauss)
                 elastic_stress = k_at_gauss * (self.D @ elastic_strain)
-                return N_vec,elastic_stress.squeeze()
+                return N_vec,elastic_stress.squeeze(),Jw
             gp_points, gp_weights = self.fe_element.GetIntegrationData()
-            N_g,s_g = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
-            N_g_T_N_g = N_g.T @ N_g
-            N_g_T_s_g = N_g.T @ s_g
+            N_g,s_g,Jw_g = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
+            N_g_T_N_g = N_g.T @ (N_g*Jw_g[:, jnp.newaxis])
+            N_g_T_s_g = N_g.T @ (s_g*Jw_g[:, jnp.newaxis])
             return jnp.linalg.inv(N_g_T_N_g) @ N_g_T_s_g
 
         def ComputeElementNodalStress(element_nodes):
@@ -665,9 +671,11 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         num_stress_comps = int(self.dim*(self.dim+1)/2)
 
         nodal_stress_vector = jnp.zeros((self.fe_mesh.GetNumberOfNodes()*num_stress_comps))
+        contribution_count = jnp.zeros(self.fe_mesh.GetNumberOfNodes()*num_stress_comps)
         for dim_idx in range(num_stress_comps):
             nodal_stress_vector = nodal_stress_vector.at[num_stress_comps*self.fe_mesh.GetElementsNodes(self.element_type)+dim_idx].add(jnp.squeeze(elements_nodal_stresses[:,dim_idx::num_stress_comps]))
-
+            contribution_count = contribution_count.at[num_stress_comps*self.fe_mesh.GetElementsNodes(self.element_type)+dim_idx].add(1)
+        nodal_stress_vector = nodal_stress_vector / contribution_count  # Average contributions at shared nodes
         # -------------------------------------------------
         # Restore original integration rule if modified
         # -------------------------------------------------
