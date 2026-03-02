@@ -2,8 +2,6 @@ import pytest
 import unittest 
 import os
 import numpy as np
-import jax 
-jax.config.update("jax_enable_x64", True)
 
 from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss2DQuad
 from fol.loss_functions.thermo_mechanics import ThermoMechanicsLoss3DTetra
