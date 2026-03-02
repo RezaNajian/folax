@@ -447,8 +447,8 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         element nodal values using an L2 (least-squares) projection, and the element
         nodal contributions are assembled into a global nodal heat flux vector.
 
-        Integration Point Requirement
-        -----------------------------
+        **Integration point requirement**
+        
         For the L2 projection to be well-posed, the number of Gauss points must
         be greater than or equal to 2.
 
@@ -569,9 +569,9 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         Gauss-point stresses are projected to element nodal stresses using an
         L2 (least-squares) projection. The element nodal contributions are then
         assembled into a global nodal stress vector.
+        
+        **Integration point requirement**
 
-        Integration Point Requirement
-        -----------------------------
         For the L2 projection to be well-posed, the number of Gauss points must
         be greater than or equal to 2.
 
