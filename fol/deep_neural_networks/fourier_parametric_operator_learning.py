@@ -137,8 +137,14 @@ class FourierParametricOperatorLearning(DeepNetwork):
                 If the input cannot be reshaped consistently with the mesh size
                 inferred from the loss function.
         """
-        batch_size = batch_X.shape[0]
-        return nn_model(batch_X.reshape(batch_size,*self.spatial_shape,-1)).reshape(batch_size,-1)
+        batch_size = next(iter(batch_X.values())).shape[0]
+
+        fno_channel_wise_inputs = {
+            k: v.reshape(batch_size, *self.spatial_shape, -1)
+            for k, v in batch_X.items()
+        }
+
+        return nn_model(fno_channel_wise_inputs)
 
     @print_with_timestamp_and_execution_time
     def Predict(self,batch_control:jnp.ndarray):
@@ -292,7 +298,7 @@ class PhysicsInformedFourierParametricOperatorLearning(FourierParametricOperator
         """
         control_outputs = self.control.ComputeBatchControlledVariables(batch[0])
         batch_predictions = self.ComputeBatchPredictions(control_outputs,nn_model)
-        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss(control_outputs,batch_predictions)
+        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss({**control_outputs,**batch_predictions})
         loss_name = self.loss_function.GetName()
         return batch_loss, ({loss_name+"_min":batch_min,
                              loss_name+"_max":batch_max,

@@ -113,11 +113,11 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 self.body_force = jnp.array(self.loss_settings["body_force"])
 
         num_elem_nodes = ELEMENT_TYPE_NUM_NODES[self.element_type]
-        elem_dof_local_ids = jnp.arange(num_elem_nodes*self.number_dofs_per_node)
-        self.elem_t_local_ids = elem_dof_local_ids[::self.number_dofs_per_node]
-        self.elem_uvw_local_ids = elem_dof_local_ids[(jnp.arange(elem_dof_local_ids.shape[0]) % self.number_dofs_per_node) != 0]
+        self.elem_dof_local_ids = jnp.arange(num_elem_nodes*self.number_dofs_per_node)
+        self.elem_t_local_ids = self.elem_dof_local_ids[::self.number_dofs_per_node]
+        self.elem_uvw_local_ids = self.elem_dof_local_ids[(jnp.arange(self.elem_dof_local_ids.shape[0]) % self.number_dofs_per_node) != 0]
 
-    def ComputeElementThermal(self,xyze,de,te,body_force=0):
+    def ComputeElementThermal(self,elem_var_dict:dict[str, jnp.ndarray],body_force=0):
         """
         Compute thermal contribution to element loss, residual, and tangent matrix.
 
@@ -140,6 +140,11 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 ``residual`` is the element thermal residual vector (shape ``(nnode, 1)``),
                 and ``tangent`` is the thermal tangent matrix (shape ``(nnode, nnode)``).
         """
+
+        de = elem_var_dict["K"]
+        te = elem_var_dict["T"]
+        xyze = elem_var_dict["XYZ"]
+
         de = jax.lax.stop_gradient(de.reshape(-1,1))
         te = te.reshape(-1,1)
         def compute_at_gauss_point(gp_point,gp_weight):
@@ -173,7 +178,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         element_residuals = compute_elem_res(Se,te ,Fe)
         return  te.T@jax.lax.stop_gradient(element_residuals), element_residuals, Se + Se_t
     
-    def ComputeElementMechanical(self,xyze,de,te,se,te_init,body_force=0):
+    def ComputeElementMechanical(self,elem_var_dict:dict[str, jnp.ndarray],body_force=0):
         # # @Yusuke: Please clean the function from commented lines and hard coded stuff
         """
         Compute mechanical contribution to element loss, residual, and tangents.
@@ -207,10 +212,12 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 (shape ``(nnode*ndof_u, nnode)`` when assembled with local IDs).
         """
         # Mechanics loss
-        ke = de.reshape(-1,1)
-        se = se.reshape(-1,1)
-        te = jax.lax.stop_gradient(te.reshape(-1,1))
-        te_init = jax.lax.stop_gradient(te_init.reshape(-1,1))
+        ke = elem_var_dict["K"].reshape(-1,1)
+        se = jnp.stack([elem_var_dict["Ux"], elem_var_dict["Uy"], elem_var_dict["Uz"]], axis=1).reshape(-1,1)
+        te = jax.lax.stop_gradient(elem_var_dict["T"].reshape(-1,1))
+        te_init = jax.lax.stop_gradient(elem_var_dict["T0"].reshape(-1,1))
+        xyze =  elem_var_dict["XYZ"]
+
         def compute_at_gauss_point(gp_point,gp_weight):
             # Mechanical part
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
@@ -247,7 +254,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         element_residuals = LHSe - Fe
         return  se.T@jax.lax.stop_gradient(LHSe - Fe), element_residuals, Se, Se_t
     
-    def ComputeElement(self,xyze,de,tuvwe,t0e):
+    def ComputeElement(self,elem_var_dict:dict[str, jnp.ndarray]):
         """
         Compute coupled element loss, residual, and Jacobian for thermo-mechanics.
 
@@ -271,29 +278,25 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 ``residual`` is the coupled residual vector (shape ``(ndof_elem, 1)``),
                 and ``jacobian`` is the coupled element Jacobian (shape ``(ndof_elem, ndof_elem)``).
         """
+
         # Compute thermal contribution:
         # l_t           -> scalar thermal loss
         # r_t           -> thermal residual vector (temperature DOFs only)
         # d_r_t_d_t     -> thermal tangent matrix w.r.t. temperature
-        l_t, r_t, d_r_t_d_t = self.ComputeElementThermal(xyze,
-                                                         de,
-                                                         tuvwe[self.elem_t_local_ids])
+        l_t, r_t, d_r_t_d_t = self.ComputeElementThermal(elem_var_dict)
         
         # Compute mechanical contribution:
         # l_m           -> scalar mechanical loss
         # r_m           -> mechanical residual vector (displacement DOFs only)
         # d_r_m_d_uvw   -> mechanical tangent matrix w.r.t. displacement
         # d_r_m_d_t     -> coupling tangent matrix w.r.t. temperature        
-        l_m, r_m, d_r_m_d_uvw, d_r_m_d_t = self.ComputeElementMechanical(xyze,
-                                                                         de,
-                                                                         tuvwe[self.elem_t_local_ids],
-                                                                         tuvwe[self.elem_uvw_local_ids],
-                                                                         t0e)
+        l_m, r_m, d_r_m_d_uvw, d_r_m_d_t = self.ComputeElementMechanical(elem_var_dict)
 
         # Initialize full element residual and Jacobian with zeros
         # Size is based on total number of element DOFs
-        re = jnp.zeros((tuvwe.shape[0],1))
-        ke = jnp.zeros((tuvwe.shape[0],tuvwe.shape[0]))
+        n_dofs = len(self.elem_dof_local_ids)
+        re = jnp.zeros((n_dofs,1))
+        ke = jnp.zeros((n_dofs,n_dofs))
 
         # Assemble mechanical stiffness block (displacement-displacement)
         ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_uvw_local_ids)].add(d_r_m_d_uvw)
