@@ -33,8 +33,8 @@ class MultiControl(Control):
     @partial(jit, static_argnums=(0,))
     def ComputeBatchControlledVariables(self,batch_variable_dict:dict[str, jnp.array]) -> None:
         batch_dict = {}
-        for control_name,control_vars in batch_variable_dict.items():
-            batch_dict[control_name] = self.controls_dict[control_name].ComputeBatchControlledVariables(control_vars)
+        for control_name,control in self.controls_dict.items():
+            batch_dict[control_name] = control.ComputeBatchControlledVariables(batch_variable_dict[control_name])
         return batch_dict
 
     @print_with_timestamp_and_execution_time

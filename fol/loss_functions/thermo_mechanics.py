@@ -141,8 +141,14 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 and ``tangent`` is the thermal tangent matrix (shape ``(nnode, nnode)``).
         """
 
+
         de = elem_var_dict["K"]
+
         te = elem_var_dict["T"]
+        te_mask = elem_var_dict["T_mask"]
+        te_mask_value = elem_var_dict["T_mask_value"]
+        te = (1.0-te_mask) * te + te_mask * te_mask_value
+
         xyze = elem_var_dict["XYZ"]
 
         de = jax.lax.stop_gradient(de.reshape(-1,1))
@@ -213,8 +219,31 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         """
         # Mechanics loss
         ke = elem_var_dict["K"].reshape(-1,1)
-        se = jnp.stack([elem_var_dict["Ux"], elem_var_dict["Uy"], elem_var_dict["Uz"]], axis=1).reshape(-1,1)
-        te = jax.lax.stop_gradient(elem_var_dict["T"].reshape(-1,1))
+
+        te = elem_var_dict["T"]
+        te_mask = elem_var_dict["T_mask"]
+        te_mask_value = elem_var_dict["T_mask_value"]
+        te = (1.0-te_mask) * te + te_mask * te_mask_value
+        te = jax.lax.stop_gradient(te.reshape(-1,1))
+
+        uxe = elem_var_dict["Ux"]
+        uxe_mask = elem_var_dict["Ux_mask"]
+        uxe_mask_value = elem_var_dict["Ux_mask_value"]
+        uxe = (1.0-uxe_mask) * uxe + uxe_mask * uxe_mask_value
+
+
+        uye = elem_var_dict["Uy"]
+        uye_mask = elem_var_dict["Uy_mask"]
+        uye_mask_value = elem_var_dict["Uy_mask_value"]
+        uye = (1.0-uye_mask) * uye + uye_mask * uye_mask_value
+
+        uze = elem_var_dict["Uz"]
+        uze_mask = elem_var_dict["Uz_mask"]
+        uze_mask_value = elem_var_dict["Uz_mask_value"]
+        uze = (1.0-uze_mask) * uze + uze_mask * uze_mask_value
+
+        se = jnp.stack([uxe, uye, uze], axis=1).reshape(-1,1)
+        
         te_init = jax.lax.stop_gradient(elem_var_dict["T0"].reshape(-1,1))
         xyze =  elem_var_dict["XYZ"]
 

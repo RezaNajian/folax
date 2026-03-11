@@ -8,7 +8,7 @@ create_clean_directory(working_directory_name)
 
 model_settings = {
     "L": 1,
-    "N": 22,  # number of elements per direction (mesh will have N+1 nodes per axis)
+    "N": 22,  # number of nodes per direction (mesh will have N nodes per axis)
 
     # Displacement BCs
     "Ux_left": 0.0, "Ux_right": 0.10,
@@ -19,16 +19,15 @@ model_settings = {
     "T_left": 0.5, "T_right": 0.0
 }
 
-from fol.tools.usefull_functions import create_3D_box_mesh
+from fol.tools.usefull_functions import create_3D_box_mesh_structured
 # creation of the mesh
-fe_mesh = create_3D_box_mesh(
+fe_mesh = create_3D_box_mesh_structured(
     Nx=model_settings["N"],
     Ny=model_settings["N"],
     Nz=model_settings["N"],
     Lx=model_settings["L"],
     Ly=model_settings["L"],
-    Lz=model_settings["L"],
-    case_dir=case_dir
+    Lz=model_settings["L"]
 )
 
 fe_mesh.Initialize()
@@ -45,6 +44,9 @@ bc_dict = {
     "Uy": {"left": model_settings["Uy_left"], "right": model_settings["Uy_right"]},
     "Uz": {"left": model_settings["Uz_left"], "right": model_settings["Uz_right"]},
 }
+
+
+
 
 # Initial temperature field (stored per node)
 initial_temp = np.full((1, fe_mesh.GetNumberOfNodes()), 1e-4)
@@ -75,10 +77,24 @@ thermomech_loss_3d = ThermoMechanicsLoss3DHexa(
 thermomech_loss_3d.Initialize()
 
 
+train_dr_bc_dict = {}
+for dof in thermomech_loss_3d.GetDOFs():
+    dof_mask = jnp.zeros(fe_mesh.GetNumberOfNodes())
+    dof_mask_values = jnp.zeros(fe_mesh.GetNumberOfNodes())    
+    train_dr_bc_dict[dof+"_mask"] = dof_mask
+    train_dr_bc_dict[dof+"_mask_value"] = dof_mask_values
+
+for dof,dof_dict in bc_dict.items():
+    for bc_name,bc_values in dof_dict.items():
+        dr_bc_node_ids = fe_mesh.GetNodeSet(bc_name)
+        train_dr_bc_dict[dof+"_mask"] = train_dr_bc_dict[dof+"_mask"].at[dr_bc_node_ids].set(1.0)
+        train_dr_bc_dict[dof+"_mask_value"] = train_dr_bc_dict[dof+"_mask_value"].at[dr_bc_node_ids].set(bc_values)
+
+
 import jax
 from fol.controls.fourier_control import FourierControl
 
-fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([0]),
+fourier_control_settings = {"x_freqs":np.array([2,4,6]),"y_freqs":np.array([2,4,6]),"z_freqs":np.array([2,4,6]),
                             "beta":20,"min":1e-1,"max":1}
 
 K_control = FourierControl("K",fourier_control_settings,fe_mesh)
@@ -103,10 +119,15 @@ K_coeffs = jax.random.normal(
     key, (num_sample, K_control.GetNumberOfVariables())
 )
 
+K_matrix =K_control.ComputeBatchControlledVariables(K_coeffs)
+
+
 initial_temps = jnp.full((fe_mesh.GetNumberOfNodes()), 1e-4)
 initial_temps = jnp.broadcast_to(initial_temps[None, ...], (num_sample,) + initial_temps.shape)
 
-train_batch_dict = multi_control.ComputeBatchControlledVariables({"K":K_coeffs,"T0":initial_temps})
+for key in train_dr_bc_dict.keys():
+    value = train_dr_bc_dict[key]
+    train_dr_bc_dict[key] = np.broadcast_to(value[None, ...], (num_sample,) + value.shape)
 
 from fol.deep_neural_networks.ported_fourier_neural_operator_networks.fno import FNO
 from flax import nnx
@@ -200,12 +221,8 @@ pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(
 
 pi_fno_pr_learning.Initialize()
 
-# exit()
-
-# test_set=({"K":K_coeffs,"T0":T0_coeffs},{"K":K_coeffs,"T0":T0_coeffs}),
-
 pi_fno_pr_learning.Train(
-    train_set=({"K":K_coeffs,"T0":initial_temps},),
+    train_set=({"K":K_coeffs,"T0":initial_temps},train_dr_bc_dict),
     test_frequency=100,
     batch_size=10,
     convergence_settings={
@@ -219,23 +236,7 @@ pi_fno_pr_learning.Train(
     data_model_sharding_settings={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":2}
 )
 
-exit()
-
-Ux = jnp.array([1, 2, 3])
-Uy = jnp.array([4, 5, 6])
-Uz = jnp.array([7, 8, 9])
-
-U = jnp.stack([Ux, Uy, Uz], axis=1).reshape(-1)
-print(U)
-
-exit()
-from IPython.display import Image, display
-display(Image(filename=os.path.join(case_dir,f'training_history.png')))
-
-
-
 pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir + "/flax_final_state")
-
 
 
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
@@ -263,115 +264,76 @@ nonlinear_fe_solver = FiniteElementNonLinearResidualBasedSolver(
 nonlinear_fe_solver.Initialize()
 
 
+FOL_TUVW = (pi_fno_pr_learning.Predict({"K":K_coeffs,"T0":initial_temps,**train_dr_bc_dict}))
 
-visualization_set_dict = {"train":[100,200],"test":[600,700]}
+# print(FOL_TUVW.keys())
+
+# exit()
+
+visualization_set_dict = {"train":[10,20]}
 
 for set_name,ids in visualization_set_dict.items():
     for id in ids:
 
-        # Store K field on the mesh 
-        pv_mesh.point_data[f'train conductitivty K {id}'] = np.array(K_matrix[id, :]).reshape(-1, 1)
+        print(f"set_name:{set_name},id:{id}")
+
+        # # Store K field on the mesh 
+        fe_mesh[f'K_{id}'] = np.array(K_matrix[id, :]).reshape(-1, 1)
 
 
-        # --- PI-FNO prediction ---
-        FOL_TUVW = np.array(
-            pi_fno_pr_learning.Predict(np.array(K_matrix[id, :]).reshape(1, -1))
-        )  # shape (1, num_nodes*4) or similar depending on implementation
-
-        # Store predicted primary fields
-        pv_mesh.point_data[f'FOL_T_{id}'] = FOL_TUVW.reshape((-1, 4))[:, 0].flatten()
-        pv_mesh.point_data[f'FOL_U_{id}'] = FOL_TUVW.reshape((-1, 4))[:, 1].flatten()
-
-        # Derived quantities from prediction
-        pv_mesh.point_data[f'FOL_Stress_{id}'] = np.array(
-            thermomech_loss_3d.ComputeStress(
-                np.array(K_matrix[id, :]).flatten(),
-                FOL_TUVW
-            )
-        )
-
-        pv_mesh.point_data[f'FOL_Heat_Flux{id}'] = np.array(
-            thermomech_loss_3d.ComputeHeatFlux(
-                np.array(K_matrix[id, :]).flatten(),
-                FOL_TUVW.reshape((-1, 4))[:, 0].flatten()  # temperature channel
-            )
-        )
-
-        # --- FE reference solve ---
-        # Initial guess for (T,Ux,Uy,Uz) stacked vector
-        x0 = np.zeros((fe_mesh.GetNumberOfNodes() * 4,))
-
-        FE_TUVW = np.array(
-            nonlinear_fe_solver.Solve(np.array(K_matrix[id, :]).flatten(), x0)
-        )
-
-        pv_mesh.point_data[f'FE_T_{id}'] = FE_TUVW.reshape((-1, 4))[:, 0].flatten()
-        pv_mesh.point_data[f'FE_U_{id}'] = FE_TUVW.reshape((-1, 4))[:, 1].flatten()
-
-        pv_mesh.point_data[f'FE_Stress_{id}'] = np.array(
-            thermomech_loss_3d.ComputeStress(
-                np.array(K_matrix[id, :]).flatten(),
-                FE_TUVW.reshape((-1, 4))[:, 0].flatten()
-            )
-        )
-
-        pv_mesh.point_data[f'FE_Heat_Flux{id}'] = np.array(
-            thermomech_loss_3d.ComputeHeatFlux(
-                np.array(K_matrix[id, :]).flatten(),
-                FE_TUVW.reshape((-1, 4))[:, 0].flatten()  # temperature channel
-            )
-        )
+        fe_mesh[f'T_{id}'] = np.array(FOL_TUVW["T"][id, :]).reshape(-1, 1)
+        fe_mesh[f'Ux_{id}'] = np.array(FOL_TUVW["Ux"][id, :]).reshape(-1, 1)
+        fe_mesh[f'Uy_{id}'] = np.array(FOL_TUVW["Uy"][id, :]).reshape(-1, 1)
+        fe_mesh[f'Uz_{id}'] = np.array(FOL_TUVW["Uz"][id, :]).reshape(-1, 1)
 
 
+        # # --- PI-FNO prediction ---
+        # FOL_TUVW = np.array(
+        #     pi_fno_pr_learning.Predict(np.array(K_matrix[id, :]).reshape(1, -1))
+        # )  # shape (1, num_nodes*4) or similar depending on implementation
 
-# Select sample ID and dataset split
-visualization_id = 100
-set_name = "train"
+        # # Store predicted primary fields
+        # pv_mesh.point_data[f'FOL_T_{id}'] = FOL_TUVW.reshape((-1, 4))[:, 0].flatten()
+        # pv_mesh.point_data[f'FOL_U_{id}'] = FOL_TUVW.reshape((-1, 4))[:, 1].flatten()
 
-# Fields arranged as:
-# Row 1 → FOL results (K, T, U, Heat Flux)
-# Row 2 → FE results  (K, T, U, Heat Flux)
-fields = [
-    f'{set_name} conductitivty K {visualization_id}',
-    f'FOL_T_{visualization_id}',
-    f'FOL_U_{visualization_id}',
-    f'FOL_Heat_Flux{visualization_id}',
-    f'{set_name} conductitivty K {visualization_id}',
-    f'FE_T_{visualization_id}',
-    f'FE_U_{visualization_id}',
-    f'FE_Heat_Flux{visualization_id}'
-]
+        # # Derived quantities from prediction
+        # pv_mesh.point_data[f'FOL_Stress_{id}'] = np.array(
+        #     thermomech_loss_3d.ComputeStress(
+        #         np.array(K_matrix[id, :]).flatten(),
+        #         FOL_TUVW
+        #     )
+        # )
 
-# Create 2×4 subplot layout
-plotter = pv.Plotter(shape=(2, 4), window_size=(1800, 900))
+        # pv_mesh.point_data[f'FOL_Heat_Flux{id}'] = np.array(
+        #     thermomech_loss_3d.ComputeHeatFlux(
+        #         np.array(K_matrix[id, :]).flatten(),
+        #         FOL_TUVW.reshape((-1, 4))[:, 0].flatten()  # temperature channel
+        #     )
+        # )
 
-for idx, field in enumerate(fields):
-    row = idx // 4
-    col = idx % 4
-    plotter.subplot(row, col)
+        # # --- FE reference solve ---
+        # # Initial guess for (T,Ux,Uy,Uz) stacked vector
+        # x0 = np.zeros((fe_mesh.GetNumberOfNodes() * 4,))
 
-    # Plot mesh colored by current field
-    plotter.add_mesh(
-        pv_mesh.copy(),      # avoid scalar carry-over
-        scalars=field,
-        show_edges=False,
-        scalar_bar_args=dict(
-            vertical=True,
-            position_x=0.015,
-            position_y=0.01,
-            height=0.5,
-            width=0.1,
-            label_font_size=12,
-            title_font_size=1  # hide title
-        )
-    )
+        # FE_TUVW = np.array(
+        #     nonlinear_fe_solver.Solve(np.array(K_matrix[id, :]).flatten(), x0)
+        # )
 
-    plotter.add_text(field, font_size=8)
+        # pv_mesh.point_data[f'FE_T_{id}'] = FE_TUVW.reshape((-1, 4))[:, 0].flatten()
+        # pv_mesh.point_data[f'FE_U_{id}'] = FE_TUVW.reshape((-1, 4))[:, 1].flatten()
 
-# Render figure
-plotter.show()
+        # pv_mesh.point_data[f'FE_Stress_{id}'] = np.array(
+        #     thermomech_loss_3d.ComputeStress(
+        #         np.array(K_matrix[id, :]).flatten(),
+        #         FE_TUVW.reshape((-1, 4))[:, 0].flatten()
+        #     )
+        # )
 
+        # pv_mesh.point_data[f'FE_Heat_Flux{id}'] = np.array(
+        #     thermomech_loss_3d.ComputeHeatFlux(
+        #         np.array(K_matrix[id, :]).flatten(),
+        #         FE_TUVW.reshape((-1, 4))[:, 0].flatten()  # temperature channel
+        #     )
+        # )
 
 fe_mesh.Finalize(export_dir=case_dir)
-
-
