@@ -125,7 +125,7 @@ fno_model = FNO(
     lifting_channel_ratio=fno_dict["lifting_channel_ratio"],
     projection_channel_ratio=fno_dict["projection_channel_ratio"],
     rngs=nnx.Rngs(0),
-    parameter_embedding = False
+    parameter_embedding = True
 )
 
 # Count trainable parameters 

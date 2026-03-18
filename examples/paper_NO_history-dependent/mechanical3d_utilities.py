@@ -632,7 +632,7 @@ def von_mises_plot(model_pred,ground_truth,error,steps,N,case_id,case_dir,filena
 
         # Row 1
         im0 = axs[0, col].imshow(field_model, cmap='viridis',
-                                vmin=vmin_model, vmax=vmax_model)
+                                vmin=vmin_fft, vmax=vmax_fft)
         axs[0, col].set_title(f"Strain {start_id+col+1}%", fontsize=10)
         axs[0, col].set_xticks([]); axs[0, col].set_yticks([])
 
@@ -995,7 +995,7 @@ def radial_power_spectrum_plot(
 
 
 
-def rollout(model, x0, steps, N, C, w, case_dir):
+def rollout(model, x0, steps, N, Cout, w, delta, case_dir):
     """
     Autoregressive rollout with window.
 
@@ -1009,7 +1009,7 @@ def rollout(model, x0, steps, N, C, w, case_dir):
         Number of rollout steps
     N : int
         Grid size
-    C : int
+    Cout : int
         Channels per time step || Ouput Channels
     w : int
         Window length
@@ -1017,30 +1017,39 @@ def rollout(model, x0, steps, N, C, w, case_dir):
     Returns
     -------
     outputs : ndarray
-        Shape (steps, N*N*w*C)
+        Shape (steps, N, N, w*C)
     """
 
-    Cin = w * C
+    Cin = w * Cout
     x = x0.copy()
     outputs = []
     for _ in range(steps):
         # 1) Reshape to grid
+        print(f"x shape: {x.shape}")
         x_grid = x.reshape(N, N, Cin)
         
         # 2) Extract last time slice u^t
-        u_t = x_grid[:, :, -C:]                                     # (N, N, C)
+        u_t = x_grid[:, :, -Cout:]                                     # (N, N, C)
 
         # 3) Predict increment Δu
-        dx = model.Predict(x.reshape(-1, 1).T).reshape(-1).reshape(N,N,C)            # (N, N, C)
+        dx = model.Predict(x.reshape(-1, 1).T).reshape(-1).reshape(N,N,Cout)            # (N, N, C)
 
-        # 4) Compute next state
-        u_next = u_t + dx                                           # (N, N, C)
+        if delta:
+            # 4) Compute next state
+            u_next = u_t + dx                                           # (N, N, C)
+        else:
+            u_next = dx
 
-        # 5) Drop oldest time slice
-        x_grid_new = x_grid[:, :, C:]                               # remove first C channels
+        if w != 1:
+            # 5) Drop oldest time slice
+            x_grid_new = x_grid[:, :, Cout:]                               # remove first C channels
 
-        # 6) Append new time slice
-        x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (N, N, w*C)
+            # 6) Append new time slice
+            x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (N, N, w*C)
+        else:
+
+            # 6) Append new time slice
+            x_grid_new = u_next   # (N, N, w*C)
 
         # 7) Flatten for next iteration
         x = x_grid_new.reshape(-1)
@@ -1082,7 +1091,7 @@ def plot_to_check(train_set,N,window_lenght, channel_length,indices,case_dir,plo
         plt.close()
 
 
-def batch_rollout(model, x0, steps, N, C, w, case_dir):
+def batch_rollout(model, x0, steps, N, Cout, w, delta, case_dir):
     """
     Autoregressive rollout with window.
 
@@ -1096,7 +1105,7 @@ def batch_rollout(model, x0, steps, N, C, w, case_dir):
         Number of rollout steps
     N : int
         Grid size
-    C : int
+    Cout : int
         Channels per time step || Ouput Channels
     w : int
         Window length
@@ -1107,7 +1116,7 @@ def batch_rollout(model, x0, steps, N, C, w, case_dir):
         Shape (steps, B, N*N*w*C)
     """
 
-    Cin = w * C
+    Cin = w * Cout
     x = x0.copy()
     outputs = []
     B = x0.shape[0]
@@ -1117,19 +1126,36 @@ def batch_rollout(model, x0, steps, N, C, w, case_dir):
         x_grid = x.reshape(B, N, N, Cin)
         
         # 2) Extract last time slice u^t
-        u_t = x_grid[:, :, :, -C:]                                     # (B, N, N, C)
+        u_t = x_grid[:, :, :, -Cout:]                                     # (B, N, N, C)
 
         # 3) Predict increment Δu
-        dx = model.Predict(x.reshape(B,-1)).reshape(-1).reshape(B,N,N,C)            # (B, N, N, C)
+        dx = model.Predict(x.reshape(B,-1)).reshape(-1).reshape(B,N,N,Cout)            # (B, N, N, C)
 
-        # 4) Compute next state
-        u_next = u_t + dx                                           # (B, N, N, C)
+        # # 4) Compute next state
+        # u_next = u_t + dx                                           # (B, N, N, C)
 
-        # 5) Drop oldest time slice
-        x_grid_new = x_grid[:, :, :, C:]                               # remove first C channels
+        if delta:
+            # 4) Compute next state
+            u_next = u_t + dx                                           # (B, N, N, C)
+        else:
+            u_next = dx
 
-        # 6) Append new time slice
-        x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (B, N, N, w*C)
+        if w != 1:
+            # 5) Drop oldest time slice
+            x_grid_new = x_grid[:, :, :, Cout:]                               # remove first C channels
+
+            # 6) Append new time slice
+            x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (B, N, N, w*C)
+        else:
+
+            # 6) Append new time slice
+            x_grid_new = u_next   # (B, N, N, w*C)
+
+        # # 5) Drop oldest time slice
+        # x_grid_new = x_grid[:, :, :, C:]                               # remove first C channels
+
+        # # 6) Append new time slice
+        # x_grid_new = np.concatenate([x_grid_new, u_next],axis=-1)   # (B, N, N, w*C)
 
         # 7) Flatten for next iteration
         x = x_grid_new.reshape(-1)
@@ -1138,13 +1164,13 @@ def batch_rollout(model, x0, steps, N, C, w, case_dir):
 
     return np.array(outputs)
 
-def error_time_plot_(error_data_dict,which_channel,w,filename,case_dir):
+def error_time_plot_pointwise(error_data_dict,which_channel,w,filename,case_dir):
     # -----------------------------
     # Parameters
     # -----------------------------
     channel = which_channel          # von Mises
     step = 0             # choose which step to visualize
-    show_log = False     # optional
+    show_log = True     # optional
 
     # -----------------------------
     # Extract data
@@ -1172,9 +1198,54 @@ def error_time_plot_(error_data_dict,which_channel,w,filename,case_dir):
         box_data.append(data.reshape(-1))                # (B*N*N,)
     final_step = int(w + len(steps))
     plt.figure(figsize=(12, 5))
-    plt.boxplot(box_data, positions=np.arange(w,final_step), showfliers=False)
+    plt.boxplot(box_data, positions=np.arange(w+1,final_step+1), showfliers=False)
     plt.xlabel("Time step")
-    plt.ylabel("Error (von Mises)")
+    plt.ylabel("Pointwise Error (von Mises)")
+    plt.title("Error evolution over time")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(case_dir, f'{filename}.png'), dpi=300)
+    plt.close()
+
+def error_time_plot_mae(error_data_dict,which_physics:str,w,filename,case_dir):
+    # -----------------------------
+    # Parameters
+    # -----------------------------
+    channel = 0 if which_physics.lower() in ['von_mises','von mises', 'vonmises'] else np.arange(1,5)     # von Mises
+    step = 0             # choose which step to visualize
+    show_log = True     # optional
+
+    # -----------------------------
+    # Extract data
+    # -----------------------------
+    data = error_data_dict[f"step_{step}"]     # (B, N, N, C)
+    data_c = data[..., channel]                # (B, N, N)
+
+    B, N, _ = data_c.shape
+
+    # Flatten spatial dimensions
+    data_flat = data_c.reshape(B, -1)           # (B, N*N)
+
+    if show_log:
+        data_flat = np.log10(data_flat + 1e-12)
+
+    # -----------------------------
+    # Box plot
+    # -----------------------------
+    box_data = []
+
+    steps = sorted(error_data_dict.keys(), key=lambda x: int(x.split('_')[1]))
+
+    for step_key in steps:
+        data = np.mean(error_data_dict[step_key][..., channel],axis=(1,2))   # (B, N, N)
+
+        assert data.shape == (B,)
+        box_data.append(data.reshape(-1))                # (B,)
+    final_step = int(w + len(steps))
+    plt.figure(figsize=(12, 5))
+    plt.boxplot(box_data, positions=np.arange(w+1,final_step+1), showfliers=False)
+    plt.xlabel("Time step")
+    plt.ylabel("MAE Error (von Mises)")
     plt.title("Error evolution over time")
     plt.grid(alpha=0.3)
     plt.tight_layout()
@@ -1284,52 +1355,116 @@ def data_loader_hdf5(which:str='von_Mises_stress',sim_id:int=0,increment:int=75,
         
         return data, {"sim_id": sim_id, "increment":increment, "data":which, "max":np.max(data), "min":np.min(data)}
     
+from typing import Tuple, List
 
-def create_autoregressive_set(window_length:int, sim_ids:Tuple[int,int], increments:list[int], which_data:list[str], N:int=128, excluded_idx:list[int]=None,
-                              path:str="Cu_textured_dataset.hdf5", dtype:np.dtype=np.float64, normalize:bool= True | False):
-    
+def create_autoregressive_set(
+    window_length: int,
+    sim_ids: Tuple[int, int],
+    increments: List[int],
+    which_data: List[str],
+    N: int = 128,
+    excluded_idx: List[int] | None = None,
+    path: str = "Cu_textured_dataset.hdf5",
+    dtype: np.dtype = np.float64,
+    normalize: bool = True,
+):
     excluded_idx = excluded_idx or []
-    valid_sim_ids = [s for s in range(*sim_ids) if s not in excluded_idx]
-    sim_len = len(valid_sim_ids)
-    time_steps = len(increments) - window_length
-    x_data_all = np.zeros((sim_len*time_steps,N*N,len(which_data)*window_length),dtype=dtype)
-    y_data_all = np.zeros((sim_len*time_steps,N*N,len(which_data)),dtype=dtype)
-    x_aux_all = []
-    y_aux_all = []
-    for incr in range(time_steps):
-        for sim_index, sim_id in enumerate(valid_sim_ids):
-            for w in range(window_length):
-                for channel_id, which in enumerate(which_data):
-                    
-                    sample_id = incr * sim_len + sim_index
-                    channel = w * len(which_data) + channel_id
+    valid_sim_ids = np.array([s for s in range(*sim_ids) if s not in excluded_idx])
 
-                    x_arr, _ = data_loader_hdf5(which,sim_id,increments[incr+w],path,excluded_idx=[])
-                    assert x_arr.shape[:2] == (N, N)
-                    x_data_all[sample_id,:,channel] = x_arr.flatten()
+    num_sim = len(valid_sim_ids)
+    num_t = len(increments) - window_length
+    num_w = window_length
+    num_c = len(which_data)
 
-                    # x_aux_all.append(x_aux_dict)
-                    if w == 0:
-                        y_arr, _ = data_loader_hdf5(which,sim_id,increments[incr+window_length],path,excluded_idx=[])
-                        assert y_arr.shape[:2] == (N, N)
-                        y_data_all[sample_id,:,channel_id] = y_arr.flatten()
-                        # y_aux_all.append(y_aux_dict)
+    num_samples = num_sim * num_t
 
-    
+    x_data_all = np.zeros(
+        (num_samples, N * N, num_w * num_c), dtype=dtype
+    )
+    y_data_all = np.zeros(
+        (num_samples, N * N, num_c), dtype=dtype
+    )
+
+    # ------------------------------------------------------------------
+    # HDF5 cache (critical for performance)
+    # ------------------------------------------------------------------
+    frame_cache = {}
+
+    def load_frame(which, sim_id, incr):
+        key = (which, sim_id, incr)
+        if key not in frame_cache:
+            arr, _ = data_loader_hdf5(
+                which, sim_id, incr, path, excluded_idx=[]
+            )
+            frame_cache[key] = arr.astype(dtype)
+        return frame_cache[key]
+
+    # ------------------------------------------------------------------
+    # Flat index table
+    # ------------------------------------------------------------------
+    incr_idx, sim_idx, w_idx, c_idx = np.meshgrid(
+        np.arange(num_t),
+        np.arange(num_sim),
+        np.arange(num_w),
+        np.arange(num_c),
+        indexing="ij",
+    )
+
+    incr_idx = incr_idx.ravel()
+    sim_idx = sim_idx.ravel()
+    w_idx = w_idx.ravel()
+    c_idx = c_idx.ravel()
+
+    # ------------------------------------------------------------------
+    # Single loop
+    # ------------------------------------------------------------------
+    for i in range(len(incr_idx)):
+        incr = incr_idx[i]
+        sim = valid_sim_ids[sim_idx[i]]
+        w = w_idx[i]
+        c = c_idx[i]
+        which = which_data[c]
+
+        sample_id = incr * num_sim + sim_idx[i]
+        channel = w * num_c + c
+
+        x_arr = load_frame(which, sim, increments[incr + w])
+        x_data_all[sample_id, :, channel] = x_arr.reshape(-1)
+
+        if w == 0:
+            y_arr = load_frame(
+                which, sim, increments[incr + window_length]
+            )
+            y_data_all[sample_id, :, c] = y_arr.reshape(-1)
+
+    # ------------------------------------------------------------------
+    # Normalization (correct & vectorized)
+    # ------------------------------------------------------------------
     if normalize:
-        C = len(which_data)
-        x_view = x_data_all.reshape(x_data_all.shape[0], N, N, window_length, C)
+        x_view = x_data_all.reshape(num_samples, N, N, num_w, num_c)
+        y_view = y_data_all.reshape(num_samples, N, N, num_c)
+
         x_scale = np.max(np.abs(x_view), axis=(0, 1, 2, 3))
-        y_view = y_data_all.reshape(y_data_all.shape[0], N, N, C)
         y_scale = np.max(np.abs(y_view), axis=(0, 1, 2))
+
         scales = np.maximum(x_scale, y_scale)
         scales[scales == 0] = 1.0
 
-        x_data_all = (x_view / scales[None, None, None, None, :]).reshape(x_data_all.shape)
-        y_data_all = (y_view / scales[None, None, None, :]).reshape(y_data_all.shape)
+        x_data_all = (
+            x_view / scales[None, None, None, None, :]
+        ).reshape(x_data_all.shape)
+
+        y_data_all = (
+            y_view / scales[None, None, None, :]
+        ).reshape(y_data_all.shape)
     else:
-        scales = np.ones((1,C))
-    return x_data_all.reshape(x_data_all.shape[0], -1), y_data_all.reshape(y_data_all.shape[0], -1), scales
+        scales = np.ones((num_c,), dtype=dtype)
+
+    return (
+        x_data_all.reshape(num_samples, -1),
+        y_data_all.reshape(num_samples, -1),
+        scales,
+    )
 
 def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_data:list[str], N:int=128, excluded_idx:list[int]=None,
                               path:str="Cu_textured_dataset.hdf5", dtype:np.dtype=np.float64,normalize:bool=True | False):
@@ -1413,6 +1548,9 @@ def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_
 
 def gt_loader(which_data:list[str],sim_id:int,increments:list[int],path:str,excluded_idx:list[int],N:int):
     
+    """
+    ``sim_id``: absolute simulation id
+    """
     assert sim_id not in excluded_idx, f'simulation id is missing! please pick another!'
     time_steps = len(increments)
     channels = len(which_data)

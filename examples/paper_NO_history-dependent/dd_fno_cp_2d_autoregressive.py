@@ -16,15 +16,19 @@ from mechanical3d_utilities import *
 
 
 # directory & save handling
-working_directory_name = 'nn_output_fno_cp_2d_autoregressive'
+working_directory_name = 'nn_output_fno_cp_2d_autoregressive_incremental_w1_reload_zssr'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # loading directory
+loading_nn_directory_name = 'nn_output_fno_cp_2d_autoregressive_w1'
+nn_load_case_dir = os.path.join('.', loading_nn_directory_name)
 loading_directory_name = 'nn_output_gt_cp'
 load_case_dir = os.path.join(os.path.dirname(__file__), loading_directory_name)
 path = os.path.join(load_case_dir, 'Cu_textured_dataset.hdf5')
+path_256 = os.path.join(load_case_dir, 'Cu_simulations_quaternion_orientation_256_20.hdf5')
+path_incr_24 = os.path.join(load_case_dir, 'Cu_simulations_quaternion_orientation_5.hdf5')
 
 # problem setup
 model_settings = {"L":1,"N":128,
@@ -38,11 +42,14 @@ fe_mesh.Initialize()
 
 # load data and create train set
 N = model_settings["N"]
-w = 3   # window length
+w = 1   # window length
 increments=list(range(75,975,75))
 time_steps = len(increments)
-excluded_idx=[264, 286, 484, 982, 1480, 1572, 1686, 1732, 1840, 2246, 2481]
-train_sim_ids, val_sim_ids, test_sim_ids = (0,2009),(2009,2254),(2254,2499)
+print(f"time steps: {time_steps}")
+# excluded_idx=[264, 286, 484, 982, 1480, 1572, 1686, 1732, 1840, 2246, 2481]
+excluded_idx = []
+# train_sim_ids, val_sim_ids, test_sim_ids = (2480,2500),(2480,2500),(2480,2500)   #(2254,2499)
+train_sim_ids, val_sim_ids, test_sim_ids = (0,20),(0,20),(0,20)
 
 # which_data = ["orientations"]
 which_data=["von_Mises_stress", "gamma_slip_(-1-11)", "gamma_slip_(-11-1)", "gamma_slip_(1-1-1)", "gamma_slip_(111)"]
@@ -62,7 +69,7 @@ X_test, Y_test, _ = create_autoregressive_set(window_length=w, sim_ids=test_sim_
 Cin = int(X_train[0,...].size / (N*N))
 Cout = int(Y_train[0,...].size / (N*N))
 
-delta = True
+delta = False
 if delta:
     Y_train_delta = Y_train.reshape(X_train.shape[0],N,N,Cout) - X_train.reshape(X_train.shape[0],N,N,Cin)[:,:,:,-Cout:]
     Y_val_delta = Y_val.reshape(X_val.shape[0],N,N,Cout) - X_val.reshape(X_val.shape[0],N,N,Cin)[:,:,:,-Cout:]
@@ -73,8 +80,8 @@ if delta:
     Y_test_delta = Y_test_delta.reshape(X_test.shape[0],-1)
 
 # plot some data to check
-plot_to_check(X_train,N,window_lenght=w, channel_length=Cout, indices=[0,98,196], case_dir=case_dir,plot_name='train')
-plot_to_check(Y_test,N,window_lenght=1, channel_length=Cout, indices=[0,98,196], case_dir=case_dir,plot_name='test')
+plot_to_check(X_train,N,window_lenght=w, channel_length=Cout, indices=[0,9,18], case_dir=case_dir,plot_name='X_test')
+plot_to_check(Y_train,N,window_lenght=1, channel_length=Cout, indices=[0,9,18], case_dir=case_dir,plot_name='Y_test')
 
 output_nodal_unknowns = which_data
 input_nodal_unknowns = which_data * w
@@ -114,7 +121,8 @@ fno_model = FNO(
     lifting_channel_ratio=fno_dict["lifting_channel_ratio"],
     projection_channel_ratio=fno_dict["projection_channel_ratio"],
     rngs=nnx.Rngs(0),
-    parameter_embedding = False
+    parameter_embedding = False,
+    resolution_scaling_factor=1 #model_settings["N"]
 )
 
 # Count trainable parameters 
@@ -128,7 +136,7 @@ print(f"FNO trainable parameters:{total_params}")
 init_out = fno_model(X_train[0:8].reshape(8,model_settings["N"],model_settings["N"],len(input_nodal_unknowns)))
 
 
-num_epochs = 2000
+num_epochs = 1
 lr = 1e-5
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=lr, transition_steps=num_epochs)
 optimizer = optax.chain(optax.adam(learning_rate_scheduler))
@@ -155,19 +163,25 @@ val_end_id = (time_steps - w - 2) * val_time_interval
 test_start_id = 0
 test_end_id = 10
 batch_size = 8
-dd_fno_pr_learning.Train(train_set=(X_train[train_start_id:train_end_id,:],Y_train[train_start_id:train_end_id,:]),
-                        test_set=(X_val[val_start_id:val_end_id,:],Y_val[val_start_id:val_end_id,:]),
-                        batch_size=batch_size,
-                        restore_nnx_state_settings={'restore':False, "state_directory":case_dir+"/flax_train_state"},
-                        convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                        plot_settings={"save_frequency":10},
-                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-                        test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
-                        data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
-                        working_directory=case_dir)
+if delta:
+    train_set = (X_train[train_start_id:train_end_id,:],Y_train_delta[train_start_id:train_end_id,:])
+    test_set = (X_val[val_start_id:val_end_id,:],Y_val_delta[val_start_id:val_end_id,:])
+else:
+    train_set = (X_train[train_start_id:train_end_id,:],Y_train[train_start_id:train_end_id,:])
+    test_set = (X_val[val_start_id:val_end_id,:],Y_val[val_start_id:val_end_id,:])
+# dd_fno_pr_learning.Train(train_set=train_set,
+#                         test_set=test_set,
+#                         batch_size=batch_size,
+#                         restore_nnx_state_settings={'restore':True, "state_directory":nn_load_case_dir+"/flax_train_state"},
+#                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+#                         plot_settings={"save_frequency":10},
+#                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+#                         test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+#                         data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
+#                         working_directory=case_dir)
 
 # load the best model
-dd_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_final_state")
+dd_fno_pr_learning.RestoreState(restore_state_directory=nn_load_case_dir+"/flax_train_state")
 
 # ----------------------------------------------------------------------------
 # Plot Prediction vs Ground Truth values 
@@ -180,10 +194,10 @@ time_interval = len(np.setdiff1d(np.arange(train_sim_ids[0],train_sim_ids[1]),
                                  np.array(excluded_idx)))  # is equal to the number of simulations
 print(f"plot for train set--time interval is: {time_interval}")
 
-for case_id in [0, 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
+for case_id in [0,1,2,3]:   # 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
 
     x0 = X_train[case_id, :]
-    fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, C=Cout, w=w, case_dir=case_dir)
+    fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
     gt_sol = Y_train[case_id::time_interval,:]
 
     if i==0:
@@ -191,7 +205,7 @@ for case_id in [0, 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/t
     else:
         scale_factor = scales[1:]
     model_vm_pred = scale_factor * fno_sol[:,:,:,0].reshape(fno_sol.shape[0],-1)
-    gt_vm = gt_sol[:,::Cout]
+    gt_vm = scale_factor * gt_sol[:,::Cout]
     abs_err = np.abs(model_vm_pred.reshape(fno_sol.shape[0],-1) - gt_vm.reshape(fno_sol.shape[0],-1))
 
     for eval_id in range((time_steps - w)):
@@ -212,10 +226,10 @@ time_interval = len(np.setdiff1d(np.arange(test_sim_ids[0],test_sim_ids[1]),
                                  np.array(excluded_idx)))  # is equal to the number of simulations
 print(f"plot for test set--time interval is: {time_interval}")
 
-for case_id in [2258, 2298, 2302, 2345, 2379, 2421, 2462, 2492]:   # less than train_/test_sim_ids
+for case_id in [4,5,6,7,9,15,18]:   # less than train_/test_sim_ids
 
     x0 = X_test[case_id, :]
-    fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, C=Cout, w=w, case_dir=case_dir)
+    fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
     gt_sol = Y_test[case_id::time_interval,:]
 
     if i==0:
@@ -223,7 +237,7 @@ for case_id in [2258, 2298, 2302, 2345, 2379, 2421, 2462, 2492]:   # less than t
     else:
         scale_factor = scales[1:]
     model_vm_pred = scale_factor * fno_sol[:,:,:,0].reshape(fno_sol.shape[0],-1)
-    gt_vm = gt_sol[:,::Cout]
+    gt_vm = scale_factor * gt_sol[:,::Cout]
     abs_err = np.abs(model_vm_pred.reshape(fno_sol.shape[0],-1) - gt_vm.reshape(fno_sol.shape[0],-1))
 
     for eval_id in range((time_steps - w)):
@@ -273,7 +287,7 @@ test_sim_length = len(np.setdiff1d(np.arange(test_sim_ids[0],test_sim_ids[1]),
 print(f"x0 shape: {X_test[:test_sim_length,:].shape}")
 print(f"steps: {(time_steps - w)} , N: {N}, C: {Cout}, w: {w}")
 batched_pred_rollout = batch_rollout(model=dd_fno_pr_learning, x0=X_test[:test_sim_length,:], 
-                                        steps=(time_steps - w), N=N, C=Cout, w=w, case_dir=case_dir)
+                                        steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
 
 # reshape ground truth (steps, Batch size, N*N*C)   Note: C=Cout
 B = test_sim_length
@@ -281,22 +295,27 @@ B = test_sim_length
 batched_Y_test = Y_test.copy()
 batched_Y_test = batched_Y_test.reshape((time_steps - w),B,N,N,Cout)
 
+# denormalize
+batched_pred_rollout_denorm =  scales * batched_pred_rollout
+batched_Y_test_denorm = scales * batched_Y_test
+
 # compute error for each time steps
 abs_error_for_step = []
 for step in range(time_steps - w):
-    abs_error_for_step.append(np.abs(batched_pred_rollout[step,:] - batched_Y_test[step,:]))        # shape= (B, N*N*C)
+    abs_error_for_step.append(np.abs(batched_pred_rollout_denorm[step,:,:,:,:] - batched_Y_test_denorm[step,:,:,:,:]))        # shape= (B, N,N,C)
 error_steps_array = np.array(abs_error_for_step)
 
 error_data_dict = {}
 pred_data_dict = {}
 test_data_dict = {}
 for step in range(time_steps - w):
-    error_data_dict[f"step_{step}"] = error_steps_array[step,:]
-    pred_data_dict[f"step_{step}"] = batched_pred_rollout[step,:]
-    test_data_dict[f"step_{step}"] = batched_Y_test[step,:]
+    error_data_dict[f"step_{step}"] = error_steps_array[step,:,:,:,:]
+    pred_data_dict[f"step_{step}"] = batched_pred_rollout_denorm[step,:,:,:,:]
+    test_data_dict[f"step_{step}"] = batched_Y_test_denorm[step,:,:,:,:]
 
 
-error_time_plot_(error_data_dict,which_channel=0,w=3,filename='boxplot_error_in_time.png',case_dir=case_dir)
+error_time_plot_pointwise(error_data_dict,which_channel=0,w=w,filename='boxplot_error_in_time_pointwise.png',case_dir=case_dir)
+error_time_plot_mae(error_data_dict,which_physics='von_mises',w=w,filename='boxplot_error_in_time_mae.png',case_dir=case_dir)
 
 
 with open(case_dir+f'/error_data_dict.pkl', 'wb') as f:
