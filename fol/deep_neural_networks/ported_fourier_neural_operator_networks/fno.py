@@ -207,8 +207,9 @@ class FNO(nnx.Module):
         separable: bool = False,
         preactivation: bool = False,
         conv_module: nnx.Module = SpectralConv,
-        L: int = 4,
-        parameter_embedding: str= None,
+        constant_parameter_index: List[int] = None,
+        constant_param_embedding: dict = {"num_frequencies":4,"embedding_type":"nerf",    # "nerf" or "transformer" 
+                                         "modulation":"amplitude"},     # "frequency" or "amplitude"
         *,
         rngs: nnx.Rngs
     ):
@@ -246,6 +247,9 @@ class FNO(nnx.Module):
         self.complex_data = complex_data
         self.fno_block_precision = fno_block_precision
 
+        # Constant Parameter Embedding
+        self.constant_parameter_index = constant_parameter_index
+
         ## Positional embedding
         if positional_embedding == "grid":
             spatial_grid_boundaries = [[0.0, 1.0]] * self.n_dim
@@ -265,15 +269,11 @@ class FNO(nnx.Module):
             )
 
         ## Constant parameter embedding
-        # self.param_embedding = None
-        if parameter_embedding is not None:
-            self.param_embedding = SinusoidalEmbedding(
-                in_channels=self.n_dim,
-                num_frequencies=L,
-                embedding_type="nerf",    # "nerf" or "transformer"
-                modulation="amplitude",   # "frequency" or "amplitude"
-                )
-
+        if constant_parameter_index is not None and len(constant_parameter_index) > 0:
+            assert isinstance(constant_parameter_index, list), f"constant_parameter_index type should be List"
+            self.param_embedding = SinusoidalEmbedding(in_channels=self.n_dim, **constant_param_embedding)
+        else:
+            self.param_embedding = None
         ## Domain padding
         if domain_padding is not None and (
             (isinstance(domain_padding, list) and sum(domain_padding) > 0)
@@ -404,7 +404,7 @@ class FNO(nnx.Module):
         # Extract constant/sample parameter from raw input before any embeddings.
         m = None
         if self.param_embedding is not None:
-            param_channel = x[..., self.in_channels - 1]
+            param_channel = x[...,jnp.asarray(self.constant_parameter_index)]    # x shape: (B, N, N, channels) | (N, N, channels)
             if x.ndim == self.n_dim + 2:
                 reduce_axes = tuple(range(1, param_channel.ndim))
             elif x.ndim == self.n_dim + 1:

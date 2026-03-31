@@ -22,7 +22,7 @@ create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # loading directory
-loading_nn_directory_name = 'nn_output_fno_cp_2d_autoregressive_w1'
+loading_nn_directory_name = 'nn_output_fno_cp_2d_autoregressive_w1_2'
 nn_load_case_dir = os.path.join('.', loading_nn_directory_name)
 loading_directory_name = 'nn_output_gt_cp'
 load_case_dir = os.path.join(os.path.dirname(__file__), loading_directory_name)
@@ -120,9 +120,7 @@ fno_model = FNO(
     n_layers=fno_dict["n_layers"],
     lifting_channel_ratio=fno_dict["lifting_channel_ratio"],
     projection_channel_ratio=fno_dict["projection_channel_ratio"],
-    rngs=nnx.Rngs(0),
-    parameter_embedding = False,
-    resolution_scaling_factor=1 #model_settings["N"]
+    rngs=nnx.Rngs(0)
 )
 
 # Count trainable parameters 
@@ -169,19 +167,19 @@ if delta:
 else:
     train_set = (X_train[train_start_id:train_end_id,:],Y_train[train_start_id:train_end_id,:])
     test_set = (X_val[val_start_id:val_end_id,:],Y_val[val_start_id:val_end_id,:])
-# dd_fno_pr_learning.Train(train_set=train_set,
-#                         test_set=test_set,
-#                         batch_size=batch_size,
-#                         restore_nnx_state_settings={'restore':True, "state_directory":nn_load_case_dir+"/flax_train_state"},
-#                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-#                         plot_settings={"save_frequency":10},
-#                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-#                         test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
-#                         data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
-#                         working_directory=case_dir)
+dd_fno_pr_learning.Train(train_set=train_set,
+                        test_set=test_set,
+                        batch_size=batch_size,
+                        restore_nnx_state_settings={'restore':False, "state_directory":nn_load_case_dir+"/flax_train_state"},
+                        convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                        plot_settings={"save_frequency":10},
+                        train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
+                        test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                        data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
+                        working_directory=case_dir)
 
 # load the best model
-dd_fno_pr_learning.RestoreState(restore_state_directory=nn_load_case_dir+"/flax_train_state")
+dd_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
 # ----------------------------------------------------------------------------
 # Plot Prediction vs Ground Truth values 
@@ -194,7 +192,7 @@ time_interval = len(np.setdiff1d(np.arange(train_sim_ids[0],train_sim_ids[1]),
                                  np.array(excluded_idx)))  # is equal to the number of simulations
 print(f"plot for train set--time interval is: {time_interval}")
 
-for case_id in [0,1,2,3]:   # 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
+for case_id in [0]:# [0,1,2,3]:   # 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
 
     x0 = X_train[case_id, :]
     fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
@@ -226,7 +224,7 @@ time_interval = len(np.setdiff1d(np.arange(test_sim_ids[0],test_sim_ids[1]),
                                  np.array(excluded_idx)))  # is equal to the number of simulations
 print(f"plot for test set--time interval is: {time_interval}")
 
-for case_id in [4,5,6,7,9,15,18]:   # less than train_/test_sim_ids
+for case_id in [0]:# [4,5,6,7,9,15,18]:   # less than train_/test_sim_ids
 
     x0 = X_test[case_id, :]
     fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
@@ -313,6 +311,7 @@ for step in range(time_steps - w):
     pred_data_dict[f"step_{step}"] = batched_pred_rollout_denorm[step,:,:,:,:]
     test_data_dict[f"step_{step}"] = batched_Y_test_denorm[step,:,:,:,:]
 
+print(error_data_dict.keys())
 
 error_time_plot_pointwise(error_data_dict,which_channel=0,w=w,filename='boxplot_error_in_time_pointwise.png',case_dir=case_dir)
 error_time_plot_mae(error_data_dict,which_physics='von_mises',w=w,filename='boxplot_error_in_time_mae.png',case_dir=case_dir)

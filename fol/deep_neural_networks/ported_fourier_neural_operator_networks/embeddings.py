@@ -149,10 +149,10 @@ class GridEmbeddingND(nnx.Module):
     
 class SinusoidalEmbedding(Embedding):
     """
-    Sinusoidal positional embedding for enriching coordinate inputs with spectral information.
+    Sinusoidal positional embedding for enriching constant parameter inputs with spectral information.
 
     This class provides sinusoidal positional embeddings in two styles: Transformer-style
-    and NeRF-style. It lifts low-dimensional coordinates into a richer spectral representation
+    and NeRF-style. It lifts low-dimensional constant parameters into a richer spectral representation
     by encoding them as periodic functions (sines and cosines) at multiple frequencies.
 
     The embedding enhances a model's ability to capture fine-scale variations and high-frequency
@@ -170,12 +170,12 @@ class SinusoidalEmbedding(Embedding):
         Type of embedding to apply, by default 'transformer'
 
         Transformer-style [1]_:
-        For each input coordinate p and frequency level k (0 ≤ k < L):
+        For each input constant p and frequency level k (0 ≤ k < L):
         - g(p)_{2k} = sin(p / max_positions^{k/L})
         - g(p)_{2k+1} = cos(p / max_positions^{k/L})
 
         NeRF-style [2]_:
-        For each input coordinate p and frequency level k (0 ≤ k < L):
+        For each input constant p and frequency level k (0 ≤ k < L):
         - g(p)_{2k} = sin(2^k * π * p)
         - g(p)_{2k+1} = cos(2^k * π * p)
 
@@ -186,8 +186,8 @@ class SinusoidalEmbedding(Embedding):
 
     Notes
     -----
-    - Input shape: (batch, n_in, in_channels) or (n_in, in_channels)
-    - Output shape: (batch, n_in, 2*num_freqs*in_channels) or (n_in, 2*num_freqs*in_channels)
+    - Input shape: (batch, d1, ..., dn, in_channels) or (d1, ..., dn, in_channels)
+    - Output shape: (batch, d1, ..., dn, in_channels + 2*num_freqs*in_channels) or (d1, ..., dn, in_channels + 2*num_freqs*in_channels)
     - Ensure the highest frequency satisfies the Nyquist criterion:
       - Transformer: f_max < N/2 where N is the number of sampling points
       - NeRF: 2^{L-1} < N/2, i.e., L < 1 + log₂(N/2)
@@ -219,8 +219,8 @@ class SinusoidalEmbedding(Embedding):
         self.in_channels = in_channels
         self.num_frequencies = num_frequencies
         self.modulation = modulation
-        self._grid = None
-        self._res = None
+        # self._grid = None
+        # self._res = None
 
         # verify embedding type
         allowed_embeddings = ["nerf", "transformer"]
@@ -256,13 +256,11 @@ class SinusoidalEmbedding(Embedding):
             output grids to concatenate
         """
 
-        if self._grid is None or self._res != spatial_dims:
-            grids_by_dim = regular_grid_nd(spatial_dims, grid_boundaries=[[0, 1], [0, 1]])
-            grid = nnx.data(jnp.stack(grids_by_dim, axis=-1).astype(dtype))
-            self._grid = grid
-            self._res = spatial_dims
+        # if self._grid is None or self._res != spatial_dims:
+        grids_by_dim = regular_grid_nd(spatial_dims, grid_boundaries=[[0, 1], [0, 1]])
+        # self._res = spatial_dims
 
-        return self._grid
+        return jnp.stack(grids_by_dim, axis=-1).astype(dtype)
         
     @property
     def out_channels(self):
@@ -333,6 +331,8 @@ class SinusoidalEmbedding(Embedding):
                 )
 
             m = m.reshape((batch_size,) + (1,) * (n_in + 2))        # to (b, n, m, c, L)
+            if self.modulation == "frequency":
+                m = m.reshape((batch_size,) + (1,) * (n_in + 1))
 
         # ----------------------------
         # Frequency modulation: g(m * x)

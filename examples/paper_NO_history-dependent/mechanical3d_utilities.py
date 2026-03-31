@@ -1253,7 +1253,7 @@ def error_time_plot_mae(error_data_dict,which_physics:str,w,filename,case_dir):
     plt.close()
 
 
-def rollout_direct(model, x0, steps, N, C, w):
+def rollout_direct(model, x0, steps, time_scale, N, C, w, delta):
     """
     Autoregressive rollout with window.
 
@@ -1295,14 +1295,17 @@ def rollout_direct(model, x0, steps, N, C, w):
     
     for t in range(steps):
 
-        t_channel = ((t+1)/steps) * t_init
+        t_channel = ((t+1)/time_scale) * t_init
         x_grid = np.concatenate((u_t,t_channel),axis=-1)
 
         # 3) Predict increment Δu
         dx = model.Predict(x_grid).reshape(-1).reshape(B,N,N,Cout)            # (B, N, N, C)
 
         # 4) Compute next state
-        u_next = u_t + dx                                           # (B, N, N, C)
+        if delta:
+            u_next = u_t + dx                                           # (B, N, N, C)
+        else:
+            u_next = dx
 
         outputs.append(u_next.copy())
 
@@ -1466,7 +1469,7 @@ def create_autoregressive_set(
         scales,
     )
 
-def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_data:list[str], N:int=128, excluded_idx:list[int]=None,
+def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], max_increment, min_increment, which_data:list[str], N:int=128, excluded_idx:list[int]=None,
                               path:str="Cu_textured_dataset.hdf5", dtype:np.dtype=np.float64,normalize:bool=True | False):
     
     excluded_idx = excluded_idx or []
@@ -1497,7 +1500,10 @@ def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_
         x = load_frame(t1)
         y = load_frame(t2)
 
-        dt = (increments[t2] - increments[t1]) / (increments[-1] - increments[0])  # normalized time difference
+        if normalize:    
+            dt = (increments[t2] - increments[t1]) / (max_increment - min_increment)  # normalized time difference
+        else:
+            dt = (increments[t2] - increments[t1])
         inputs_t = np.ones((N, N, 1), dtype=dtype) * dt
         x_with_time = np.concatenate((x, inputs_t), axis=-1)  # shape: (N, N, C+1)
 
@@ -1509,15 +1515,16 @@ def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_
     for idx in range(len(data_index)):
         x_arr[idx,:,:,:], y_arr[idx,:,:,:]= get_item(idx)
 
+    
+    C = len(which_data)
+
+    x_view = x_arr.reshape(x_arr.shape[0], N, N, C + 1)
+    y_view = y_arr.reshape(y_arr.shape[0], N, N, C)
+
+    x_phys = x_view[..., :C]
+    x_time = x_view[..., C:]
+    
     if normalize:
-        C = len(which_data)
-
-        x_view = x_arr.reshape(x_arr.shape[0], N, N, C + 1)
-        y_view = y_arr.reshape(y_arr.shape[0], N, N, C)
-
-        x_phys = x_view[..., :C]
-        x_time = x_view[..., C:]
-
         x_phys_scale = np.max(np.abs(x_phys), axis=(0, 1, 2))
         y_phys_scale = np.max(np.abs(y_view), axis=(0, 1, 2))
 
@@ -1546,17 +1553,17 @@ def create_time_channel_set(sim_ids:Tuple[int,int], increments:list[int], which_
 
     return x_arr.reshape(len(data_index), -1), y_arr.reshape(len(data_index), -1), scales
 
-def gt_loader(which_data:list[str],sim_id:int,increments:list[int],path:str,excluded_idx:list[int],N:int):
+def gt_loader(which_data:list[str],sim_id:int,increments:list[int],w:int,path:str,excluded_idx:list[int],N:int):
     
     """
     ``sim_id``: absolute simulation id
     """
     assert sim_id not in excluded_idx, f'simulation id is missing! please pick another!'
-    time_steps = len(increments)
+    time_steps = len(increments) - w
     channels = len(which_data)
     gt = np.zeros((time_steps,N*N,channels))
         
-    for idx, incr in enumerate(increments):
+    for idx, incr in enumerate(increments[w:]):
         for ch, which in enumerate(which_data):
             arr,_ = data_loader_hdf5(which,sim_id,incr,path,excluded_idx=[])
             gt[idx,:,ch] = arr.flatten()
