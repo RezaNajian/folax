@@ -2,8 +2,7 @@
  Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
  Date: August, 2025
  License: FOL/LICENSE
-"""
-"""
+
 script_utils.py
 ~~~~~~~~~~~~~~~
 Shared utility functions for all phase-scripts in mechanical_square/.

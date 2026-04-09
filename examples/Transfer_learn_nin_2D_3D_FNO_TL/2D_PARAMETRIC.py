@@ -557,7 +557,7 @@ if __name__ == "__main__":
     save_frequency = 10
 
     script_dir = Path(__file__).resolve().parent
-    pkl_path = str(script_dir / "fourier_control_dict_nin_paper.pkl")
+    pkl_path = str(script_dir / "fourier_control_dict.pkl")
 
     train_ids = "0-10"
     test_ids = "11-19"
