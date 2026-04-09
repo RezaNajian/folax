@@ -26,8 +26,8 @@ sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
 model_settings = {"L":1,"N":41,
-                    "Ux_left":0.0,"Ux_right":0.1,
-                    "Uy_left":0.0,"Uy_right":0.1}
+                    "Ux_left":0.0,"Ux_right":0.5,
+                    "Uy_left":0.0,"Uy_right":0.5}
 
 # creation of the model
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
@@ -100,9 +100,9 @@ deeponet_learning = PhysicsInformedDeepONetParametricOperatorLearning(name="deep
 deeponet_learning.Initialize()
 
 train_start_id = 0
-train_end_id = 8
-test_start_id = 8
-test_end_id = 10
+train_end_id = 8000
+test_start_id = 8000
+test_end_id = 10000
 
 #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
 deeponet_learning.Train(train_set=(coeffs_matrix[train_start_id:train_end_id,:],),
