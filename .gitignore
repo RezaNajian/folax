@@ -17,4 +17,4 @@ py-env*
 .venv
 requirements.txt
 nn_output*
-nn_output*/
+nn_output*/examples/Transfer_learn_nin_2D_3D_FNO_TL.backup/
