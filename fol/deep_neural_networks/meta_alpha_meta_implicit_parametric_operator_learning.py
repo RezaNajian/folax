@@ -20,33 +20,99 @@ from fol.tools.usefull_functions import *
 from .nns import HyperNetwork
 
 class LatentStepModel(nnx.Module):
+    """
+    Trainable latent-step wrapper used for meta-learning the inner-loop step size.
+
+    This small NNX module stores a single scalar parameter ``latent_step`` as an
+    :class:`flax.nnx.Param`. It is used by meta-implicit learning methods to
+    learn the step size applied during latent-code updates in the inner loop.
+
+    Args:
+        init_latent_step_value (float or jax.Array):
+            Initial value for the latent-step parameter.
+
+    Returns:
+        None
+
+    Raises:
+        TypeError:
+            If ``init_latent_step_value`` cannot be stored as an NNX parameter.
+    """
     def __init__(self, init_latent_step_value):
         self.latent_step = nnx.Param(init_latent_step_value)
     def __call__(self):
-        return self.latent_step 
+        """
+        Return the current latent-step parameter.
+
+        Args:
+            None
+
+        Returns:
+            jax.Array:
+                The trainable latent-step value.
+
+        Raises:
+            None
+        """
+        return self.latent_step
 
 class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperatorLearning):
     """
-    A class for implementing meta-learning techniques in the context of implicit parametric operator learning.
+    Meta-implicit parametric operator learning with a learnable latent-step size.
 
-    This class extends the `ImplicitParametricOperatorLearning` class and incorporates 
-    meta-learning functionality for optimizing latent variables. It supports custom loss functions, 
-    neural network models, and optimizers. Additionally, this class optimizes both the latent code 
-    and the latent step size during the process of latent finding and optimization.
+    This class derives from :class:`~fol.deep_neural_networks.implicit_parametric_operator_learning.ImplicitParametricOperatorLearning`
+    and implements an implicit, coordinate-based operator learning workflow where
+    a neural-field synthesizer is evaluated on FE mesh coordinates. The model is
+    typically a :class:`~fol.deep_neural_networks.nns.HyperNetwork`, meaning the
+    synthesizer performs the coordinate-based neural-field mapping while a
+    modulator conditions the synthesizer according to the coupling modes defined
+    by :class:`~fol.deep_neural_networks.nns.HyperNetwork`.
 
-    Attributes:
-        name (str): Name of the learning instance.
-        control (Control): Control object to manage configurations and settings.
-        loss_function (Loss): Loss function used for optimization.
-        flax_neural_network (HyperNetwork): Neural network model for operator learning.
-        main_loop_optax_optimizer (GradientTransformation): Optimizer for the main training loop.
-        latent_step_optax_optimizer (GradientTransformation): Optimizer for updating latent variables.
-        latent_step (float): Step size for latent updates.
-        num_latent_iterations (int): Number of iterations for latent variable optimization.
-        checkpoint_settings (dict): Settings for checkpointing, such as saving and restoring states.
-        working_directory (str): Directory for saving files and logs.
-        latent_step_optimizer_state: Internal state of the latent step optimizer.
-        default_checkpoint_settings (dict): Default checkpoint settings, including directories and restore options.
+    The main difference from the base implicit class is that predictions are not
+    produced directly from parametric inputs. Instead, a latent code is optimized
+    per sample in an inner loop by minimizing the physics-based loss. The main
+    difference from :class:`~fol.deep_neural_networks.meta_implicit_parametric_operator_learning.MetaImplicitParametricOperatorLearning`
+    is that this class also learns the inner-loop update magnitude. A dedicated
+    trainable scalar step model is optimized jointly with the network parameters,
+    so the latent step size adapts during training.
+
+    Training is usually unsupervised or physics-informed. The loss is evaluated
+    on discretized field predictions, and Dirichlet boundary conditions can be
+    enforced at inference time by inserting prescribed values across the batch
+    using :meth:`~fol.loss_functions.loss.Loss.GetFullDofVector`.
+
+    Args:
+        name (str):
+            Name identifier used for logging and checkpointing.
+        control (Control):
+            Control object that maps raw parametric inputs to controlled variables
+            used by the loss functional.
+        loss_function (Loss):
+            Physics-based loss functional evaluated on predicted discretized fields.
+            The loss provides access to the FE mesh coordinates and DOF handling.
+        flax_neural_network (HyperNetwork):
+            HyperNetwork used for implicit neural-field prediction. The synthesizer
+            is expected to be coordinate-based, and the modulator provides
+            conditioning according to HyperNetwork coupling settings.
+        main_loop_optax_optimizer (GradientTransformation):
+            Optimizer transformation for updating the neural network parameters.
+        latent_step_optax_optimizer (GradientTransformation):
+            Optimizer transformation for updating the latent-step parameter.
+        latent_step_size (float, optional):
+            Initial value for the learnable latent step size. Default is ``1e-2``.
+        num_latent_iterations (int, optional):
+            Number of latent inner-loop update iterations used during prediction.
+            Default is ``3``.
+
+    Returns:
+        None
+
+    Raises:
+        RuntimeError:
+            If the model is used before initialization in workflows that require
+            initialized loss/control components.
+        ValueError:
+            If ``num_latent_iterations`` is negative.
     """
 
     def __init__(self,
@@ -59,37 +125,52 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
                  latent_step_size:float=1e-2,
                  num_latent_iterations:int=3
                  ):
-        """
-        Initializes the MetaAlphaMetaImplicitParametricOperatorLearning instance.
-
-        Args:
-            name (str): Name of the learning instance.
-            control (Control): Control object to manage configurations and settings.
-            loss_function (Loss): Loss function used for optimization.
-            flax_neural_network (HyperNetwork): Neural network model for operator learning.
-            main_loop_optax_optimizer (GradientTransformation): Optimizer for the main training loop.
-            latent_step_optax_optimizer (GradientTransformation): Optimizer for updating latent variables and step size.
-            latent_step_size (float, optional): Initial step size for latent updates. Default is 1e-2.
-            num_latent_iterations (int, optional): Number of iterations for latent variable optimization. Default is 3.
-            checkpoint_settings (dict, optional): Settings for checkpointing, such as saving and restoring states. 
-                                                  Default is an empty dictionary.
-            working_directory (str, optional): Directory for saving files and logs. Default is '.'.
-
-        Notes:
-            This class not only finds the optimal latent code but also optimizes the latent step size 
-            during the process of latent finding and optimization. This dual optimization ensures better 
-            convergence and adaptability for varying problem conditions.
-        """
         super().__init__(name,control,loss_function,flax_neural_network,
                          main_loop_optax_optimizer)
-        
+
         self.latent_step_optimizer = latent_step_optax_optimizer
         self.latent_step_nnx_model = LatentStepModel(latent_step_size)
         self.num_latent_iterations = num_latent_iterations
         self.latent_nnx_optimizer = nnx.Optimizer(self.latent_step_nnx_model,self.latent_step_optimizer,wrt=nnx.Param)
-    
-    def ComputeBatchPredictions(self,batch_X:jnp.ndarray,meta_model:Tuple[nnx.Module,nnx.Module]):
 
+    def ComputeBatchPredictions(self,batch_X:jnp.ndarray,meta_model:Tuple[nnx.Module,nnx.Module]):
+        """
+        Compute batch predictions using latent-code adaptation with a learnable step size.
+
+        This method performs per-sample latent optimization in an inner loop. For each
+        parametric input, controlled variables are computed using ``self.control``.
+        Latent codes are initialized and iteratively updated by descending the gradient
+        of the physics-based loss with respect to the latent variables. Unlike the
+        simpler meta-implicit variant where the latent update step size is fixed, this
+        class uses a trainable step model ``latent_step`` that is optimized during the
+        outer training loop.
+
+        The neural field is evaluated on FE mesh node coordinates obtained from the
+        loss function mesh. The final latent codes are used to produce discretized
+        field predictions on the same coordinate set.
+
+        Args:
+            batch_X (jax.numpy.ndarray):
+                Batch of parametric inputs. The leading dimension corresponds to the
+                batch size.
+            meta_model (Tuple[nnx.Module, nnx.Module]):
+                Tuple ``(nn_model, latent_step_model)`` where ``nn_model`` is the
+                HyperNetwork used for predictions and ``latent_step_model`` returns
+                the current learnable step size via ``latent_step_model()``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Batch of discretized field predictions evaluated on the FE mesh node
+                coordinates.
+
+        Raises:
+            RuntimeError:
+                If ``nn_model`` does not expose ``in_features`` required to size the
+                latent-code array, or if the model cannot be called as
+                ``nn_model(latent_codes, coords)``.
+            ValueError:
+                If ``self.num_latent_iterations`` is negative.
+        """
         nn_model,latent_step = meta_model
 
         latent_codes = jnp.zeros((batch_X.shape[0],nn_model.in_features))
@@ -107,10 +188,50 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
         return nn_model(latent_codes,self.loss_function.fe_mesh.GetNodesCoordinates())
 
     def GetState(self):
+        """
+        Return the full meta-learning state required for training and checkpointing.
+
+        The returned tuple includes the main network, its optimizer state, the
+        latent-step model, and the latent-step optimizer state.
+
+        Args:
+            None
+
+        Returns:
+            Tuple[nnx.Module, nnx.Optimizer, nnx.Module, nnx.Optimizer]:
+                Tuple ``(flax_neural_network, nnx_optimizer, latent_step_model, latent_step_optimizer)``.
+
+        Raises:
+            None
+        """
         return (self.flax_neural_network, self.nnx_optimizer, self.latent_step_nnx_model, self.latent_nnx_optimizer)
 
     @partial(nnx.jit, static_argnums=(0,))
     def TrainStep(self, meta_state, data):
+        """
+        Perform one meta-training step updating both network parameters and latent-step.
+
+        This step computes gradients of the batch physics loss with respect to both
+        the main network parameters and the learnable latent-step parameter. The main
+        optimizer updates the network, and the latent optimizer updates the step model.
+
+        Args:
+            meta_state (Tuple[nnx.Module, nnx.Optimizer, nnx.Module, nnx.Optimizer]):
+                Tuple containing ``(nn_model, main_optimizer, latent_step_model, latent_optimizer)``.
+            data (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Batch tuple passed through the base training interface. The second
+                element is typically unused for physics-informed learning and may be
+                ``None``.
+
+        Returns:
+            jax.numpy.ndarray:
+                Scalar batch loss value.
+
+        Raises:
+            RuntimeError:
+                If gradient computation fails due to incompatible model outputs or loss
+                evaluation.
+        """
         nn_model, main_optimizer, latent_step_model, latent_optimizer = meta_state
 
         (batch_loss,batch_dict), meta_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
@@ -119,45 +240,85 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
         main_optimizer.update(nn_model,meta_grads[0])
         latent_optimizer.update(latent_step_model,meta_grads[1])
         return batch_loss
-    
+
     @partial(nnx.jit, static_argnums=(0,))
     def TestStep(self, meta_state, data):
+        """
+        Compute the batch loss for evaluation using the current meta-state.
+
+        Args:
+            meta_state (Tuple[nnx.Module, nnx.Optimizer, nnx.Module, nnx.Optimizer]):
+                Tuple containing ``(nn_model, main_optimizer, latent_step_model, latent_optimizer)``.
+            data (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Batch tuple used for interface consistency. The second element may be
+                ``None`` for physics-informed workflows.
+
+        Returns:
+            jax.numpy.ndarray:
+                Scalar batch loss value.
+
+        Raises:
+            RuntimeError:
+                If loss evaluation fails.
+        """
         nn_model, main_optimizer, latent_step_model, latent_optimizer = meta_state
         return self.ComputeBatchLossValue(data,(nn_model,latent_step_model))[0]
 
     @print_with_timestamp_and_execution_time
     @partial(nnx.jit, static_argnums=(0,), donate_argnums=1)
     def Predict(self,batch_X:jnp.ndarray):
+        """
+        Perform inference for a batch and apply Dirichlet boundary conditions.
+
+        This method computes controlled variables from ``batch_X``, predicts the
+        discretized field using latent-code adaptation with a learnable step size,
+        and returns the full DOF vector with Dirichlet boundary values inserted
+        consistently across the batch via :meth:`Loss.GetFullDofVector`.
+
+        Args:
+            batch_X (jax.numpy.ndarray):
+                Batch of parametric inputs for inference.
+
+        Returns:
+            jax.numpy.ndarray:
+                Batch of full discretized field vectors with Dirichlet boundary
+                conditions applied.
+
+        Raises:
+            RuntimeError:
+                If prediction fails due to incompatible model signatures or loss DOF
+                handling.
+        """
         control_outputs = self.control.ComputeBatchControlledVariables(batch_X)
         preds = self.ComputeBatchPredictions(batch_X,(self.flax_neural_network,self.latent_step_nnx_model))
         return self.loss_function.GetFullDofVector(control_outputs,preds.reshape(preds.shape[0], -1))
 
     def SaveCheckPoint(self,check_point_type,checkpoint_state_dir):
         """
-        Saves the current state of the neural network to a specified directory.
+        Save both the main network state and the latent-step state to disk.
 
-        This method stores the state of the neural network model in a designated directory, ensuring the model's 
-        state can be restored later.
+        This method writes two checkpoint subdirectories under ``checkpoint_state_dir``.
+        One subdirectory stores the main HyperNetwork state and the other stores the
+        latent-step model state. This allows full restoration of meta-training and
+        inference behavior, including the learned latent step size.
 
-        Parameters
-        ----------
-        None
+        Args:
+            check_point_type (str):
+                Label used for logging the checkpoint type, for example ``"best"`` or
+                ``"latest"``.
+            checkpoint_state_dir (str):
+                Directory path where the checkpoint subdirectories are created.
 
-        Returns
-        -------
-        None
-            The current state of the neural network is saved to the specified directory. A confirmation message is 
-            logged to indicate the successful save operation.
+        Returns:
+            None
 
-        Notes
-        -----
-        - The directory for saving the checkpoint is specified in the `checkpoint_settings` attribute under the 
-        `state_directory` key.
-        - The directory path is converted to an absolute path before saving.
-        - Uses the `self.checkpointer.save` method to store the state and forces the save operation.
-        - Logs the save operation using `fol_info`.
+        Raises:
+            OSError:
+                If the checkpoint directories cannot be created or written.
+            RuntimeError:
+                If the underlying checkpointer fails to save the provided states.
         """
-        
+
         nn_checkpoint_state_dir = checkpoint_state_dir + "/nn"
         absolute_path = os.path.abspath(nn_checkpoint_state_dir)
         self.checkpointer.save(absolute_path, nnx.state(self.flax_neural_network),force=True)
@@ -170,38 +331,35 @@ class MetaAlphaMetaImplicitParametricOperatorLearning(ImplicitParametricOperator
 
     def RestoreState(self,restore_state_directory:str):
         """
-        Restores the state of the neural network from a saved checkpoint.
+        Restore both the main network state and the latent-step state from disk.
 
-        This method retrieves the saved state of the neural network from a specified directory and updates the model 
-        to reflect the restored state.
+        This method restores the HyperNetwork parameters from the ``nn`` subdirectory
+        and restores the latent-step model parameter from the ``latent`` subdirectory.
+        After restoration, the in-memory modules are updated in place.
 
-        Parameters
-        ----------
-        checkpoint_settings : dict
-            A dictionary containing the settings for checkpoint restoration.
-            Expected keys:
-            - `state_directory` (str): The directory path where the checkpoint is saved.
+        Args:
+            restore_state_directory (str):
+                Directory containing the saved meta checkpoint. The directory is
+                expected to include ``nn`` and ``latent`` subdirectories.
 
-        Returns
-        -------
-        None
-            The neural network's state is restored and updated in place. A message is logged to confirm the restoration process.
+        Returns:
+            None
 
-        Notes
-        -----
-        - Ensure the `state_directory` key is included in the `checkpoint_settings` dictionary, and the specified directory exists.
-        - This method uses `nnx.state` to retrieve the current state of the model and updates it with the restored state.
-        - Logs the restoration process using `fol_info`.
+        Raises:
+            FileNotFoundError:
+                If the expected checkpoint directories do not exist.
+            RuntimeError:
+                If the checkpointer fails to restore or update the module states.
         """
 
-        # restore nn 
+        # restore nn
         nn_restore_state_directory = restore_state_directory + "/nn"
         absolute_path = os.path.abspath(nn_restore_state_directory)
         nn_state = nnx.state(self.flax_neural_network)
         restored_state = self.checkpointer.restore(absolute_path, nn_state)
         nnx.update(self.flax_neural_network, restored_state)
 
-        # restore latent 
+        # restore latent
         latent_restore_state_directory = restore_state_directory + "/latent"
         absolute_path = os.path.abspath(latent_restore_state_directory)
         latent_state = nnx.state(self.latent_step_nnx_model)

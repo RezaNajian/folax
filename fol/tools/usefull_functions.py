@@ -9,79 +9,34 @@ import os
 import shutil
 from fol.mesh_input_output.mesh import Mesh
 import copy
-import re  # <-- add this
 
-from fol.mesh_input_output.mesh import Mesh
-
-
-def _sanitize_title_for_filename(title: str) -> str:
-    """
-    Turn subplot title into a filesystem-friendly token, e.g.
-    "FNO_U (L-BFGS)" -> "fno_u_lbfgs"
-    """
-    if title is None:
-        return "field"
-    s = title.strip().lower()
-    s = s.replace(" ", "_")
-    # remove everything that is not letter / digit / underscore
-    s = re.sub(r"[^0-9a-zA-Z_]+", "", s)
-    return s or "field"
-
-
-def plot_mesh_vec_data(
-    L,
-    vectors_list,
-    subplot_titles=None,
-    fig_title=None,
-    cmap="viridis",
-    block_bool=False,
-    colour_bar=True,
-    colour_bar_name=None,
-    X_axis_name=None,
-    Y_axis_name=None,
-    show=False,
-    file_name=None,
-):
+def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
+                       block_bool=False, colour_bar=True, colour_bar_name=None,
+                       X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
     num_vectors = len(vectors_list)
     if num_vectors < 1 or num_vectors > 4:
         raise ValueError("vectors_list must contain between 1 and 4 elements.")
 
     if subplot_titles is not None and len(subplot_titles) != num_vectors:
-        raise ValueError(
-            "subplot_titles must have the same number of elements as vectors_list if provided."
-        )
+        raise ValueError("subplot_titles must have the same number of elements as vectors_list if provided.")
 
     # Determine the grid size for the subplots
     grid_size = math.ceil(math.sqrt(num_vectors))
-    fig, axs = plt.subplots(
-        grid_size, grid_size, figsize=(5 * grid_size, 5 * grid_size), squeeze=False
-    )
-
+    fig, axs = plt.subplots(grid_size, grid_size, figsize=(5*grid_size, 5*grid_size), squeeze=False)
+    
     # Flatten the axs array and hide unused subplots if any
     axs = axs.flatten()
     for ax in axs[num_vectors:]:
-        ax.axis("off")
-
-    # If we will save individual plots, prepare base path / extension
-    base_path = None
-    ext = ".png"
-    if file_name is not None:
-        base_path, ext0 = os.path.splitext(file_name)
-        if ext0 != "":
-            ext = ext0
+        ax.axis('off')
 
     for i, squared_mesh_vec_data in enumerate(vectors_list):
-        data_1d = squared_mesh_vec_data.reshape(-1, 1)
-        N = int(data_1d.shape[0] ** 0.5)
-        Z = squared_mesh_vec_data.reshape(N, N)
-
-        # --- combined grid figure subplot ---
-        im = axs[i].imshow(Z, cmap=cmap, extent=[0, L, 0, L])
+        N = int((squared_mesh_vec_data.reshape(-1, 1).shape[0])**0.5)
+        im = axs[i].imshow(squared_mesh_vec_data.reshape(N, N), cmap=cmap, extent=[0, L, 0, L])
 
         if subplot_titles is not None:
             axs[i].set_title(subplot_titles[i])
         else:
-            axs[i].set_title(f"Plot {i+1}")
+            axs[i].set_title(f'Plot {i+1}')
 
         if colour_bar:
             fig.colorbar(im, ax=axs[i], fraction=0.046, pad=0.04)
@@ -92,33 +47,6 @@ def plot_mesh_vec_data(
         if Y_axis_name is not None:
             axs[i].set_ylabel(Y_axis_name)
 
-        # --- individual figure for this field (if file_name provided) ---
-        if base_path is not None:
-            if subplot_titles is not None:
-                suffix = _sanitize_title_for_filename(subplot_titles[i])
-            else:
-                suffix = f"field_{i+1}"
-
-            indiv_path = f"{base_path}_{suffix}{ext}"
-
-            fig_single, ax_single = plt.subplots(figsize=(5, 5))
-            im_single = ax_single.imshow(Z, cmap=cmap, extent=[0, L, 0, L])
-
-            if subplot_titles is not None:
-                ax_single.set_title(subplot_titles[i])
-
-            if colour_bar:
-                fig_single.colorbar(im_single, ax=ax_single, fraction=0.046, pad=0.04)
-
-            if X_axis_name is not None:
-                ax_single.set_xlabel(X_axis_name)
-            if Y_axis_name is not None:
-                ax_single.set_ylabel(Y_axis_name)
-
-            fig_single.tight_layout()
-            fig_single.savefig(indiv_path, dpi=300)
-            plt.close(fig_single)
-
     if fig_title is not None:
         plt.suptitle(fig_title)
 
@@ -128,10 +56,7 @@ def plot_mesh_vec_data(
         plt.show(block=block_bool)
 
     if file_name is not None:
-        plt.savefig(file_name, dpi=300)
-
-    plt.close(fig)
-
+        plt.savefig(file_name)
 
 def plot_data_input(input_morph, num_columns, filename):
 
@@ -259,11 +184,38 @@ def box_mesh(Nx, Ny, Nz, Lx, Ly, Lz, case_dir):
 
     return meshio_obj
 
+def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
+
+    # create empty fe mesh object
+    fe_mesh = Mesh("box_io","box.")
+
+    settings = box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir)
+    fe_mesh.node_ids = jnp.arange(len(settings.points))
+    fe_mesh.nodes_coordinates = jnp.array(settings.points)
+
+    left_mask = jnp.isclose(fe_mesh.nodes_coordinates[:,0], 0.0, atol=1e-5)
+    right_mask = jnp.isclose(fe_mesh.nodes_coordinates[:,0], Lx, atol=1e-5)
+
+    left_boundary_node_ids = fe_mesh.node_ids[left_mask]
+    right_boundary_node_ids = fe_mesh.node_ids[right_mask]
+
+    fe_mesh.elements_nodes = {"hexahedron":jnp.array(settings.cells_dict['hexahedron'])}
+
+    fe_mesh.node_sets = {"left":left_boundary_node_ids,
+                         "right":right_boundary_node_ids}
+    
+    fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
+
+    fe_mesh.is_initialized = True
+
+    return fe_mesh
+
+
 def create_3D_box_mesh_structured(Nx, Ny, Nz, Lx, Ly, Lz):
 
-    xs = jnp.linspace(0.0, Lx, Nx)  
-    ys = jnp.linspace(0.0, Ly, Ny)  
-    zs = jnp.linspace(0.0, Lz, Nz)  
+    xs = jnp.linspace(0.0, Lx, Nx)  # i = 0..Nx-1
+    ys = jnp.linspace(0.0, Ly, Ny)  # j = 0..Ny-1
+    zs = jnp.linspace(0.0, Lz, Nz)  # k = 0..Nz-1
 
     X, Y, Z = jnp.meshgrid(xs, ys, zs, indexing="ij")  
 
@@ -329,7 +281,6 @@ def create_3D_box_mesh_structured(Nx, Ny, Nz, Lx, Ly, Lz):
 
     fe_mesh.is_initialized = True
     return fe_mesh
-
 
 def create_2D_square_mesh(L,N):
 

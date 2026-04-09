@@ -23,10 +23,9 @@ class Solver(ABC):
 
     @abstractmethod
     def Initialize(self) -> None:
-        """Initializes the loss.
+        """Initializes the solver.
 
-        This method initializes the loss. This is only called once in the whole training process.
-
+        This method initializes the solver.
         """
         pass
 
