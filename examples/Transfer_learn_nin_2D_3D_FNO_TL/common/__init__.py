@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
 # common package – shared utilities for all phase-scripts in mechanical_square/
 #
 # Convenience re-exports so callers can do:

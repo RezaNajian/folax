@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
 
 """
 Standalone plotting utility for 3D box .vtu sample files exported by the

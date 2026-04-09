@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
 import os
 import numpy as np
 import jax.numpy as jnp

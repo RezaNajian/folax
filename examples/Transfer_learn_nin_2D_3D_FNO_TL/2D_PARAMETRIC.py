@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -129,9 +134,9 @@ def main(
         "L": 1.0,
         "N": 42,
         "Ux_left": 0.0,
-        "Ux_right": 0.25,
+        "Ux_right": 0.5,
         "Uy_left": 0.0,
-        "Uy_right": 0.25,
+        "Uy_right": 0.5,
     }
 
     L = float(model_settings["L"])

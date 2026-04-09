@@ -1,4 +1,9 @@
 """
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
+"""
 plot_3d.py
 ~~~~~~~~~~
 Shared 3-D plotting utilities for the mechanical_square phase-scripts.

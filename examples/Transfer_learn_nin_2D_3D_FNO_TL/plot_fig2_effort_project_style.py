@@ -1,3 +1,8 @@
+"""
+ Authors: Jerry Paul Varghese, https://github.com/jerrypaulvarghese
+ Date: August, 2025
+ License: FOL/LICENSE
+"""
 #!/usr/bin/env python3
 # ============================================================
 # plot_fig2_effort_and_proxy_l2_project_style.py
