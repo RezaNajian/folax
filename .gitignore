@@ -3,6 +3,7 @@
 *.npy
 *.png
 *.msh
+*.pkl
 *.log
 build/
 *.egg-info/
@@ -17,4 +18,8 @@ py-env*
 .venv
 requirements.txt
 nn_output*
-nn_output*/examples/Transfer_learn_nin_2D_3D_FNO_TL.backup/
+nn_output*/
+docs/
+examples/Transfer_learn_nin_2D_3D_FNO_TL/iFOL_PARAMETRIC_2D_Fourier/
+examples/Transfer_learn_nin_2D_3D_FNO_TL/PHASE_0_PARAMETRIC_2D_Fourier_strain_25/
+examples/Transfer_learn_nin_2D_3D_FNO_TL.backup/

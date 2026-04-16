@@ -546,7 +546,7 @@ def main(
 
 
 if __name__ == "__main__":
-    fol_num_epochs = 500
+    fol_num_epochs = 5000
     solve_FE = True
     clean_dir = False
     use_fno_warmstart = False
@@ -559,8 +559,8 @@ if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     pkl_path = str(script_dir / "fourier_control_dict.pkl")
 
-    train_ids = "0-10"
-    test_ids = "11-19"
+    train_ids = "0-80"
+    test_ids = "81-99"
     default_label = "fourier_control"
     out_root = str(script_dir / "PHASE_0_PARAMETRIC_2D_Fourier_strain_25")
 
