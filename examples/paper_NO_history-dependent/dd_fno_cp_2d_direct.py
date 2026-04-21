@@ -16,9 +16,9 @@ from mechanical3d_utilities import *
 
 
 # directory & save handling
-working_directory_name = 'nn_output_fno_cp_2d_direct_fullfield_frequency'
+working_directory_name = 'nn_output_fno_cp_2d_direct_check'
 case_dir = os.path.join('.', working_directory_name)
-# create_clean_directory(working_directory_name)
+create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # loading directory
@@ -26,6 +26,8 @@ loading_directory_name = 'nn_output_gt_cp'
 load_case_dir = os.path.join(os.path.dirname(__file__), loading_directory_name)
 path = os.path.join(load_case_dir, 'Cu_textured_dataset.hdf5')
 path_incr_24 = os.path.join(load_case_dir, 'Cu_simulations_quaternion_orientation_5.hdf5')
+with h5py.File(path_incr_24, "r") as f:
+    print(f["von_Mises_stress"]["increment_0"].keys())
 
 # problem setup
 model_settings = {"L":1,"N":128,
@@ -38,26 +40,27 @@ fe_mesh.Initialize()
 
 # load data and create train set
 N = model_settings["N"]
-increments=list(range(75,975,75))  
+increments=list(range(75,1875,75))  
 extrapolate = 2         # Last two increments are meant to be extrapolated
 time_steps = len(increments)
 w = 1
 excluded_idx=[264, 286, 484, 982, 1480, 1572, 1686, 1732, 1840, 2246, 2481]
-train_sim_ids, val_sim_ids, test_sim_ids = (500,501),(2249,2254),(2484,2499)
+# train_sim_ids, val_sim_ids, test_sim_ids = (500,501),(2249,2254),(2484,2499)
+train_sim_ids, val_sim_ids, test_sim_ids = (2498,2499),(2498,2499),(2498,2499)
 
 # which_data = ["orientations"]
 which_data=["von_Mises_stress", "gamma_slip_(-1-11)", "gamma_slip_(-11-1)", "gamma_slip_(1-1-1)", "gamma_slip_(111)"]
 
 X_train, Y_train, scales = create_time_channel_set(sim_ids=train_sim_ids, increments=increments[:-extrapolate], 
                                                     max_increment=increments[-1],min_increment=increments[0], which_data=which_data, 
-                                                    N=N, excluded_idx=excluded_idx,path=path, dtype=np.float32,normalize=True)
+                                                    N=N, excluded_idx=excluded_idx,path=path_incr_24, dtype=np.float32,normalize=True)
 
 X_val, Y_val, _ = create_time_channel_set(sim_ids=val_sim_ids, increments=increments[:-extrapolate], 
                                            max_increment=increments[-1],min_increment=increments[0], which_data=which_data, 
-                                           N=N, excluded_idx=excluded_idx,path=path, dtype=np.float32,normalize=True)
+                                           N=N, excluded_idx=excluded_idx,path=path_incr_24, dtype=np.float32,normalize=True)
 X_test, Y_test, _ = create_time_channel_set(sim_ids=test_sim_ids, increments=increments, 
                                             max_increment=increments[-1],min_increment=increments[0], which_data=which_data, 
-                                            N=N, excluded_idx=excluded_idx,path=path, dtype=np.float32,normalize=True)
+                                            N=N, excluded_idx=excluded_idx,path=path_incr_24, dtype=np.float32,normalize=True)
 
 Cin = int(X_train[0,...].size / (N*N))
 Cout = int(Y_train[0,...].size / (N*N))
@@ -121,7 +124,7 @@ fno_dict = {"in_channel": Cin, "out_channel":Cout,
             "hidden_channels":64,"n_modes":(12,12),"n_layers":4,
             "lifting_channel_ratio":4, "projection_channel_ratio":4,
             "constant_param_embedding":{"num_frequencies":4,"embedding_type":"nerf",     # "nerf" or "transformer" 
-                                "modulation":"frequency"}, "full_field": (not delta)}                              # "frequency" or "amplitude"}
+                                "modulation":"amplitude"}, "full_field": (not delta)}                              # "frequency" or "amplitude"}
 
 fno_model = FNO(
     in_channels=fno_dict["in_channel"],
@@ -196,9 +199,9 @@ dd_fno_pr_learning.RestoreState(restore_state_directory=os.path.join(os.path.dir
 type_index = {'von_mises':0, 'orientation_1':1, 'orientation_2':2,'orientation_3':3,'orientation_4':4,}
 i = type_index["von_mises"]
 
-for case_id in [0, 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
+for case_id in [2480]: #[0, 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/test_sim_ids
 
-    gt_sol = gt_loader(which_data=which_data,sim_id=case_id,increments=increments,w=w,path=path,excluded_idx=excluded_idx,N=N)
+    gt_sol = gt_loader(which_data=which_data,sim_id=case_id,increments=increments,w=w,path=path_incr_24,excluded_idx=excluded_idx,N=N)
 
     x0=gt_sol[0,:].reshape(N,N,Cout)
     # x0_norm = x0 / np.max(x0,axis=(0,1))
@@ -232,9 +235,10 @@ for case_id in [0, 120, 280, 420, 890, 1345, 1367, 1992]:   # less than train_/t
                   y_eval_value_grid=64,time=['2','5','10'],case_dir=case_dir,filename=f"{output_name}_1d_train_case_{case_id}",start_id=w)
 
 
-for case_id in [2258, 2298, 2302, 2345, 2379, 2421, 2462, 2492]:   # less than train_/test_sim_ids
+# for case_id in [2258, 2298, 2302, 2345, 2379, 2421, 2462, 2492]:   # less than train_/test_sim_ids
+for case_id in [2482,2485,2489,2490,2495,2498]:   # less than train_/test_sim_ids
 
-    gt_sol = gt_loader(which_data=which_data,sim_id=case_id,increments=increments,w=w,path=path,excluded_idx=excluded_idx,N=N)  # (steps,N*N*C)
+    gt_sol = gt_loader(which_data=which_data,sim_id=case_id,increments=increments,w=w,path=path_incr_24,excluded_idx=excluded_idx,N=N)  # (steps,N*N*C)
 
     x0=gt_sol[0,:].reshape(N,N,Cout)
     # x0_norm = x0 / np.max(x0,axis=(0,1))
@@ -340,3 +344,55 @@ with open(case_dir+f'/pred_data_dict.pkl', 'wb') as f:
 with open(case_dir+f'/test_data_dict.pkl', 'wb') as f:
     pickle.dump(test_data_dict,f)
 
+# # -------------------------------------------------
+# # Calculation of error in time for extreme extrapolation in time
+# # -------------------------------------------------
+extreme_sim_ids = (2480,2500)
+valid_extrme_sim_ids = list(np.arange(extreme_sim_ids[0],extreme_sim_ids[-1]))
+extreme_increments = list(range(75,1875,75))
+extreme_time_steps = len(extreme_increments)
+excluded_idx_extreme = []
+print(f"extreme steps: {extreme_time_steps - w} , N: {N}, C: {Cout}, w: {w}")
+#   shape: (steps,B,N*N*C)
+
+B_extreme = len(valid_extrme_sim_ids)
+gt_sol_batch = np.zeros(((extreme_time_steps - w),B_extreme,N*N*Cout))
+fno_sol_batch = np.zeros(((extreme_time_steps - w),B_extreme,N*N*Cout))
+for ind,sim_id in enumerate(valid_extrme_sim_ids):    
+    gt_sol = gt_loader(which_data=which_data,sim_id=sim_id,increments=extreme_increments,w=w,path=path_incr_24,excluded_idx=excluded_idx_extreme,N=N)
+    # x0=gt_sol[0,...]
+    x0=gt_sol[0,...].reshape(N,N,Cout)
+    norm_scales = scales["physical"]
+    x0_norm = x0 / norm_scales
+    fno_sol = rollout_direct(model=dd_fno_pr_learning, x0=x0_norm, steps=(extreme_time_steps - w), time_scale = (extreme_time_steps - w - extrapolate), N=N, C=Cout, w=w, delta=delta).squeeze()
+    fno_sol_rescaled = (fno_sol * norm_scales)
+    gt_sol_batch[:,ind,:] = gt_sol.reshape((extreme_time_steps - w),-1)
+    fno_sol_batch[:,ind,:] = fno_sol_rescaled.reshape((extreme_time_steps - w),-1)
+
+# compute error for each time steps
+abs_error_for_step = []
+# error for von_Mises_stress --> ::Cout
+for step in range(extreme_time_steps - w):
+    abs_error_for_step.append(np.abs(fno_sol_batch[step,:].reshape(B_extreme,N,N,Cout) - gt_sol_batch[step,:].reshape(B_extreme,N,N,Cout)))        # shape= (B, N*N*C)
+error_steps_array = np.array(abs_error_for_step)
+
+error_data_dict_extreme = {}
+pred_data_dict_extreme = {}
+test_data_dict_extreme = {}
+for step in range(extreme_time_steps - w):
+    error_data_dict_extreme[f"step_{step}"] = error_steps_array[step,:,:]
+    pred_data_dict_extreme[f"step_{step}"] = fno_sol_batch[step,:,:]
+    test_data_dict_extreme[f"step_{step}"] = gt_sol_batch[step,:,:]
+
+print(error_data_dict_extreme.keys())
+
+error_time_plot_pointwise(error_data_dict_extreme,which_channel=0,w=w,filename='boxplot_error_extreme_in_time_pointwise.png',case_dir=case_dir)
+error_time_plot_mae(error_data_dict_extreme,which_physics='von_mises',w=w,filename='boxplot_error_extreme_in_time_mae.png',case_dir=case_dir)
+
+
+with open(case_dir+f'/error_extreme_data_dict.pkl', 'wb') as f:
+    pickle.dump(error_data_dict_extreme,f)
+with open(case_dir+f'/pred_extreme_data_dict.pkl', 'wb') as f:
+    pickle.dump(pred_data_dict_extreme,f)
+with open(case_dir+f'/test_extreme_data_dict.pkl', 'wb') as f:
+    pickle.dump(test_data_dict_extreme,f)

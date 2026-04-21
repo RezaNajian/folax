@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
-from typing import List, Union
+from typing import List, Optional, Union
 
 import jax
+import jax.numpy as jnp
 from flax import nnx
 
 from .channel_mlp import ChannelMLP
@@ -19,6 +20,34 @@ from .fno_utils import validate_scaling_factor
 
 
 Number = Union[int, float]
+
+
+class AttentionBlock(nnx.Module):
+    def __init__(self, d_model: int, in_channels: int, *, rngs: nnx.Rngs):
+        super().__init__()
+        self.d_model = d_model
+        self.in_channels = in_channels
+        self.query = nnx.Linear(in_features=in_channels, out_features=d_model, rngs=rngs)
+        self.key = nnx.Linear(in_features=in_channels, out_features=d_model, rngs=rngs)
+        self.value = nnx.Linear(in_features=in_channels, out_features=d_model, rngs=rngs)
+        self.out = nnx.Linear(in_features=d_model, out_features=in_channels, rngs=rngs)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        batch_size, nx, ny, channels = x.shape
+        x_flat = x.reshape(batch_size, nx * ny, channels)
+
+        query = self.query(x_flat)
+        key = self.key(x_flat)
+        value = self.value(x_flat)
+
+        scale = 1.0 / jnp.sqrt(jnp.asarray(self.d_model, dtype=x.dtype))
+        attention = jnp.einsum("bid,bjd->bij", query, key) * scale
+        attention = jax.nn.softmax(attention, axis=-1)
+
+        out = jnp.einsum("bij,bjd->bid", attention, value)
+        out = self.out(out)
+
+        return out.reshape(batch_size, nx, ny, channels)
 
 # JAX/Flax NNX implementation of FNOBlocks.
 #
@@ -135,6 +164,8 @@ class FNOBlocks(nnx.Module):
         preactivation=False,
         fno_skip="linear",
         channel_mlp_skip="soft-gating",
+        use_attention=False,
+        attention_d_model: Optional[int] = None,
         complex_data=False,
         separable=False,
         factorization=None,
@@ -169,6 +200,8 @@ class FNOBlocks(nnx.Module):
         self.fno_skip = fno_skip
         self.channel_mlp_skip = channel_mlp_skip
         self.complex_data = complex_data
+        self.use_attention = use_attention
+        self.attention_d_model = out_channels if attention_d_model is None else attention_d_model
 
         self.use_channel_mlp = use_channel_mlp
         self.channel_mlp_expansion = channel_mlp_expansion
@@ -229,6 +262,19 @@ class FNOBlocks(nnx.Module):
             raise NotImplementedError(
                 "complex_data=True is not supported in the JAX/NNX implementation yet."
             )
+        if self.use_attention:
+            self.attention_blocks = nnx.List(
+                [
+                    AttentionBlock(
+                        d_model=self.attention_d_model,
+                        in_channels=self.out_channels,
+                        rngs=rngs,
+                    )
+                    for _ in range(n_layers)
+                ]
+            )
+        else:
+            self.attention_blocks = None
         if self.use_channel_mlp:
             self.channel_mlp = nnx.List(
                 [
@@ -344,6 +390,9 @@ class FNOBlocks(nnx.Module):
 
         x = x_fno + x_skip_fno if self.fno_skips is not None else x_fno
 
+        if self.attention_blocks is not None:
+            x = x + self.attention_blocks[index](x)
+
         if index < (self.n_layers - 1):
             x = self.non_linearity(x)
 
@@ -388,6 +437,9 @@ class FNOBlocks(nnx.Module):
         x_fno = self.convs[index](x, output_shape=output_shape)
 
         x = x_fno + x_skip_fno if self.fno_skips is not None else x_fno
+
+        if self.attention_blocks is not None:
+            x = x + self.attention_blocks[index](x)
 
         if index < (self.n_layers - 1):
             x = self.non_linearity(x)

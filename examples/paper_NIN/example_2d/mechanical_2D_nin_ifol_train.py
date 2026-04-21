@@ -212,7 +212,7 @@ for eval_id in tests:
     ifol_uvw = np.array(ifol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
     fe_mesh[f'iFOL_U_{eval_id}'] = ifol_uvw.reshape((fe_mesh.GetNumberOfNodes(), 2))
     fe_mesh[f"K_{eval_id}"] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(),1))
-    iFOL_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(ifol_uvw), K_matrix=jnp.array(K_matrix[eval_id,:]))
+    # iFOL_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(ifol_uvw), K_matrix=jnp.array(K_matrix[eval_id,:]))
 
     # solve FE here to compare the result
     fe_setting = {"linear_solver_settings":{"solver":"JAX-direct"},
@@ -227,11 +227,11 @@ for eval_id in tests:
     abs_err = abs(FE_UVW.reshape(-1,1) - ifol_uvw.reshape(-1,1))
     fe_mesh[f"abs_U_error_{eval_id}"] = abs_err.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-    FE_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(FE_UVW), K_matrix=jnp.array(K_matrix[eval_id,:]))
-    stress_error = abs(iFOL_stress.reshape(-1) - FE_stress.reshape(-1))
-    fe_mesh[f"FE_FirstPiola_{eval_id}"] = FE_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
-    fe_mesh[f"iFOL_FirstPiola_{eval_id}"] = iFOL_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
-    fe_mesh[f"error_FirstPiola_{eval_id}"] = stress_error.reshape((fe_mesh.GetNumberOfNodes(), 3))
+    # FE_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(FE_UVW), K_matrix=jnp.array(K_matrix[eval_id,:]))
+    # stress_error = abs(iFOL_stress.reshape(-1) - FE_stress.reshape(-1))
+    # fe_mesh[f"FE_FirstPiola_{eval_id}"] = FE_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
+    # fe_mesh[f"iFOL_FirstPiola_{eval_id}"] = iFOL_stress.reshape((fe_mesh.GetNumberOfNodes(), 3))
+    # fe_mesh[f"error_FirstPiola_{eval_id}"] = stress_error.reshape((fe_mesh.GetNumberOfNodes(), 3))
 
 
     # solve the Newton-Raphson initialized by ifol in one load increment

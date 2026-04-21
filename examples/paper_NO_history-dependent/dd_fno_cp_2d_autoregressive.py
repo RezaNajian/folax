@@ -16,7 +16,7 @@ from mechanical3d_utilities import *
 
 
 # directory & save handling
-working_directory_name = 'nn_output_fno_cp_2d_autoregressive_incremental_w1_reload_zssr'
+working_directory_name = 'nn_output_fno_cp_2d_autoregressive_attention_ep100'
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
@@ -42,14 +42,15 @@ fe_mesh.Initialize()
 
 # load data and create train set
 N = model_settings["N"]
-w = 1   # window length
+w = 3   # window length
 increments=list(range(75,975,75))
 time_steps = len(increments)
 print(f"time steps: {time_steps}")
-# excluded_idx=[264, 286, 484, 982, 1480, 1572, 1686, 1732, 1840, 2246, 2481]
-excluded_idx = []
-# train_sim_ids, val_sim_ids, test_sim_ids = (2480,2500),(2480,2500),(2480,2500)   #(2254,2499)
-train_sim_ids, val_sim_ids, test_sim_ids = (0,20),(0,20),(0,20)
+excluded_idx=[264, 286, 484, 982, 1480, 1572, 1686, 1732, 1840, 2246, 2481]
+# excluded_idx = []
+# train_sim_ids, val_sim_ids, test_sim_ids = (2480,2500),(2480,2500),(2254,2499)   #(2254,2499)
+# train_sim_ids, val_sim_ids, test_sim_ids = (10,20),(10,20),(10,20)
+train_sim_ids, val_sim_ids, test_sim_ids = (2482,2498),(2482,2498),(2482,2498)
 
 # which_data = ["orientations"]
 which_data=["von_Mises_stress", "gamma_slip_(-1-11)", "gamma_slip_(-11-1)", "gamma_slip_(1-1-1)", "gamma_slip_(111)"]
@@ -69,7 +70,7 @@ X_test, Y_test, _ = create_autoregressive_set(window_length=w, sim_ids=test_sim_
 Cin = int(X_train[0,...].size / (N*N))
 Cout = int(Y_train[0,...].size / (N*N))
 
-delta = False
+delta = True
 if delta:
     Y_train_delta = Y_train.reshape(X_train.shape[0],N,N,Cout) - X_train.reshape(X_train.shape[0],N,N,Cin)[:,:,:,-Cout:]
     Y_val_delta = Y_val.reshape(X_val.shape[0],N,N,Cout) - X_val.reshape(X_val.shape[0],N,N,Cin)[:,:,:,-Cout:]
@@ -109,8 +110,9 @@ identity_control.Initialize()
 # Build the FNO (Fourier Neural Operator) in JAX/Flax 
 # ----------------------------------------------------------------------------
 fno_dict = {"in_channel": Cin, "out_channel":Cout,
-            "hidden_channels":64,"n_modes":(12,12),"n_layers":4,
-            "lifting_channel_ratio":4, "projection_channel_ratio":4}
+            "hidden_channels":32,"n_modes":(12,12),"n_layers":4,
+            "lifting_channel_ratio":2, "projection_channel_ratio":2,
+            "use_attention":True, "attention_d_model":8}
 
 fno_model = FNO(
     in_channels=fno_dict["in_channel"],
@@ -120,6 +122,8 @@ fno_model = FNO(
     n_layers=fno_dict["n_layers"],
     lifting_channel_ratio=fno_dict["lifting_channel_ratio"],
     projection_channel_ratio=fno_dict["projection_channel_ratio"],
+    use_attention=fno_dict["use_attention"],
+    attention_d_model=fno_dict["attention_d_model"],
     rngs=nnx.Rngs(0)
 )
 
@@ -134,7 +138,7 @@ print(f"FNO trainable parameters:{total_params}")
 init_out = fno_model(X_train[0:8].reshape(8,model_settings["N"],model_settings["N"],len(input_nodal_unknowns)))
 
 
-num_epochs = 1
+num_epochs = 100
 lr = 1e-5
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=lr, transition_steps=num_epochs)
 optimizer = optax.chain(optax.adam(learning_rate_scheduler))
@@ -174,7 +178,7 @@ dd_fno_pr_learning.Train(train_set=train_set,
                         convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
                         plot_settings={"save_frequency":10},
                         train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-                        test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                        test_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
                         data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
                         working_directory=case_dir)
 
@@ -224,7 +228,8 @@ time_interval = len(np.setdiff1d(np.arange(test_sim_ids[0],test_sim_ids[1]),
                                  np.array(excluded_idx)))  # is equal to the number of simulations
 print(f"plot for test set--time interval is: {time_interval}")
 
-for case_id in [0]:# [4,5,6,7,9,15,18]:   # less than train_/test_sim_ids
+# for case_id in [4,44,48,91,125,167,208,238]:   # less than train_/test_sim_ids
+for case_id in [1,2,3,4]:
 
     x0 = X_test[case_id, :]
     fno_sol = rollout(model=dd_fno_pr_learning, x0=x0, steps=(time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
@@ -291,6 +296,8 @@ batched_pred_rollout = batch_rollout(model=dd_fno_pr_learning, x0=X_test[:test_s
 B = test_sim_length
 
 batched_Y_test = Y_test.copy()
+print(f"batched_Y_test shape: {batched_Y_test.shape}")
+print(f"batch sizes for Y_test: {B}")
 batched_Y_test = batched_Y_test.reshape((time_steps - w),B,N,N,Cout)
 
 # denormalize
@@ -316,11 +323,71 @@ print(error_data_dict.keys())
 error_time_plot_pointwise(error_data_dict,which_channel=0,w=w,filename='boxplot_error_in_time_pointwise.png',case_dir=case_dir)
 error_time_plot_mae(error_data_dict,which_physics='von_mises',w=w,filename='boxplot_error_in_time_mae.png',case_dir=case_dir)
 
+data_dump = True
+if data_dump:
+    with open(case_dir+f'/error_data_dict.pkl', 'wb') as f:
+        pickle.dump(error_data_dict,f)
+    with open(case_dir+f'/pred_data_dict.pkl', 'wb') as f:
+        pickle.dump(pred_data_dict,f)
+    with open(case_dir+f'/test_data_dict.pkl', 'wb') as f:
+        pickle.dump(test_data_dict,f)
 
-with open(case_dir+f'/error_data_dict.pkl', 'wb') as f:
-    pickle.dump(error_data_dict,f)
-with open(case_dir+f'/pred_data_dict.pkl', 'wb') as f:
-    pickle.dump(pred_data_dict,f)
-with open(case_dir+f'/test_data_dict.pkl', 'wb') as f:
-    pickle.dump(test_data_dict,f)
+# -------------------------------------------------
+# Calculation of error in time for extreme extrapolation in time
+# -------------------------------------------------
 
+extreme_sim_ids = (2480,2500)
+extreme_increments = list(range(75,1875,75))
+X_extreme, Y_extreme, _ = create_autoregressive_set(window_length=w, sim_ids=extreme_sim_ids, increments=extreme_increments,
+                                           which_data=which_data,N=N,excluded_idx=[0],
+                                           path=path_incr_24, dtype=np.float32, normalize=True)
+
+#TODO: Check normalized value to see where are they lying in terms of their values
+test_sim_length_extreme = len(np.arange(extreme_sim_ids[0],extreme_sim_ids[1]))  # is equal to the number of simulations
+extreme_time_steps = len(extreme_increments)
+
+print(f"x0 extreme shape: {X_extreme[:test_sim_length_extreme,:].shape}")
+print(f"Y extreme shape: {Y_extreme.shape}")
+print(f"steps: {(extreme_time_steps - w)} , N: {N}, C: {Cout}, w: {w}")
+batched_pred_rollout_extreme = batch_rollout(model=dd_fno_pr_learning, x0=X_extreme[:test_sim_length_extreme,:],
+                                        steps=(extreme_time_steps - w), N=N, Cout=Cout, w=w, delta=delta, case_dir=case_dir)
+
+# reshape ground truth (steps, Batch size, N*N*C)   Note: C=Cout
+B_extreme = test_sim_length_extreme
+
+batched_Y_extreme = Y_extreme.copy()
+batched_Y_extreme = batched_Y_extreme.reshape((extreme_time_steps - w),B_extreme,N,N,Cout)
+
+# denormalize
+batched_pred_rollout_denorm_extreme =  scales * batched_pred_rollout_extreme
+batched_Y_test_denorm_extreme = scales * batched_Y_extreme
+
+# compute error for each time steps
+abs_error_for_step_extreme = []
+for step in range(extreme_time_steps - w):
+    abs_error_for_step_extreme.append(np.abs(batched_pred_rollout_denorm_extreme[step,:,:,:,:] - batched_Y_test_denorm_extreme[step,:,:,:,:]))        # shape= (B_extreme,N,N,C)
+    #plt.imshow(batched_pred_rollout_denorm[step,25,:,:,0])
+    #plt.savefig(os.path.join(case_dir,f'Batched_pred_test_{step}.png'))
+    #plt.imshow(batched_Y_test_denorm[step,25,:,:,0])
+    #plt.savefig(os.path.join(case_dir,f'Batched_Y_test_{step}.png'))
+error_steps_array_extreme = np.array(abs_error_for_step_extreme)
+
+error_data_dict_extreme = {}
+pred_data_dict_extreme = {}
+test_data_dict_extreme = {}
+for step in range(extreme_time_steps - w):
+    error_data_dict_extreme[f"step_{step}"] = error_steps_array_extreme[step,:,:,:,:]
+    pred_data_dict_extreme[f"step_{step}"] = batched_pred_rollout_denorm_extreme[step,:,:,:,:]
+    test_data_dict_extreme[f"step_{step}"] = batched_Y_test_denorm_extreme[step,:,:,:,:]
+
+
+error_time_plot_pointwise(error_data_dict_extreme,which_channel=0,w=w,filename='boxplot_error_extreme_in_time_pointwise.png',case_dir=case_dir)
+error_time_plot_mae(error_data_dict_extreme,which_physics='von_mises',w=w,filename='boxplot_error_extreme_in_time_mae.png',case_dir=case_dir)
+
+if data_dump:
+    with open(case_dir+f'/error_extreme_data_dict.pkl', 'wb') as f:
+        pickle.dump(error_data_dict_extreme,f)
+    with open(case_dir+f'/pred_extreme_data_dict.pkl', 'wb') as f:
+        pickle.dump(pred_data_dict_extreme,f)
+    with open(case_dir+f'/test_extreme_data_dict.pkl', 'wb') as f:
+        pickle.dump(test_data_dict_extreme,f)

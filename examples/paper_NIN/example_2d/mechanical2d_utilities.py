@@ -1110,7 +1110,7 @@ def compute_stress_neohooke_quad(loss_function, disp_field_vec:jnp.ndarray, K_ma
             lambda_at_gauss = e_at_gauss*loss_function.v/((1+loss_function.v)*(1-2*loss_function.v))
 
             _,F,_ = loss_function.CalculateKinematics(DN_DX_T,uvwe)
-            _,S,_ = loss_function.material_model.evaluate(F,k_at_gauss,mu_at_gauss,lambda_=lambda_at_gauss)
+            _,S,_ = loss_function.material_model.evaluate(F,k_at_gauss,mu_at_gauss)
             S_mat = create_S_mat(S)
             P = jnp.dot(F,S_mat)    # first Piola Kirchhoff stress tensor
             P = loss_function.material_model.TensorToVoigt(P)
