@@ -213,6 +213,7 @@ class FNO(nnx.Module):
         constant_param_embedding: dict = {"num_frequencies":4,"embedding_type":"nerf",    # "nerf" or "transformer" 
                                          "modulation":"amplitude"},     # "frequency" or "amplitude"
         *,
+        scale_factor:float = 0.1,
         rngs: nnx.Rngs
     ):
         if decomposition_kwargs is None:
@@ -248,6 +249,7 @@ class FNO(nnx.Module):
         self.preactivation = preactivation
         self.complex_data = complex_data
         self.fno_block_precision = fno_block_precision
+        self.scale_factor = scale_factor
 
         # Constant Parameter Embedding
         self.constant_parameter_index = constant_parameter_index
@@ -439,7 +441,7 @@ class FNO(nnx.Module):
 
         x = self.projection(x)
 
-        return x
+        return x * self.scale_factor
     
     @property
     def n_modes(self):

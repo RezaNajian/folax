@@ -4,74 +4,33 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..','..
 import jax
 import numpy as np
 from fol.loss_functions.mechanical_neohooke import NeoHookeMechanicalLoss2DQuad
+from fol.loss_functions.mechanical_saint_venant import SaintVenantMechanicalLoss2DQuad
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.identity_control import IdentityControl
 from fol.controls.fourier_control import FourierControl
-from fol.deep_neural_networks.meta_alpha_meta_implicit_parametric_operator_learning import MetaAlphaMetaImplicitParametricOperatorLearning
+from fol.deep_neural_networks.fourier_parametric_operator_learning import PhysicsInformedFourierParametricOperatorLearning
+from fol.deep_neural_networks.ported_fourier_neural_operator_networks.fno import FNO
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import *
 from fol.deep_neural_networks.nns import HyperNetwork,MLP
 import pickle
 import optax
+from flax import nnx
 from mechanical2d_utilities import *
 from fol.tools.decoration_functions import *
 import requests
 import zipfile
 
-def prepare_net_params(case_dir):
-        """
-        Extract only the contents of 'folder_in_zip' from the ZIP archive
-        and place them into 'extract_to'.
-        """
-        extract_to = case_dir
-        folder_in_zip = "2d_hyperelastic/"  # ensure correct format
-
-        url = "https://zenodo.org/records/17752752/files/NiN.zip?download=1"
-        filename = "NiN.zip"
-
-        fol_info(f"⬇ Downloading '{filename}' from Zenodo...")
-
-        response = requests.get(url, stream=True)
-        response.raise_for_status()  # raises if e.g. 404, 403, etc.
-
-        with open(filename, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:  # filter out keep-alive chunks
-                    f.write(chunk)
-
-        with zipfile.ZipFile(filename, "r") as z:
-            # Filter the files that start with the folder path
-            members = [m for m in z.namelist() if m.startswith(folder_in_zip)]
-
-            if not members:
-                raise ValueError(f"Folder '{folder_in_zip}' not found inside ZIP.")
-
-            fol_info(f"📦 Extracting {len(members)} files from '{folder_in_zip}'...")
-
-            for member in members:
-                # Compute final extraction path
-                destination = os.path.join(extract_to, os.path.relpath(member, folder_in_zip))
-
-                # Create directories if needed
-                if member.endswith("/"):
-                    os.makedirs(destination, exist_ok=True)
-                else:
-                    # Ensure parent directory exists
-                    os.makedirs(os.path.dirname(destination), exist_ok=True)
-                    with z.open(member, "r") as src, open(destination, "wb") as dest:
-                        dest.write(src.read())
-
-            fol_info(f"✔ Extracted to: {os.path.abspath(extract_to)}")
 
 # directory & save handling
-working_directory_name = "2d_hyperelastic"   # should be the same dir that contains network parameters
+working_directory_name = "2d_hyperelastic_fno"   # should be the same dir that contains network parameters
 case_dir = os.path.join('.', working_directory_name)
 create_clean_directory(working_directory_name)
 sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
 
 # problem setup
-model_settings = {"L":1,"N":81,
+model_settings = {"L":1,"N":42,
                 "Ux_left":0.0,"Ux_right":0.5,
                 "Uy_left":0.0,"Uy_right":0.5}
 
@@ -105,73 +64,72 @@ fourier_control = FourierControl("fourier_control",fourier_control_settings,fe_m
 fourier_control.Initialize()
 
 # load fourier coefficients and compute K
-with open(f'fourier_control_dict.pkl', 'rb') as f:
+with open(os.path.join('.',f'fourier_control_dict.pkl'), 'rb') as f:
     loaded_dict = pickle.load(f)
 coeffs_matrix = loaded_dict["coeffs_matrix"]
+
 K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
 
-K_matrix = np.loadtxt("ifol_fourier_test_samples_K_matrix_res_81.txt")
-print(K_matrix.shape)
+# K_matrix_tests = np.loadtxt("ifol_fourier_test_samples_K_matrix_res_81.txt")
+# print(K_matrix_tests.shape)
 
-# now we need to create, initialize and train ifol
-ifol_settings_dict = {
-    "characteristic_length": 64,
-    "synthesizer_depth": 4,
-    "activation_settings":{"type":"sin",
-                            "prediction_gain":30,
-                            "initialization_gain":1.0},
-    "skip_connections_settings": {"active":False,"frequency":1},
-    "latent_size":  8*64,
-    "modulator_bias": False,
-    "main_loop_transform": 1e-5,
-    "latent_step_optimizer": 1e-4,
-    "ifol_nn_latent_step_size": 1e-2
-}
+# ----------------------------------------------------------------------------
+# Build the FNO (Fourier Neural Operator) in JAX/Flax 
+# ----------------------------------------------------------------------------
+fno_dict = {"in_channel": 1, "out_channel":2,
+            "hidden_channels":32,"n_modes":(8,8),"n_layers":4,
+            "lifting_channel_ratio":2, "projection_channel_ratio":2}
 
-# design synthesizer & modulator NN for hypernetwork
-characteristic_length = ifol_settings_dict["characteristic_length"]
-synthesizer_nn = MLP(name="synthesizer_nn",
-                    input_size=3,
-                    output_size=2,
-                    hidden_layers=[characteristic_length] * ifol_settings_dict["synthesizer_depth"],
-                    activation_settings=ifol_settings_dict["activation_settings"],
-                    skip_connections_settings=ifol_settings_dict["skip_connections_settings"])
+fno_model = FNO(
+    in_channels=fno_dict["in_channel"],
+    out_channels=fno_dict["out_channel"],
+    hidden_channels=fno_dict["hidden_channels"],
+    n_modes=fno_dict["n_modes"],
+    n_layers=fno_dict["n_layers"],
+    lifting_channel_ratio=fno_dict["lifting_channel_ratio"],
+    projection_channel_ratio=fno_dict["projection_channel_ratio"],
+    scale_factor=0.1,
+    rngs=nnx.Rngs(0)
+)
 
-latent_size = ifol_settings_dict["latent_size"]
-modulator_nn = MLP(name="modulator_nn",
-                input_size=latent_size,
-                use_bias=ifol_settings_dict["modulator_bias"]) 
+# Count trainable parameters 
+params = nnx.state(fno_model, nnx.Param)
+total_params  = sum(np.prod(x.shape) for x in jax.tree_util.tree_leaves(params))
+print(f"FNO trainable parameters:{total_params}")
 
-hyper_network = HyperNetwork(name="hyper_nn",
-                            modulator_nn=modulator_nn,synthesizer_nn=synthesizer_nn,
-                            coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
+# Sanity-check forward pass with a small batch:
+# FNO expects shape (batch, Nx, Ny, channels)
+# ISince K_matrix is stored as flattened vectors, we reshape to (B,N,N,1)
+init_out = fno_model(K_matrix[0:8,:].reshape(8,model_settings["N"],model_settings["N"],fno_dict["in_channel"]))
 
-# create fol optax-based optimizer
-#learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=1e-7, transition_steps=num_epochs)
-main_loop_transform = optax.chain(optax.adam(ifol_settings_dict["main_loop_transform"]))
-latent_step_optimizer = optax.chain(optax.adam(ifol_settings_dict["latent_step_optimizer"]))
+
+num_epochs = 2000
+lr = 1e-5
+learning_rate_scheduler = optax.linear_schedule(init_value=1e-4, end_value=lr, transition_steps=num_epochs)
+optimizer = optax.chain(optax.adam(learning_rate_scheduler))
 
 # create fol
-ifol = MetaAlphaMetaImplicitParametricOperatorLearning(name="meta_implicit_fol",control=identity_control,
-                                                        loss_function=mechanical_loss_2d,
-                                                        flax_neural_network=hyper_network,
-                                                        main_loop_optax_optimizer=main_loop_transform,
-                                                        latent_step_optax_optimizer=latent_step_optimizer,
-                                                        latent_step_size=ifol_settings_dict["ifol_nn_latent_step_size"],
-                                                        num_latent_iterations=3)
-ifol.Initialize()
+pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="dd_fno_pr_learning",
+                                                                        control=identity_control,
+                                                                        loss_function=mechanical_loss_2d,
+                                                                        flax_neural_network=fno_model,
+                                                                        optax_optimizer=optimizer)
+
+pi_fno_pr_learning.Initialize()
+
+
 
 # split the data to train and test sets
 otf_id = 0
-train_set_otf = coeffs_matrix[otf_id,:].reshape(-1,1).T     # for On The Fly training
+train_set_otf = K_matrix[otf_id,:].reshape(-1,1).T     # for On The Fly training
 
-train_start_id = 20
-train_end_id = 8000
-train_set_pr = coeffs_matrix[train_start_id:train_end_id,:]     # for parametric training
+train_start_id = 0
+train_end_id = 160
+train_set_pr = K_matrix[train_start_id:train_end_id,:]     # for parametric training
 
-test_start_id = 0
-test_end_id = 20
-test_set_pr = coeffs_matrix[test_start_id:test_end_id,:]
+test_start_id = 180
+test_end_id = 200
+test_set_pr = K_matrix[test_start_id:test_end_id,:]
 
 # OTF or Parametric 
 parametric_learning = True
@@ -184,8 +142,8 @@ else:
     test_set = train_set
     tests = [otf_id]
 # here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-train_settings_dict = {"batch_size": 1,
-                        "num_epoch":5000,
+train_settings_dict = {"batch_size": 8,
+                        "num_epoch":num_epochs,
                         "parametric_learning": parametric_learning,
                         "OTF_id": otf_id,
                         "train_start_id": train_start_id,
@@ -193,21 +151,22 @@ train_settings_dict = {"batch_size": 1,
                         "test_start_id": test_start_id,
                         "test_end_id": test_end_id}
 
-train_from_scratch = False
+
+train_from_scratch = True
 if train_from_scratch:
-    ifol.Train(train_set=(train_set,),
-                test_set=(test_set,),
-                test_frequency=100,
-                batch_size=train_settings_dict["batch_size"],
-                convergence_settings={"num_epochs":train_settings_dict["num_epoch"],"relative_error":1e-100,"absolute_error":1e-100},
-                plot_settings={"plot_save_rate":100},
-                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":10},
-                working_directory=case_dir)
+    pi_fno_pr_learning.Train(train_set=(train_set,),
+                        test_set=(test_set,),
+                        batch_size=train_settings_dict["batch_size"],
+                        restore_nnx_state_settings={'restore':False, "state_directory":case_dir+"/flax_train_state"},
+                        convergence_settings={"num_epochs":train_settings_dict["num_epoch"],"relative_error":1e-100,"absolute_error":1e-100},
+                        plot_settings={"save_frequency":10},
+                        train_checkpoint_settings={"least_loss_checkpointing":False,"frequency":10},
+                        test_checkpoint_settings={"least_loss_checkpointing":False,"frequency":10},
+                        data_model_sharding_settings ={"sharding":False,"num_data_devices":4,"num_nnx_model_devices":1},
+                        working_directory=case_dir)
 else:
-    # download the params if needed 
-    prepare_net_params(case_dir)
     # load the best model
-    ifol.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
+    pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
 
 test_ids = [0, 4, 5, 7, 11, 12, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 rho = []
@@ -216,9 +175,9 @@ cosine = []
 use_warmstart = True
 # for eval_id in test_ids[:10]:
 for eval_id in range(10):
-    # predict the result from ifol
-    ifol_uvw = np.array(ifol.Predict(coeffs_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
-    fe_mesh[f'iFOL_U_{eval_id}'] = ifol_uvw.reshape((fe_mesh.GetNumberOfNodes(), 2))
+    # predict the result from fno
+    fno_uvw = np.array(pi_fno_pr_learning.Predict(K_matrix[eval_id].reshape(-1,1).T)).reshape(-1)
+    fe_mesh[f'FNO_U_{eval_id}'] = fno_uvw.reshape((fe_mesh.GetNumberOfNodes(), 2))
     fe_mesh[f"K_{eval_id}"] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(),1))
     # iFOL_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(ifol_uvw), K_matrix=jnp.array(K_matrix[eval_id,:]))
 
@@ -241,7 +200,7 @@ for eval_id in range(10):
 
         fe_mesh[f'FE_U_{eval_id}'] = FE_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-        abs_err = abs(FE_UVW.reshape(-1,1) - ifol_uvw.reshape(-1,1))
+        abs_err = abs(FE_UVW.reshape(-1,1) - fno_uvw.reshape(-1,1))
         # fe_mesh[f"abs_U_error_{eval_id}"] = abs_err.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
         # FE_stress = compute_stress_neohooke_quad(loss_function=mechanical_loss_2d, disp_field_vec=jnp.array(FE_UVW), K_matrix=jnp.array(K_matrix[eval_id,:]))
@@ -260,27 +219,23 @@ for eval_id in range(10):
     nin_nonlin_fe_solver.Initialize()
     if use_warmstart:
         try:    
-            NiN_UVW = np.array(nin_nonlin_fe_solver.Solve(K_matrix[eval_id,:],ifol_uvw.reshape(2*fe_mesh.GetNumberOfNodes())))  
-            rho.append((nin_nonlin_fe_solver.rho,eval_id))
-            cosine.append((nin_nonlin_fe_solver.cosine,eval_id))
-            print(f"rho values : {nin_nonlin_fe_solver.rho}")
+            NiN_UVW = np.array(nin_nonlin_fe_solver.Solve(K_matrix[eval_id,:],fno_uvw.reshape(2*fe_mesh.GetNumberOfNodes())))  
+            # rho.append((nin_nonlin_fe_solver.rho,eval_id))
+            # cosine.append((nin_nonlin_fe_solver.cosine,eval_id))
+            # print(f"rho values : {nin_nonlin_fe_solver.rho}")
         except Exception as e:
             fol_info(f"Error occured {type(e).__name__}: e")
             NiN_UVW = np.zeros(2*fe_mesh.GetNumberOfNodes())
-            rho.append((nin_nonlin_fe_solver.rho,eval_id))
-            cosine.append((nin_nonlin_fe_solver.cosine,eval_id))
-            print(f"rho values : {nin_nonlin_fe_solver.rho}")
+            # rho.append((nin_nonlin_fe_solver.rho,eval_id))
+            # cosine.append((nin_nonlin_fe_solver.cosine,eval_id))
+            # print(f"rho values : {nin_nonlin_fe_solver.rho}")
 
         fe_mesh[f'NiN_U_{eval_id}'] = NiN_UVW.reshape((fe_mesh.GetNumberOfNodes(), 2))
-    fe_mesh[f"K_{eval_id}"] = K_matrix[eval_id,:].reshape((fe_mesh.GetNumberOfNodes(),1))
 
     # plot the result
     # plot_iFOL_HFE(topology_field=K_matrix[eval_id,:], ifol_sol_field=ifol_uvw.reshape(2*fe_mesh.GetNumberOfNodes()), hfe_sol_field=NiN_UVW,
     #             err_sol_field=abs_err, file_name=os.path.join(case_dir,'plots')+f"/ifol_fe-nin_error_{eval_id}",
     #             fig_titles=['Elasticity Morph.','iFOL','FE-NIN','iFOL-FE Abs Diff.'])
 
-
-# print(rho)
-# print(cosine)
 # export the result in a .vtk file
 fe_mesh.Finalize(export_dir=case_dir)
