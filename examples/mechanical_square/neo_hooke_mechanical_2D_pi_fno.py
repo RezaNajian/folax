@@ -12,15 +12,24 @@ from fol.deep_neural_networks.fourier_parametric_operator_learning import Physic
 from fol.deep_neural_networks.fourier_neural_operator_networks import FourierNeuralOperator2D
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
+from fol.tools.newton_residual_tracker import custom_newton_solve
 import pickle, time
 from flax.nnx import bridge
 
-def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
+def main(fol_num_epochs=10,solve_FE=False,clean_dir=False,use_nin=False):
     # directory & save handling
     working_directory_name = 'nn_output_mechanical_2D_neohooke_pi_fno'
     case_dir = os.path.join('.', working_directory_name)
-    create_clean_directory(working_directory_name)
+    
+    # If NIN is enabled, don't clean the directory (we need to load the model)
+    if not use_nin:
+        create_clean_directory(working_directory_name)
+    else:
+        # Create directory if it doesn't exist, but don't clean it
+        os.makedirs(case_dir, exist_ok=True)
+    
     sys.stdout = Logger(os.path.join(case_dir,working_directory_name+".log"))
+    print(f"Running with use_nin={use_nin}")
 
     # problem setup
     model_settings = {"L":1,"N":42,
@@ -68,6 +77,9 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         coeffs_matrix = loaded_dict["coeffs_matrix"]
 
     K_matrix = fourier_control.ComputeBatchControlledVariables(coeffs_matrix)
+    
+    n_samples = coeffs_matrix.shape[0]
+    print(f"Total samples available: {n_samples}")
 
     dofs = mechanical_loss_2d.GetDOFs()
     def merge_state(dst: nnx.State, src: nnx.State):
@@ -109,11 +121,16 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
 
     pi_fno_pr_learning.Initialize()
 
+    # Adjust indices based on available data
+    n_samples = coeffs_matrix.shape[0]
+    
     otf_id = 0
     train_start_id = 0
-    train_end_id = 10
-    test_start_id = 180
-    test_end_id = 182
+    train_end_id = min(10, n_samples)  # Use first 10 samples or less if not available
+    test_start_id = max(0, n_samples - 2)  # Use last 2 samples
+    test_end_id = n_samples
+    
+    print(f"Train range: [{train_start_id}:{train_end_id}], Test range: [{test_start_id}:{test_end_id}]")
     
     # Parametric learning or On The Fly learning
     parametric_learning = True
@@ -128,32 +145,105 @@ def main(fol_num_epochs=10,solve_FE=False,clean_dir=False):
         eval_cases = [otf_id]
         batch_size = 1
 
-    #here we train for single sample at eval_id but one can easily pass the whole coeffs_matrix
-    pi_fno_pr_learning.Train(train_set=(train_set,),
-                            test_set=(test_set,),
-                            test_frequency=100,
-                            batch_size=batch_size,
-                            convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
-                            plot_settings={"plot_save_rate":100},
-                            train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
-                            working_directory=case_dir)
+    # Train only if NIN is not enabled (first run)
+    if not use_nin:
+        print("[Training Phase] Training PI-FNO model...")
+        pi_fno_pr_learning.Train(train_set=(train_set,),
+                                test_set=(test_set,),
+                                test_frequency=100,
+                                batch_size=batch_size,
+                                convergence_settings={"num_epochs":num_epochs,"relative_error":1e-100,"absolute_error":1e-100},
+                                plot_settings={"plot_save_rate":100},
+                                train_checkpoint_settings={"least_loss_checkpointing":True,"frequency":100},
+                                working_directory=case_dir)
+        print("[Training Phase] Training complete.")
+    else:
+        print("[NIN Mode] Skipping training, will load pre-trained model for warm-start...")
 
-    # load teh best model
-    pi_fno_pr_learning.RestoreState(restore_state_directory=case_dir+"/flax_train_state")
+    # Load the best model (either just trained or from previous run)
+    model_path = case_dir+"/flax_train_state"
+    if os.path.exists(model_path):
+        print(f"[Loading] Restoring model from {model_path}")
+        pi_fno_pr_learning.RestoreState(restore_state_directory=model_path)
+        print("[Loading] Model successfully restored.")
+        
+        # Verify model works by testing prediction on first sample
+        if use_nin:
+            test_pred = pi_fno_pr_learning.Predict(coeffs_matrix[0,:].reshape(-1,1).T)
+            print(f"[Verification] Model prediction test passed. Output shape: {np.array(test_pred).shape}")
+    else:
+        print(f"[Warning] Model path {model_path} not found!")
+        if use_nin:
+            print("[Error] NIN mode requires a pre-trained model. Please run without use_nin first.")
+            return
 
 
     for eval_id in eval_cases:
+        print(f"\n{'='*60}")
+        print(f"Processing sample {eval_id}")
+        print(f"{'='*60}")
+        
+        # Validate control variables
+        K_current = K_matrix[eval_id]
+        if not np.all(np.isfinite(K_current)):
+            print(f"[Error-{eval_id}] K_matrix contains NaN/Inf values. Skipping sample.")
+            continue
+        
+        print(f"[Info-{eval_id}] K_matrix stats: min={np.min(K_current):.3e}, max={np.max(K_current):.3e}, mean={np.mean(K_current):.3e}")
+        
         FNO_UV = np.array(pi_fno_pr_learning.Predict(coeffs_matrix[eval_id,:].reshape(-1,1).T)).reshape(-1)
+        
+        # Validate FNO prediction
+        if not np.all(np.isfinite(FNO_UV)):
+            print(f"[Warning-{eval_id}] FNO prediction contains NaN/Inf values. Using zero initial guess.")
+            FNO_UV = np.zeros_like(FNO_UV)
+        
         fe_mesh[f'U_FNO_{eval_id}'] = FNO_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
-        # solve FE here
+        # solve FE here - Use custom_newton_solve for robustness in both cases
         fe_setting = {"linear_solver_settings":{"solver":"JAX-bicgstab","tol":1e-6,"atol":1e-6,
                                                     "maxiter":1000,"pre-conditioner":"ilu"},
                       "nonlinear_solver_settings":{"rel_tol":1e-5,"abs_tol":1e-5,
                                                     "maxiter":8,"load_incr":21}}
         nonlin_fe_solver = FiniteElementNonLinearResidualBasedSolver("nonlin_fe_solver",mechanical_loss_2d,fe_setting)
         nonlin_fe_solver.Initialize()
-        FE_UV = np.array(nonlin_fe_solver.Solve(K_matrix[eval_id],np.zeros(2*fe_mesh.GetNumberOfNodes())))  
+        
+        if use_nin:
+            # NIN mode: Use FNO prediction as warm-start for Newton solver
+            print(f"[NIN-{eval_id}] Using FNO prediction as initial guess for Newton solver...")
+            initial_dofs = jax.numpy.array(FNO_UV)
+            sample_tag = f"nin_sample_{eval_id}"
+        else:
+            # Baseline mode: Use zero initial guess with custom solver for robustness
+            print(f"[Baseline-{eval_id}] Solving from zero initial guess with custom Newton solver...")
+            initial_dofs = jax.numpy.zeros(2*fe_mesh.GetNumberOfNodes())
+            sample_tag = f"baseline_sample_{eval_id}"
+        
+        try:
+            FE_UV, residuals_rms, total_iters = custom_newton_solve(
+                fe_solver=nonlin_fe_solver,
+                control_vars=K_matrix[eval_id],
+                initial_dofs=initial_dofs,
+                case_dir=case_dir,
+                sample_tag=sample_tag,
+                target_best=1e-6,
+                growth_tol=50.0,
+                rmsmean_window=5,
+                target_rmsmean=1e-6,
+                stop_only_at_full_load=True,
+                use_line_search=True,
+                guard_return_mode="best",
+                return_run_info=False
+            )
+            FE_UV = np.array(FE_UV)
+            print(f"[Success-{eval_id}] Newton solver completed: {total_iters} iterations, final_rms={residuals_rms[-1]:.3e}")
+            
+            # Note: Plot is already generated inside custom_newton_solve, no need to plot again
+            
+        except Exception as e:
+            print(f"[Error-{eval_id}] Newton solver failed: {e}")
+            print(f"[Error-{eval_id}] Skipping this sample.")
+            continue  
 
         fe_mesh[f'U_FE_{eval_id}'] = FE_UV.reshape((fe_mesh.GetNumberOfNodes(), 2))
 
@@ -175,6 +265,7 @@ if __name__ == "__main__":
     fol_num_epochs = 2000
     solve_FE = False
     clean_dir = False
+    use_nin = True
 
     # Parse the command-line arguments
     args = sys.argv[1:]
@@ -201,9 +292,16 @@ if __name__ == "__main__":
             else:
                 print("clean_dir should be True or False.")
                 sys.exit(1)
+        elif arg.startswith("use_nin="):
+            value = arg.split("=")[1]
+            if value.lower() in ['true', 'false']:
+                use_nin = value.lower() == 'true'
+            else:
+                print("use_nin should be True or False.")
+                sys.exit(1)
         else:
-            print("Usage: python mechanical_2D.py fol_num_epochs=10 solve_FE=False clean_dir=False")
+            print("Usage: python neo_hooke_mechanical_2D_pi_fno.py fol_num_epochs=10 solve_FE=False clean_dir=False use_nin=False")
             sys.exit(1)
 
     # Call the main function with the parsed values
-    main(fol_num_epochs, solve_FE,clean_dir)
+    main(fol_num_epochs, solve_FE, clean_dir, use_nin)
