@@ -109,14 +109,14 @@ class ElastoplasticityLoss(MechanicalLoss):
             # Construct strain matrix based on dimensionality
             if n_strain_components == 3:  # 2D case (ε_xx, ε_yy, γ_xy)
                 strain_matrix = jnp.array([
-                    [strain_gp[0], strain_gp[2]],  # [ε_xx, ε_xy]
-                    [strain_gp[2], strain_gp[1]]   # [ε_xy, ε_yy]
+                    [strain_gp[0], strain_gp[2]/2],  # [ε_xx, ε_xy]
+                    [strain_gp[2]/2, strain_gp[1]]   # [ε_xy, ε_yy]
                 ])
             elif n_strain_components == 6:  # 3D case (ε_xx, ε_yy, ε_zz, γ_xy, γ_yz, γ_xz)
                 strain_matrix = jnp.array([
-                    [strain_gp[0], strain_gp[3], strain_gp[5]],  # [ε_xx, ε_xy, ε_xz]
-                    [strain_gp[3], strain_gp[1], strain_gp[4]],  # [ε_xy, ε_yy, ε_yz]
-                    [strain_gp[5], strain_gp[4], strain_gp[2]]   # [ε_xz, ε_yz, ε_zz]
+                    [strain_gp[0], strain_gp[3]/2, strain_gp[5]/2],  # [ε_xx, ε_xy, ε_xz]
+                    [strain_gp[3]/2, strain_gp[1], strain_gp[4]/2],  # [ε_xy, ε_yy, ε_yz]
+                    [strain_gp[5]/2, strain_gp[4]/2, strain_gp[2]]   # [ε_xz, ε_yz, ε_zz]
                 ])
             strain_matrix_array= strain_matrix.squeeze()
             stress_gp_v,gp_state_up = self.material_model.evaluate(strain_matrix_array, gp_state_vector)
