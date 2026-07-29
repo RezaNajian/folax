@@ -12,6 +12,7 @@ import jax.numpy as jnp
 from functools import partial
 from flax import nnx
 import jax
+from jax import tree_util
 from jax.sharding import Mesh, PartitionSpec, NamedSharding
 import orbax.checkpoint as orbax
 from optax import GradientTransformation
@@ -170,7 +171,11 @@ class DeepNetwork(ABC):
         pass
 
     @partial(nnx.jit, static_argnums=(0,))
-    def TrainStep(self, state, data):
+    def TrainStep(
+        self,
+        state: tuple[nnx.Module, nnx.Optimizer],
+        data: tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
+    ) -> jnp.ndarray:
         """
         Execute one JIT-compiled training step.
 
@@ -181,12 +186,18 @@ class DeepNetwork(ABC):
         Args:
             state (tuple[nnx.Module, nnx.Optimizer]):
                 Training state as ``(model, optimizer)``.
-            data (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
-                Batch tuple ``(inputs, targets)``.
+
+            data (tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]]):
+                Batch tuple ``(input_dict, target_dict)`` where:
+                    - input_dict maps input names to arrays
+                    - target_dict maps target names to arrays
+                Each array must have shape ``(batch_size, ...)`` where
+                axis 0 represents the batch dimension.
 
         Returns:
-            jax.numpy.ndarray:
-                Scalar total loss for the batch (``metrics["total_loss"]``).
+            jnp.ndarray:
+                Scalar total loss for the batch
+                (i.e., ``metrics["total_loss"]``).
         """
         nn, opt = state
         (_,batch_dict), batch_grads = nnx.value_and_grad(self.ComputeBatchLossValue,argnums=1,has_aux=True) \
@@ -226,11 +237,95 @@ class DeepNetwork(ABC):
                 A tuple ``(self.flax_neural_network, self.nnx_optimizer)``.
         """
         return (self.flax_neural_network, self.nnx_optimizer)
+    
+    def _validate_and_get_n_samples(self,
+        set_tuple: tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
+        set_name: str
+    ):
+        """
+        Validate that all arrays in the input dict (and optionally output dict)
+        have the same number of samples along axis 0, and return that sample count.
+
+        Args:
+            set_tuple: Either (input_dict,) or (input_dict, output_dict).
+            set_name: A label used in error messages (e.g., "train", "val", "test").
+
+        Returns:
+            n_samples: The unique sample count along axis 0.
+
+        Raises:
+            ValueError: If the tuple is empty, malformed, or sample sizes mismatch.
+        """        
+        if not set_tuple:
+            fol_error(
+                f"Invalid '{set_name}' set: received an empty tuple. "
+                "Expected at least one component (input dictionary)."
+            )
+
+        if len(set_tuple) not in (1, 2):
+            fol_error(
+                f"Invalid '{set_name}' set: expected a tuple of length 1 or 2 "
+                f"((input_dict,) or (input_dict, output_dict)), but got length {len(set_tuple)}."
+            )
+
+        input_dict = set_tuple[0]
+        if not isinstance(input_dict, dict):
+            fol_error(
+                f"Invalid '{set_name}' set: first component must be a dict[str, jnp.ndarray], "
+                f"but got {type(input_dict).__name__}."
+            )
+        if not input_dict:
+            fol_error(
+                f"Invalid '{set_name}' set: input dictionary is empty. "
+                "Expected at least one input array."
+            )
+
+        # Validate input sample sizes
+        unique_input_sample_counts = {v.shape[0] for v in input_dict.values()}
+        if len(unique_input_sample_counts) != 1:
+            fol_error(
+                f"Inconsistent input sample sizes in '{set_name}' set. "
+                "All input arrays must have the same size along axis 0, "
+                f"but found sizes: {sorted(unique_input_sample_counts)}."
+            )
+
+        n_samples = next(iter(unique_input_sample_counts))
+
+        # If outputs exist, validate them too
+        if len(set_tuple) == 2:
+            output_dict = set_tuple[1]
+            if not isinstance(output_dict, dict):
+                fol_error(
+                    f"Invalid '{set_name}' set: second component must be a dict[str, jnp.ndarray], "
+                    f"but got {type(output_dict).__name__}."
+                )
+            if not output_dict:
+                fol_error(
+                    f"Invalid '{set_name}' set: output dictionary is empty. "
+                    "Expected at least one output array."
+                )
+
+            unique_output_sample_counts = {v.shape[0] for v in output_dict.values()}
+            if len(unique_output_sample_counts) != 1:
+                fol_error(
+                    f"Inconsistent output sample sizes in '{set_name}' set. "
+                    "All output arrays must have the same size along axis 0, "
+                    f"but found sizes: {sorted(unique_output_sample_counts)}."
+                )
+
+            if unique_input_sample_counts != unique_output_sample_counts:
+                fol_error(
+                    f"Mismatched number of samples between inputs and outputs in '{set_name}' set. "
+                    f"Input sample size(s): {sorted(unique_input_sample_counts)}, "
+                    f"Output sample size(s): {sorted(unique_output_sample_counts)}."
+                )
+
+        return n_samples
 
     @print_with_timestamp_and_execution_time
     def Train(self,
-              train_set:Tuple[jnp.ndarray, jnp.ndarray],
-              test_set:Tuple[jnp.ndarray, jnp.ndarray] = (jnp.array([]), jnp.array([])),
+              train_set:tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]],
+              test_set:tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]] | None = None,
               test_frequency:int=100,
               batch_size:int=100,
               convergence_settings:dict={},
@@ -333,8 +428,13 @@ class DeepNetwork(ABC):
         if restore_nnx_state_settings['restore']:
             self.RestoreState(restore_nnx_state_settings["state_directory"])
 
+        # check and get if all train and test sets have the same size across first axis (axis 0)
+        num_train_samples = self._validate_and_get_n_samples(train_set,"train")
+        if test_set:
+            num_test_samples = self._validate_and_get_n_samples(test_set,"test")
+
         # adjust batch for parallization reasons
-        adjusted_batch_size = next(i for i in range(batch_size, 0, -1) if len(train_set[0]) % i == 0)
+        adjusted_batch_size = next(i for i in range(batch_size, 0, -1) if num_train_samples % i == 0)
         if adjusted_batch_size!=batch_size:
             fol_info(f"for the parallelization of batching, the batch size is changed from {batch_size} to {adjusted_batch_size}")
             batch_size = adjusted_batch_size
@@ -346,12 +446,12 @@ class DeepNetwork(ABC):
             if num_data_devices * num_model_devices != jax.local_device_count():
                 fol_error(f"number of available devices (i.e., {jax.local_device_count()}) does not match with the mutiplication of number of data and model devices (i.e., {(num_data_devices,num_model_devices)}) !")
 
-            if len(train_set[0]) % num_data_devices != 0:
-                fol_error(f"size/shape of train_set (i.e., {train_set[0].shape}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
+            if num_train_samples % num_data_devices != 0:
+                fol_error(f"size/shape of train_set (i.e., {num_train_samples}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
 
-            if len(test_set)>0:
-                if len(test_set[0]) % num_data_devices != 0:
-                    fol_error(f"size/shape of test_set (i.e., {test_set[0].shape}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
+            if test_set:
+                if num_test_samples % num_data_devices != 0:
+                    fol_error(f"size/shape of test_set (i.e., {num_test_samples}) is not a multiplier of data devices (i.e.,{num_data_devices}) for sharding !")
 
             sharding_mesh = jax.sharding.Mesh(devices=np.array(jax.devices()).reshape(num_data_devices, num_model_devices),
                                                 axis_names=('data', 'model'))
@@ -361,24 +461,27 @@ class DeepNetwork(ABC):
 
             # data sharding
             train_set = jax.device_put(train_set, data_sharding)
-
-            if len(test_set)>0:
+            if test_set:
                 test_set = jax.device_put(test_set, data_sharding)
 
-            # nnx model sharding
-            with sharding_mesh:
-                state = nnx.state(self.flax_neural_network)
-                pspecs = nnx.get_partition_spec(state)
-                sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
-                nnx.update(self.flax_neural_network, sharded_state)
+            # # nnx model sharding
+            # with sharding_mesh:
+            #     state = nnx.state(self.flax_neural_network)
+            #     pspecs = nnx.get_partition_spec(state)
+            #     sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
+            #     nnx.update(self.flax_neural_network, sharded_state)
 
-            fol_info("neural network is sharded as ")
-            jax.debug.visualize_array_sharding(self.flax_neural_network.synthesizer_nn.nn_params[0][0])
+            # fol_info("neural network is sharded as ")
+            # for leaf in tree_util.tree_leaves(self.flax_neural_network):
+            #     if isinstance(leaf, jax.Array):
+            #         jax.debug.visualize_array_sharding(leaf)
+            #         break  # remove this if you want all leaves
             fol_info("train set is sharded as ")
-            jax.debug.visualize_array_sharding(train_set[0])
-            if len(test_set)>0:
+            jax.debug.visualize_array_sharding(next(iter(train_set[0].values())))
+            if test_set:
                 fol_info("test set is sharded as ")
-                jax.debug.visualize_array_sharding(test_set[0])
+                jax.debug.visualize_array_sharding(next(iter(test_set[0].values())))
+
 
         def train_loop():
 
@@ -403,16 +506,16 @@ class DeepNetwork(ABC):
 
                 # parallel batching and train step
                 rng, sub = jax.random.split(rng)
-                order = jax.random.permutation(sub, len(train_set[0])).reshape(-1, batch_size)
+                order = jax.random.permutation(sub, num_train_samples).reshape(-1, batch_size)
                 _, losses = train_multiple_steps_with_idxs(state, train_set, order)
                 train_history_dict["total_loss"].append(losses.mean())
 
                 # test step
-                if len(test_set[0])>0 and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
+                if test_set and ((epoch)%test_frequency==0 or epoch==convergence_settings["num_epochs"]-1):
                     test_history_dict["total_loss"].append(self.TestStep(state,test_set))
 
                 # print step
-                if len(test_set[0])>0:
+                if test_set:
                     print_dict = {"train_loss":train_history_dict["total_loss"][-1],
                                 "test_loss":test_history_dict["total_loss"][-1]}
                 else:
