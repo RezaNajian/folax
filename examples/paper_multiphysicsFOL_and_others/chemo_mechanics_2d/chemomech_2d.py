@@ -7,7 +7,6 @@ from fol.controls.fourier_control import FourierControl
 from fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.controls.identity_control import IdentityControl
-from fol.controls.multi_control import MultiControl
 from cm_useful_functions import *
 from fol.tools.logging_functions import Logger
 
@@ -38,9 +37,7 @@ model_settings = {"L":1,"N":42,
 # creation of the model
 fe_mesh = create_2D_square_mesh(L=model_settings["L"],N=model_settings["N"])
 fe_mesh.Initialize()
-material_control = IdentityControl("K", {}, fe_mesh.GetNumberOfNodes())
-multi_control = MultiControl("chemomech_controls", [material_control])
-multi_control.Initialize()
+identity_control = IdentityControl("K", {}, fe_mesh.GetNumberOfNodes())
 # create fe-based loss function
 bc_dict = {"C":{"left":model_settings["C_left"],"right":model_settings["C_right"]},
            "Ux":{"left":model_settings["Ux_left"],"right":model_settings["Ux_right"]},
@@ -242,7 +239,7 @@ optimizer = optax.chain(optax.adam(learning_rate_scheduler))
 
 # create fol
 pi_fno_pr_learning = PhysicsInformedFourierParametricOperatorLearning(name="pi_fno_pr_learning",
-                                                                        control=multi_control,
+                                                                        control=identity_control,
                                                                         loss_function=chemomech_loss_2d,
                                                                         flax_neural_network=fno_model,
                                                                         optax_optimizer=optimizer)
