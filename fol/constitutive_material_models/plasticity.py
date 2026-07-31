@@ -259,7 +259,7 @@ class J2Plasticity(PlasticityModel):
             xi_new: Updated cumulative plastic strain
         """
         # Flow direction
-        n_flow = s_trial / (sigma_eq_trial + 1e-12)
+        n_flow = (1.5*s_trial) / (sigma_eq_trial + 1e-12)
         
         # Setup residual for Newton solve
         def make_residual():
