@@ -3,7 +3,6 @@ import os
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import optax
 import numpy as np
-from fol.loss_functions.thermo_mechanical_nonlinear import ThermoMechanicalLoss3DTetra
 # from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.identity_control import IdentityControl
@@ -11,6 +10,9 @@ from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
 from deep_o_net_parametric_operator_learning import PhysicsInformedDeepONetParametricOperatorLearningDBC
 from deep_o_nets import DeepONet
+from meta_implicit_parametric_operator_learning_no_ad import (
+    CastingThermoMechanicsLoss3DTetra as ThermoMechanicsLoss3DTetra,
+)
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -42,21 +44,23 @@ fe_mesh = Mesh("fol_io","casting_base.med")
 fe_mesh.Initialize()
 # # create fe-based loss function
 
-bc_dict = {"T":{"Inlet_top":0.1,"F_bottom":0.001,"Surroundings":0.001},#
+bc_dict = {"T":{"Inlet_top":1.0,"F_bottom":0.001,"Surroundings":0.001},#
            "Ux":{"Inlet_top":0.0,"Inlet_bottom":0.0,"F_bottom":0.0},#"F_right1":model_settings["Ux_right"],"F_right1":model_settings["Ux_right"]
            "Uy":{"Inlet_top":0.0,"Inlet_bottom":0.0,"F_bottom":0.0},
            "Uz":{"Inlet_top":0.0,"F_bottom":0.0}}#,"F_rear":model_settings["Uz_back"]
 
 Dirichlet_BCs = False
 material_dict = {"young_modulus":1.0,"poisson_ratio":0.3,"T0":jnp.full((fe_mesh.GetNumberOfNodes(),),1e-4),}
-thermomech_loss_3d = ThermoMechanicalLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
-                                                                            "material_dict":material_dict, "alpha":1.5,
-                                                                            "beta":2.0, 
-                                                                            "c":2.0,
-                                                                            "K_matrix":np.ones((fe_mesh.GetNumberOfNodes(),)),
-                                                                            "parametric_boundary_learning":True},
+thermal_dict = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5}
+mechanical_dict = {"e1":1.0,"e2":-0.6}
+thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                            "material_dict":material_dict,
+                                                                            "thermal_dict":thermal_dict,
+                                                                            "mechanical_dict":mechanical_dict},
                                                                             fe_mesh=fe_mesh)
-no_control = IdentityControl("No_Control",fe_mesh)
+no_control = IdentityControl("No_Control",fe_mesh,{})
+thermomech_loss_3d.Initialize()
+no_control.Initialize()
 displ_control_settings = {"learning_boundary": {"T":{"Inlet_top"}}}
 
 displ_control = DirichletControl("displ_control",displ_control_settings,fe_mesh,thermomech_loss_3d)
@@ -67,14 +71,10 @@ z_freqs = np.array([1,2,3])
 fourier_control_settings = {"x_freqs":x_freqs,"y_freqs":y_freqs,"z_freqs":z_freqs,"beta":5,"min":1e-1,"max":1}
 fourier_control = FourierControl("K",fourier_control_settings,fe_mesh)
 
-fe_mesh.Initialize()
-
-thermomech_loss_3d.Initialize()
-no_control.Initialize()
 fourier_control.Initialize()
 
 
-create_random_coefficients = True
+create_random_coefficients = False
 if create_random_coefficients:
     number_of_random_samples = 60
     bc_matrix,bc_nodal_value_matrix = create_uniform_dist_bc_samples(displ_control,
@@ -124,7 +124,7 @@ deep_onet = DeepONet("main_deeponet",
                      use_bias=False,
                      output_scale_factor=1.0)
 
-num_epochs = 10000
+num_epochs = 100
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-4, transition_steps=num_epochs)
 main_loop_transform = optax.chain(
     optax.normalize_by_update_norm(),
@@ -170,10 +170,12 @@ bc_dict = {"T":{"Inlet_top":wanted_bc[0],"F_bottom":0.001,"Surroundings":0.001},
 
 Dirichlet_BCs = False
 material_dict = {"young_modulus":1.0,"poisson_ratio":0.3,"T0":jnp.full((fe_mesh.GetNumberOfNodes(),),1e-4),}
-thermomech_loss_3d = ThermoMechanicalLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
-                                                                            "material_dict":material_dict, "alpha":1.5,
-                                                                            "beta":2.0, 
-                                                                            "c":2.0},
+thermal_dict = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5}
+mechanical_dict = {"e1":1.0,"e2":-0.6}
+thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
+                                                                            "material_dict":material_dict,
+                                                                            "thermal_dict":thermal_dict,
+                                                                            "mechanical_dict":mechanical_dict},
                                                                             fe_mesh=fe_mesh)
 
 thermomech_loss_3d.Initialize()

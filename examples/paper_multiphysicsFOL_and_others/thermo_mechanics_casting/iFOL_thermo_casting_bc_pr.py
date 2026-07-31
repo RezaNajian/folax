@@ -3,13 +3,15 @@ import os
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import optax
 import numpy as np
-from fol.loss_functions.thermo_mechanical_nonlinear import ThermoMechanicalLoss3DTetra
 # from fol.loss_functions.thermal import ThermalLoss3DTetra
 from fol.mesh_input_output.mesh import Mesh
 from fol.controls.identity_control import IdentityControl
 from fol.controls.fourier_control import FourierControl
 from fol.controls.dirichlet_control import DirichletControl
-from meta_implicit_parametric_operator_learning_no_ad import MetaImplicitParametricOperatorLearning
+from meta_implicit_parametric_operator_learning_no_ad import (
+    CastingThermoMechanicsLoss3DTetra as ThermoMechanicsLoss3DTetra,
+    MetaImplicitParametricOperatorLearning,
+)
 from fol.solvers.fe_nonlinear_residual_based_solver import FiniteElementNonLinearResidualBasedSolver
 from fol.tools.usefull_functions import *
 from fol.tools.logging_functions import Logger
@@ -48,14 +50,19 @@ bc_dict = {"T":{"Inlet_top":1.0, "F_bottom":0.001,"Surroundings":0.001},#
 
 Dirichlet_BCs = False
 material_dict = {"young_modulus":1.0,"poisson_ratio":0.3,"T0":jnp.full((fe_mesh.GetNumberOfNodes(),),1e-4),}
-thermomech_loss_3d = ThermoMechanicalLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
-                                                                            "material_dict":material_dict, "alpha":1.5,
-                                                                            "beta":2.0, 
-                                                                            "c":2.0,
-                                                                            "K_matrix":np.ones((fe_mesh.GetNumberOfNodes(),)),
-                                                                            "parametric_boundary_learning":True},
+# Thermal parameters
+thermal_dict = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5}
+mechanical_dict  = {"e1":1.0,"e2":-0.6}
+
+thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",
+    loss_settings={
+        "dirichlet_bc_dict": bc_dict,
+        "material_dict": material_dict,
+        "thermal_dict": thermal_dict,
+        "mechanical_dict": mechanical_dict
+    },
                                                                             fe_mesh=fe_mesh)
-no_control = IdentityControl("No_Control",fe_mesh)
+no_control = IdentityControl("No_Control",fe_mesh,{})
 thermomech_loss_3d.Initialize()
 no_control.Initialize()
 displ_control_settings = {"learning_boundary": {"T":{"Inlet_top"}}}
@@ -121,7 +128,7 @@ hyper_network = HyperNetwork(name="hyper_nn",
                              coupling_settings={"modulator_to_synthesizer_coupling_mode":"one_modulator_per_synthesizer_layer"})
 
 # create fol optax-based optimizer
-num_epochs = 10000
+num_epochs = 100
 learning_rate_scheduler = optax.linear_schedule(init_value=1e-3, end_value=1e-4, transition_steps=num_epochs)
 # main_loop_transform = optax.chain(optax.normalize_by_update_norm(),optax.adam(learning_rate_scheduler))#
 main_loop_transform = optax.chain(
@@ -169,11 +176,19 @@ bc_dict = {"T":{"Inlet_top":wanted_bc[0],"F_bottom":0.001,"Surroundings":0.001},
 
 Dirichlet_BCs = False
 material_dict = {"young_modulus":1.0,"poisson_ratio":0.3,"T0":jnp.full((fe_mesh.GetNumberOfNodes(),),1e-4),}
-thermomech_loss_3d = ThermoMechanicalLoss3DTetra("thermomechanical_loss_3d",loss_settings={"dirichlet_bc_dict":bc_dict,
-                                                                            "material_dict":material_dict, "alpha":1.5,
-                                                                            "beta":2.0, 
-                                                                            "c":2.0},
+thermal_dict = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5}
+mechanical_dict  = {"e1":1.0,"e2":-0.6}
+
+thermomech_loss_3d = ThermoMechanicsLoss3DTetra("thermomechanical_loss_3d",
+                                                    loss_settings={
+        "dirichlet_bc_dict": bc_dict,
+        "material_dict": material_dict,
+        "thermal_dict": thermal_dict,
+        "mechanical_dict": mechanical_dict
+    },
                                                                             fe_mesh=fe_mesh)
+
+# Thermal parameters
 
 thermomech_loss_3d.Initialize()
 displ_control_settings = {"learning_boundary": {"T":{"Inlet_top"}}}
@@ -221,5 +236,4 @@ fe_mesh['abs_error_heat_flux'] = heat_flux_absolute_error
 fe_mesh['relative_error_heat_flux'] = heat_flux_absolute_error / (np.abs(FE_heat_flux_at_nodes)+1e-10)
 
 fe_mesh.Finalize(export_dir=case_dir)
-
 
