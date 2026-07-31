@@ -15,14 +15,15 @@ from fol.mesh_input_output.mesh import Mesh
 from fol.tools.usefull_functions import *
 from jax.experimental.sparse import BCOO
 from jax.scipy.sparse.linalg import cg
+from jax.experimental import sparse
 
-class ThermoMechanicsLoss(FiniteElementLoss):
+class ChemoMechanicsLoss(FiniteElementLoss):
     """
-    Coupled thermo-mechanical finite-element loss for conductivity (thermal) and
-    linear-elasticity (mechanical) with temperature-dependent material response.
+    Coupled chemo-mechanical finite-element loss for diffusion and
+    linear-elasticity with concentration-dependent material response.
 
     This class computes, at the element level, the total loss, residual vector, and
-    Jacobian matrix for a coupled system where temperature ``T`` and displacement
+    Jacobian matrix for a coupled system where concentration ``C`` and displacement
     components (``Ux, Uy`` in 2D; ``Ux, Uy, Uz`` in 3D) are solved together. The
     implementation supports 2D and 3D formulations and relies on the mesh and
     element integration rules provided by the underlying finite-element framework.
@@ -30,9 +31,9 @@ class ThermoMechanicsLoss(FiniteElementLoss):
     Args:
         name (str): Identifier for the loss instance, typically used for logging,
             diagnostics, or registration within a solver or optimization pipeline.
-        loss_settings (dict): Dictionary containing material, thermal, numerical,
+        loss_settings (dict): Dictionary containing material, chemical, numerical,
             Dirichlet boundary-condition, and element-specific settings. Expected entries
-            include sub-dictionaries such as ``material_dict``, ``thermal_dict``, and
+            include sub-dictionaries such as ``material_dict`` and
             ``dirichlet_bc_dict``, as well as finite-element configuration parameters.
         fe_mesh (Mesh): Finite-element mesh object defining nodal coordinates,
             element connectivity, integration rules, and shape function data.
@@ -41,26 +42,27 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         None
 
     Attributes:
-        thermal_loss_settings (dict): Runtime thermal configuration 
-                                      including material response parameters and initial temperature.
-        elem_t_local_ids (jnp.ndarray): Local element DOF indices corresponding to temperature.
+        chemical_loss_settings (dict): Runtime chemical configuration
+                                       including diffusivity-response parameters, reference concentration,
+                                       and chemical potential gradient coupling.
+        elem_c_local_ids (jnp.ndarray): Local element DOF indices corresponding to concentration.
         elem_uvw_local_ids (jnp.ndarray): Local element DOF indices corresponding to displacement.
         CalculateNMatrix (callable): Dimension-specific N-matrix constructor.
         CalculateBMatrix (callable): Dimension-specific B-matrix constructor.
         D (jnp.ndarray): Constitutive matrix for linear elasticity in 2D or 3D.
         body_force (jnp.ndarray): Body force vector in global coordinates.
-        thermal_st_vec (jnp.ndarray): Thermal strain selector vector for the active dimension. 
+        chemical_st_vec (jnp.ndarray): Chemical strain selector vector for the active dimension. 
                                       Under the assumption of an isotropic material, 
-                                      this should only has influence on the volumetric part of the thermal strain 
+                                      this should only has influence on the volumetric part of the chemical strain 
                                       and is set to 1 for normal strains and 0 for shear strains.
     """
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:  
         """
-        Initialize thermo-mechanical operators, constitutive data, and DOF mappings.
+        Initialize chemo-mechanical operators, constitutive data, and DOF mappings.
 
-        This method prepares dimension-dependent FE matrices (N, B, D), thermal settings,
-        and local index mappings for temperature and displacement degrees of freedom.
+        This method prepares dimension-dependent FE matrices (N, B, D), chemical settings,
+        and local index mappings for concentration and displacement degrees of freedom.
         Initialization is idempotent unless ``reinitialize=True`` is provided.
 
         Args:
@@ -74,24 +76,25 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             return
         super().Initialize() 
 
-        self.thermal_loss_settings = {"k1":0.5,"k2":2.0,"k3":20.0,"k4":0.5,
-                                      "T0":jnp.zeros((self.fe_mesh.GetNumberOfNodes()))}
-        self.mechanical_loss_settings = {"e1":1.0,"e2":-0.6}
+        self.chemical_loss_settings = {
+            "Diffusivity": 0.5,
+            "beta": 1.0,
+            "c0": jnp.full((self.fe_mesh.GetNumberOfNodes(),), 0.1),
+        }
+        self.mechanical_loss_settings = {
+            "gamma": 0.1,
+        }
+        if "Diffusivity" in self.loss_settings["material_dict"]:
+            self.chemical_loss_settings["Diffusivity"] = self.loss_settings["material_dict"]["Diffusivity"]
+        if "beta" in self.loss_settings["material_dict"]:
+            self.chemical_loss_settings["beta"] = self.loss_settings["material_dict"]["beta"]
+        if "c0" in self.loss_settings["material_dict"]:
+            self.chemical_loss_settings["c0"] = jnp.asarray(self.loss_settings["material_dict"]["c0"])
+        if "gamma" in self.loss_settings["material_dict"]:
+            self.mechanical_loss_settings["gamma"] = self.loss_settings["material_dict"]["gamma"]
 
-        if "k1" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["k1"] = self.loss_settings["thermal_dict"]["k1"]
-        if "k2" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["k2"] = self.loss_settings["thermal_dict"]["k2"]
-        if "k3" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["k3"] = self.loss_settings["thermal_dict"]["k3"]
-        if "k4" in self.loss_settings["thermal_dict"].keys():
-            self.thermal_loss_settings["k4"] = self.loss_settings["thermal_dict"]["k4"]
-        if "e1" in self.loss_settings["mechanical_dict"].keys():
-            self.mechanical_loss_settings["e1"] = self.loss_settings["mechanical_dict"]["e1"]
-        if "e2" in self.loss_settings["mechanical_dict"].keys():
-            self.mechanical_loss_settings["e2"] = self.loss_settings["mechanical_dict"]["e2"]
-        if "T0" in self.loss_settings["material_dict"].keys():
-            self.thermal_loss_settings["T0"] = self.loss_settings["material_dict"]["T0"]
+        # Backward-compatible aliases for older callers and helper methods.
+        self.thermal_loss_settings = self.chemical_loss_settings
             
         if self.dim == 2:
             self.CalculateNMatrix = n_matrix_2d
@@ -99,7 +102,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             self.D = d_matrix_2d(self.loss_settings["material_dict"]["young_modulus"],
                                  self.loss_settings["material_dict"]["poisson_ratio"])
             self.body_force = jnp.zeros((2,1))
-            self.thermal_st_vec = jnp.array([[1.0], [1.0], [0.0]]) 
+            self.chemical_st_vec = jnp.array([[1.0], [1.0], [0.0]]) 
             if "body_force" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_force"])
         else:
@@ -108,145 +111,153 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             self.D = d_matrix_3d(self.loss_settings["material_dict"]["young_modulus"],
                                  self.loss_settings["material_dict"]["poisson_ratio"])
             self.body_force = jnp.zeros((3,1))
-            self.thermal_st_vec = jnp.array([[1.0], [1.0], [1.0], [0.0], [0.0], [0.0]])
+            self.chemical_st_vec = jnp.array([[1.0], [1.0], [1.0], [0.0], [0.0], [0.0]])
             if "body_force" in self.loss_settings:
                 self.body_force = jnp.array(self.loss_settings["body_force"])
 
         num_elem_nodes = ELEMENT_TYPE_NUM_NODES[self.element_type]
-        self.elem_dof_local_ids = jnp.arange(num_elem_nodes*self.number_dofs_per_node)
-        self.elem_t_local_ids = self.elem_dof_local_ids[::self.number_dofs_per_node]
-        self.elem_uvw_local_ids = self.elem_dof_local_ids[(jnp.arange(self.elem_dof_local_ids.shape[0]) % self.number_dofs_per_node) != 0]
+        elem_dof_local_ids = jnp.arange(num_elem_nodes*self.number_dofs_per_node)
+        self.elem_c_local_ids = elem_dof_local_ids[::self.number_dofs_per_node]
+        self.elem_uvw_local_ids = elem_dof_local_ids[(jnp.arange(elem_dof_local_ids.shape[0]) % self.number_dofs_per_node) != 0]
 
-    def ComputeElementThermal(self,elem_var_dict:dict[str, jnp.ndarray],body_force=0):
+    def ComputeElementHydrostaticStress(self, xyze, de, ce, se, ce_init):
+        de = jax.lax.stop_gradient(de.reshape(-1, 1))
+        ce = ce.reshape(-1, 1)
+        se = se.reshape(-1, 1)
+        ce_init = jax.lax.stop_gradient(ce_init.reshape(-1, 1))
+
+        def compute_at_gauss_point(gp_point, gp_weight):
+            N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
+            DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze, gp_point)
+            B_mat = self.CalculateBMatrix(DN_DX)
+            J = self.fe_element.Jacobian(xyze, gp_point)
+            detJ = jnp.linalg.det(J)
+            Jw = jnp.abs(detJ) * gp_weight
+
+            c_at_gauss = jnp.dot(N_vec, ce.squeeze())
+            c_init_at_gauss = jnp.dot(N_vec, ce_init.squeeze())
+            total_strain_at_gauss = B_mat @ se
+            chemical_strain_vec = self.mechanical_loss_settings["gamma"] * (
+                c_at_gauss - c_init_at_gauss
+            ) * self.chemical_st_vec
+            elastic_strain = total_strain_at_gauss - chemical_strain_vec
+            e_at_gauss = jnp.dot(N_vec, de.squeeze())
+            stress_at_gauss = e_at_gauss * (self.D @ elastic_strain)
+            hydrostatic_stress = jnp.mean(stress_at_gauss[:self.dim])
+            return N_vec, hydrostatic_stress, Jw
+
+        gp_points, gp_weights = self.fe_element.GetIntegrationData()
+        N_g, p_g, Jw_g = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
+        projection_matrix = N_g.T @ (N_g * Jw_g[:, jnp.newaxis])
+        rhs = N_g.T @ (p_g.reshape(-1, 1) * Jw_g[:, jnp.newaxis])
+        return jnp.linalg.pinv(projection_matrix) @ rhs
+
+    def ComputeElementChemical(self, xyze, de, ce, se, ce_init, body_force=0):
         """
-        Compute thermal contribution to element loss, residual, and tangent matrix.
+        Compute chemical contribution to element loss, residual, and tangent matrix.
 
-        The thermal loss is based on the temperature gradient energy integrated over
-        Gauss points. A temperature-dependent conductivity is evaluated at each Gauss
-        point from nodal controls ``de`` and nodal temperatures ``te``.
+        The chemical loss is based on the concentration gradient energy integrated over
+        Gauss points. A concentration-dependent diffusivity is evaluated at each Gauss
+        point from nodal controls ``de`` and nodal concentrations ``ce``.
 
         Args:
             xyze: Element nodal coordinates array shaped like ``(nnode, dim)``.
-            de: Element nodal control values for thermal conductivity/stiffness, typically
+            de: Element nodal control values for chemical diffusivity, typically
                 shaped like ``(nnode,)`` or compatible and reshaped internally.
-            te: Element nodal temperatures, shaped like ``(nnode,)`` or ``(nnode, 1)``.
-            body_force: Optional scalar source term used to build an element thermal load
+            ce: Element nodal concentrations, shaped like ``(nnode,)`` or ``(nnode, 1)``.
+            body_force: Optional scalar source term used to build an element chemical load
                 vector. Defaults to 0.
 
         Returns:
             tuple:
                 A 3-tuple ``(loss, residual, tangent)`` where
-                ``loss`` is the scalar thermal loss contribution for the element,
-                ``residual`` is the element thermal residual vector (shape ``(nnode, 1)``),
-                and ``tangent`` is the thermal tangent matrix (shape ``(nnode, nnode)``).
+                ``loss`` is the scalar chemical loss contribution for the element,
+                ``residual`` is the element chemical residual vector (shape ``(nnode, 1)``),
+                and ``tangent`` is the chemical tangent matrix (shape ``(nnode, nnode)``).
         """
+        de = jax.lax.stop_gradient(de.reshape(-1, 1))
+        ce = ce.reshape(-1, 1)
+        se = jax.lax.stop_gradient(se.reshape(-1, 1))
+        ce_init = jax.lax.stop_gradient(ce_init.reshape(-1, 1))
 
+        def compute_residual(current_ce, current_se):
+            pe = self.ComputeElementHydrostaticStress(xyze, de, current_ce, current_se, ce_init)
 
-        de = elem_var_dict["K"]
+            def compute_at_gauss_point(gp_point, gp_weight):
+                N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
+                DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze, gp_point)
 
-        te = elem_var_dict["T"]
-        te_mask = elem_var_dict["T_mask"]
-        te_mask_value = elem_var_dict["T_mask_value"]
-        te = (1.0-te_mask) * te + te_mask * te_mask_value
+                J = self.fe_element.Jacobian(xyze, gp_point)
+                detJ = jnp.linalg.det(J)
 
-        xyze = elem_var_dict["XYZ"]
+                c_gp = jnp.dot(N_vec, current_ce.squeeze())
+                D_gp = jnp.dot(N_vec.reshape(1, -1), de)
 
-        de = jax.lax.stop_gradient(de.reshape(-1,1))
-        te = te.reshape(-1,1)
-        def compute_at_gauss_point(gp_point,gp_weight):
-            N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
-            temp_at_gauss = jnp.dot(N_vec,te.squeeze())
-            conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), de) \
-            * (self.thermal_loss_settings["k1"]+1/self.thermal_loss_settings["k2"]*\
-               (1/(1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))))
-            DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze,gp_point)
-            J = self.fe_element.Jacobian(xyze,gp_point)
-            detJ = jnp.linalg.det(J)
-            grad_T = DN_DX.T @ te
-            gp_loss_t = 0.5*(grad_T.T@grad_T) * conductivity_at_gauss * detJ *gp_weight
-            dk_dT = jnp.dot(N_vec.reshape(1,-1), de)*\
-                (-self.thermal_loss_settings["k3"]/self.thermal_loss_settings["k2"]\
-                 *jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))\
-                /((1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))**2)
-            gp_stiffness = conductivity_at_gauss * (DN_DX @ DN_DX.T) * detJ * gp_weight 
-            gp_stiffness_thermal = dk_dT* ((DN_DX@grad_T)@N_vec.reshape(1,-1)) * detJ * gp_weight 
-            gp_f = gp_weight * detJ * body_force *  N_vec.reshape(-1,1) 
-            return gp_loss_t, gp_stiffness, gp_stiffness_thermal, gp_f
-        gp_points,gp_weights = self.fe_element.GetIntegrationData()
-        loss_t_gps, s_gps, st_gps, f_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0))(gp_points,gp_weights)
-        Loss_t_e = jnp.sum(loss_t_gps)
-        Se = jnp.sum(s_gps, axis=0)
-        Se_t = jnp.sum(st_gps, axis=0)
-        Fe = jnp.sum(f_gps, axis=0)
-        def compute_elem_res(Se,te,Fe):
-            te = jax.lax.stop_gradient(te)
-            return (Se @ te - Fe)
-        element_residuals = compute_elem_res(Se,te ,Fe)
-        return  te.T@jax.lax.stop_gradient(element_residuals), element_residuals, Se + Se_t
+                grad_c = DN_DX.T @ current_ce
+                grad_p = DN_DX.T @ pe
+
+                flux = D_gp * (
+                    self.chemical_loss_settings["Diffusivity"] * grad_c
+                    + self.chemical_loss_settings["beta"] * c_gp * grad_p
+                )
+
+                gp_residual = DN_DX @ flux * detJ * gp_weight
+                gp_f = body_force * N_vec.reshape(-1, 1) * detJ * gp_weight
+                return gp_residual - gp_f
+
+            gp_points, gp_weights = self.fe_element.GetIntegrationData()
+            r_gps = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
+            return jnp.sum(r_gps, axis=0)
+
+        r_c = compute_residual(ce, se)
+        d_r_c_d_c = jax.jacrev(lambda current_ce: compute_residual(current_ce, se))(ce)
+        d_r_c_d_uvw = jax.jacrev(lambda current_se: compute_residual(ce, current_se))(se)
+
+        return (
+            ce.T @ jax.lax.stop_gradient(r_c),
+            r_c,
+            d_r_c_d_c.reshape(ce.shape[0], ce.shape[0]),
+            d_r_c_d_uvw.reshape(ce.shape[0], se.shape[0]),
+        )
     
-    def ComputeElementMechanical(self,elem_var_dict:dict[str, jnp.ndarray],body_force=0):
+    def ComputeElementMechanical(self,xyze,de,ce,se,ce_init,body_force=0):
         # # @Yusuke: Please clean the function from commented lines and hard coded stuff
         """
         Compute mechanical contribution to element loss, residual, and tangents.
 
         The mechanical loss is based on linear-elastic strain energy, corrected by a
-        thermal strain term derived from the difference between current temperature
-        and initial temperature. The elastic modulus is evaluated from nodal controls
-        ``de`` and may depend on temperature.
+        chemical strain term derived from the difference between current concentration
+        and initial concentration. The elastic modulus is evaluated from nodal controls
+        ``de``.
 
         Args:
             xyze: Element nodal coordinates array shaped like ``(nnode, dim)``.
             de: Element nodal control values for mechanical stiffness (e.g., Young's
                 modulus scale), shaped like ``(nnode,)`` or compatible.
-            te: Element nodal temperatures used for thermal strain and temperature-dependent
-                stiffness, shaped like ``(nnode,)`` or ``(nnode, 1)``.
+            ce: Element nodal chemical concentrations used for chemical strain,
+                shaped like ``(nnode,)`` or ``(nnode, 1)``.
             se: Element nodal displacement DOFs arranged as a vector shaped like
                 ``(nnode * ndof_u, 1)``.
-            te_init: Element nodal initial temperatures used as the reference state,
+            ce_init: Element nodal initial chemical concentrations used as the reference state,
                 shaped like ``(nnode,)`` or ``(nnode, 1)``.
             body_force: Optional body force vector applied in the mechanical equilibrium
                 equation. Defaults to 0.
 
         Returns:
             tuple:
-                A 4-tuple ``(loss, residual, dres_du, dres_dT)`` where
+                A 4-tuple ``(loss, residual, dres_du, dres_dc)`` where
                 ``loss`` is the scalar mechanical loss contribution for the element,
                 ``residual`` is the mechanical residual vector (shape ``(nnode*ndof_u, 1)``),
                 ``dres_du`` is the mechanical tangent w.r.t. displacement
                 (shape ``(nnode*ndof_u, nnode*ndof_u)``),
-                and ``dres_dT`` is the coupling tangent w.r.t. temperature
+                and ``dres_dc`` is the coupling tangent w.r.t. concentration
                 (shape ``(nnode*ndof_u, nnode)`` when assembled with local IDs).
         """
         # Mechanics loss
-        ke = elem_var_dict["K"].reshape(-1,1)
-
-        te = elem_var_dict["T"]
-        te_mask = elem_var_dict["T_mask"]
-        te_mask_value = elem_var_dict["T_mask_value"]
-        te = (1.0-te_mask) * te + te_mask * te_mask_value
-        te = jax.lax.stop_gradient(te.reshape(-1,1))
-
-        uxe = elem_var_dict["Ux"]
-        uxe_mask = elem_var_dict["Ux_mask"]
-        uxe_mask_value = elem_var_dict["Ux_mask_value"]
-        uxe = (1.0-uxe_mask) * uxe + uxe_mask * uxe_mask_value
-
-
-        uye = elem_var_dict["Uy"]
-        uye_mask = elem_var_dict["Uy_mask"]
-        uye_mask_value = elem_var_dict["Uy_mask_value"]
-        uye = (1.0-uye_mask) * uye + uye_mask * uye_mask_value
-
-        uze = elem_var_dict["Uz"]
-        uze_mask = elem_var_dict["Uz_mask"]
-        uze_mask_value = elem_var_dict["Uz_mask_value"]
-        uze = (1.0-uze_mask) * uze + uze_mask * uze_mask_value
-
-        se = jnp.stack([uxe, uye, uze], axis=1).reshape(-1,1)
-        
-        te_init = jax.lax.stop_gradient(elem_var_dict["T0"].reshape(-1,1))
-        xyze =  elem_var_dict["XYZ"]
-
+        ke = jax.lax.stop_gradient(de.reshape(-1, 1))
+        se = se.reshape(-1,1)
+        ce = jax.lax.stop_gradient(ce.reshape(-1,1))
+        ce_init = jax.lax.stop_gradient(ce_init.reshape(-1,1))
         def compute_at_gauss_point(gp_point,gp_weight):
             # Mechanical part
             N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
@@ -255,22 +266,23 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             B_mat = self.CalculateBMatrix(DN_DX)
             J = self.fe_element.Jacobian(xyze,gp_point)
             detJ = jnp.linalg.det(J)
-            temp_at_gauss = jnp.dot(N_vec,te.squeeze())
+            c_at_gauss = jnp.dot(N_vec,ce.squeeze())
             total_strain_at_gauss = B_mat@se
-            thermal_strain_vec = 1.0\
-                * (temp_at_gauss - jnp.dot(N_vec, te_init.squeeze())) * self.thermal_st_vec
-            elastic_strain = total_strain_at_gauss - thermal_strain_vec
-            e_at_gauss = jnp.dot(N_vec, ke.squeeze())* \
-                (self.mechanical_loss_settings["e1"]+self.mechanical_loss_settings["e2"]*temp_at_gauss)
+            ce_init_at_gauss = jnp.dot(N_vec, ce_init.squeeze())
+
+            chemical_strain_vec = self.mechanical_loss_settings["gamma"] * (c_at_gauss - ce_init_at_gauss) * self.chemical_st_vec
+
+            elastic_strain = total_strain_at_gauss - chemical_strain_vec
+            e_at_gauss = jnp.dot(N_vec, ke.squeeze())
             
             gp_loss_m = 0.5 * elastic_strain.T @ self.D @ elastic_strain *e_at_gauss * detJ * gp_weight
             gp_stiffness = gp_weight * detJ * e_at_gauss * (B_mat.T @ (self.D @ B_mat))
             gp_lhs = gp_weight * detJ * e_at_gauss * B_mat.T @ self.D @ elastic_strain
             gp_f = gp_weight * detJ * (N_mat.T @ self.body_force)
-            de_dT = jnp.dot(N_vec, ke.squeeze())*(self.mechanical_loss_settings["e2"]) 
-            gp_stiffness_thermal = gp_weight * detJ * B_mat.T @ self.D @\
-                (elastic_strain*de_dT - e_at_gauss*(1.0) *self.thermal_st_vec).reshape(-1,1) @ N_vec.reshape(1,-1)
-            return gp_loss_m, gp_stiffness, gp_f, gp_stiffness_thermal,gp_lhs
+            gp_stiffness_chemical = gp_weight * detJ * B_mat.T @ self.D @\
+            (- e_at_gauss*self.mechanical_loss_settings["gamma"] *self.chemical_st_vec).reshape(-1,1) @ N_vec.reshape(1,-1)
+            
+            return gp_loss_m, gp_stiffness, gp_f, gp_stiffness_chemical, gp_lhs
         gp_points,gp_weights = self.fe_element.GetIntegrationData()
         loss_m_gps,s_gps, f_gps, st_gps, lhs_gps = jax.vmap(compute_at_gauss_point,in_axes=(0,0))(gp_points,gp_weights)
         Loss_m_e = jnp.sum(loss_m_gps)
@@ -278,26 +290,24 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         Fe = jnp.sum(f_gps, axis=0)
         Se_t = jnp.sum(st_gps, axis=0)
         LHSe = jnp.sum(lhs_gps,axis=0)
-        def compute_elem_res(Se,se ,Fe, Fe_thermal):
-            return (Se @ se - Fe - Fe_thermal)
         element_residuals = LHSe - Fe
         return  se.T@jax.lax.stop_gradient(LHSe - Fe), element_residuals, Se, Se_t
     
-    def ComputeElement(self,elem_var_dict:dict[str, jnp.ndarray]):
+    def ComputeElement(self,xyze,de,tuvwe,t0e):
         """
-        Compute coupled element loss, residual, and Jacobian for thermo-mechanics.
+        Compute coupled element loss, residual, and Jacobian for chemo-mechanics.
 
-        This method combines thermal and mechanical element contributions into a single
+        This method combines chemical and mechanical element contributions into a single
         element loss ``l_e``, residual vector ``re`` and Jacobian matrix ``ke`` using
-        the local DOF ordering encoded by ``elem_t_local_ids`` and ``elem_uvw_local_ids``.
+        the local DOF ordering encoded by ``elem_c_local_ids`` and ``elem_uvw_local_ids``.
 
         Args:
             xyze: Element nodal coordinates array shaped like ``(nnode, dim)``.
-            de: Element nodal control values shared by thermal/mechanical models, shaped
+            de: Element nodal control values shared by chemical/mechanical models, shaped
                 like ``(nnode,)`` or compatible.
-            tuvwe: Element nodal DOF vector including temperature and displacement DOFs,
+            tuvwe: Element nodal DOF vector including concentration and displacement DOFs,
                 shaped like ``(nnode * ndofs_per_node, 1)``.
-            t0e: Element nodal initial temperature vector shaped like ``(nnode,)`` or
+            t0e: Element nodal initial concentration vector shaped like ``(nnode,)`` or
                 ``(nnode, 1)``.
 
         Returns:
@@ -307,42 +317,123 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 ``residual`` is the coupled residual vector (shape ``(ndof_elem, 1)``),
                 and ``jacobian`` is the coupled element Jacobian (shape ``(ndof_elem, ndof_elem)``).
         """
-
-        # Compute thermal contribution:
-        # l_t           -> scalar thermal loss
-        # r_t           -> thermal residual vector (temperature DOFs only)
-        # d_r_t_d_t     -> thermal tangent matrix w.r.t. temperature
-        l_t, r_t, d_r_t_d_t = self.ComputeElementThermal(elem_var_dict)
         
+        # Compute chemical contribution:
+        # l_c           -> scalar chemical loss
+        # r_c           -> chemical residual vector (concentration DOFs only)
+        # d_r_c_d_c     -> chemical tangent matrix w.r.t. concentration
+        l_c, r_c, d_r_c_d_c, d_r_c_d_uvw = self.ComputeElementChemical(xyze,
+                                                          de,
+                                                          tuvwe[self.elem_c_local_ids],
+                                                          tuvwe[self.elem_uvw_local_ids],
+                                                          t0e)
+
         # Compute mechanical contribution:
         # l_m           -> scalar mechanical loss
         # r_m           -> mechanical residual vector (displacement DOFs only)
         # d_r_m_d_uvw   -> mechanical tangent matrix w.r.t. displacement
-        # d_r_m_d_t     -> coupling tangent matrix w.r.t. temperature        
-        l_m, r_m, d_r_m_d_uvw, d_r_m_d_t = self.ComputeElementMechanical(elem_var_dict)
+        # d_r_m_d_c     -> coupling tangent matrix w.r.t. concentration        
+        l_m, r_m, d_r_m_d_uvw, d_r_m_d_c = self.ComputeElementMechanical(xyze,
+                                                                         de,
+                                                                         tuvwe[self.elem_c_local_ids],
+                                                                         tuvwe[self.elem_uvw_local_ids],
+                                                                         t0e)
 
         # Initialize full element residual and Jacobian with zeros
         # Size is based on total number of element DOFs
-        n_dofs = len(self.elem_dof_local_ids)
-        re = jnp.zeros((n_dofs,1))
-        ke = jnp.zeros((n_dofs,n_dofs))
+        re = jnp.zeros((tuvwe.shape[0],1))
+        ke = jnp.zeros((tuvwe.shape[0],tuvwe.shape[0]))
 
         # Assemble mechanical stiffness block (displacement-displacement)
         ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_uvw_local_ids)].add(d_r_m_d_uvw)
-        # Assemble thermo-mechanical coupling block (displacement-temperature)
-        ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_t_local_ids)].add(d_r_m_d_t)
-        # Assemble thermal stiffness block (temperature-temperature)
-        ke = ke.at[jnp.ix_(self.elem_t_local_ids, self.elem_t_local_ids)].add(d_r_t_d_t)
+        # Assemble chemo-mechanical coupling block (displacement-concentration)
+        ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_c_local_ids)].add(d_r_m_d_c)
+        # Assemble chemical stiffness block (concentration-concentration)
+        ke = ke.at[jnp.ix_(self.elem_c_local_ids, self.elem_c_local_ids)].add(d_r_c_d_c)
+        # Assemble chemical stiffness block (concentration-displacement)
+        ke = ke.at[jnp.ix_(self.elem_c_local_ids, self.elem_uvw_local_ids)].add(d_r_c_d_uvw)
 
-        # Assemble thermal residual into global element residual
-        re = re.at[jnp.ix_(self.elem_t_local_ids)].add(r_t)
+
         # Assemble mechanical residual into global element residual
         re = re.at[jnp.ix_(self.elem_uvw_local_ids)].add(r_m)
+        # Assemble chemical residual into global element residual
+        re = re.at[jnp.ix_(self.elem_c_local_ids)].add(r_c)
 
-         # Total element loss is the sum of thermal and mechanical losses
-        l_e = l_t + l_m
+         # Total element loss is the sum of chemical and mechanical losses
+        l_e = l_c + l_m
 
         return l_e, re, ke
+
+    def ComputeElementStaggered(self,xyze,de,tuvwe,t0e):
+        """
+        Compute coupled element loss, residual, and Jacobian for chemo-mechanics.
+
+        This method combines chemical and mechanical element contributions into a single
+        element loss ``l_e``, residual vector ``re`` and Jacobian matrix ``ke`` using
+        the local DOF ordering encoded by ``elem_c_local_ids`` and ``elem_uvw_local_ids``.
+
+        Args:
+            xyze: Element nodal coordinates array shaped like ``(nnode, dim)``.
+            de: Element nodal control values shared by chemical/mechanical models, shaped
+                like ``(nnode,)`` or compatible.
+            tuvwe: Element nodal DOF vector including concentration and displacement DOFs,
+                shaped like ``(nnode * ndofs_per_node, 1)``.
+            t0e: Element nodal initial concentration vector shaped like ``(nnode,)`` or
+                ``(nnode, 1)``.
+
+        Returns:
+            tuple:
+                A 3-tuple ``(loss, residual, jacobian)`` where
+                ``loss`` is the scalar coupled element loss,
+                ``residual`` is the coupled residual vector (shape ``(ndof_elem, 1)``),
+                and ``jacobian`` is the coupled element Jacobian (shape ``(ndof_elem, ndof_elem)``).
+        """
+        
+        # Compute chemical contribution:
+        # l_c           -> scalar chemical loss
+        # r_c           -> chemical residual vector (concentration DOFs only)
+        # d_r_c_d_c     -> chemical tangent matrix w.r.t. concentration
+        l_c, r_c, d_r_c_d_c, d_r_c_d_uvw = self.ComputeElementChemical(xyze,
+                                                          de,
+                                                          tuvwe[self.elem_c_local_ids],
+                                                          tuvwe[self.elem_uvw_local_ids],
+                                                          t0e)
+
+        # Compute mechanical contribution:
+        # l_m           -> scalar mechanical loss
+        # r_m           -> mechanical residual vector (displacement DOFs only)
+        # d_r_m_d_uvw   -> mechanical tangent matrix w.r.t. displacement
+        # d_r_m_d_c     -> coupling tangent matrix w.r.t. concentration        
+        l_m, r_m, d_r_m_d_uvw, d_r_m_d_c = self.ComputeElementMechanical(xyze,
+                                                                         de,
+                                                                         tuvwe[self.elem_c_local_ids],
+                                                                         tuvwe[self.elem_uvw_local_ids],
+                                                                         t0e)
+
+        # Initialize full element residual and Jacobian with zeros
+        # Size is based on total number of element DOFs
+        re = jnp.zeros((tuvwe.shape[0],1))
+        ke = jnp.zeros((tuvwe.shape[0],tuvwe.shape[0]))
+
+        # Assemble mechanical stiffness block (displacement-displacement)
+        ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_uvw_local_ids)].add(d_r_m_d_uvw)
+        # Assemble chemo-mechanical coupling block (displacement-concentration)
+        ke = ke.at[jnp.ix_(self.elem_uvw_local_ids, self.elem_c_local_ids)].add(d_r_m_d_c)
+        # Assemble chemical stiffness block (concentration-concentration)
+        ke = ke.at[jnp.ix_(self.elem_c_local_ids, self.elem_c_local_ids)].add(d_r_c_d_c)
+        # Assemble chemical stiffness block (concentration-displacement)
+        ke = ke.at[jnp.ix_(self.elem_c_local_ids, self.elem_uvw_local_ids)].add(d_r_c_d_uvw)
+
+
+        # Assemble mechanical residual into global element residual
+        re = re.at[jnp.ix_(self.elem_uvw_local_ids)].add(r_m)
+        # Assemble chemical residual into global element residual
+        re = re.at[jnp.ix_(self.elem_c_local_ids)].add(r_c)
+
+         # Total element loss is the sum of chemical and mechanical losses
+        # l_e = l_c + l_m
+
+        return (l_c, l_m)
     
     def ComputeElementResidualAndJacobian(self,
                                           elem_xyz:jnp.array,
@@ -363,7 +454,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             elem_xyz (jnp.array): Element nodal coordinates shaped like ``(nnode, dim)``.
             elem_controls (jnp.array): Element nodal controls shaped like ``(nnode,)`` or compatible.
             elem_dofs (jnp.array): Element DOF vector shaped like ``(ndof_elem, 1)``.
-            elem_t0 (jnp.array): Element initial temperature values shaped like ``(nnode,)`` or ``(nnode, 1)``.
+            elem_t0 (jnp.array): Element initial concentration values shaped like ``(nnode,)`` or ``(nnode, 1)``.
             elem_BC (jnp.array): Element Dirichlet BC vector shaped like ``(ndof_elem, 1)``.
             elem_mask_BC (jnp.array): Element mask for Dirichlet BC entries shaped like ``(ndof_elem, 1)``.
             transpose_jac (bool): If True, returns the transposed element Jacobian.
@@ -425,13 +516,31 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                                                       full_control_vector[elements_nodes[element_id]],
                                                       full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
-                                                      self.thermal_loss_settings["T0"][elements_nodes[element_id]],
+                                                      self.chemical_loss_settings["c0"][elements_nodes[element_id]],
                                                       full_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       full_mask_dirichlet_BC_vec[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       transpose_jac)
+
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementsEnergies(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
+        return jax.vmap(self.ComputeElementEnergyVmapCompatible,(0,None,None,None,None)) \
+                        (self.fe_mesh.GetElementsIds(self.element_type),
+                        self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesCoordinates(),
+                        total_control_vars,
+                        total_primal_vars)
     
+    @partial(jit, static_argnums=(0,))
+    def ComputeElementsEnergiesStaggered(self,total_control_vars:jnp.array,total_primal_vars:jnp.array):
+        return jax.vmap(self.ComputeElementEnergyStaggeredVmapCompatible,(0,None,None,None,None)) \
+                        (self.fe_mesh.GetElementsIds(self.element_type),
+                        self.fe_mesh.GetElementsNodes(self.element_type),
+                        self.fe_mesh.GetNodesCoordinates(),
+                        total_control_vars,
+                        total_primal_vars)
+
     def ComputeElementEnergyVmapCompatible(self,
                                            element_id:jnp.integer,
                                            elements_nodes:jnp.array,
@@ -455,7 +564,6 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 Global control/parameter values per node.
             full_dof_vector (jax.numpy.ndarray):
                 Global DOF vector.
-
         Returns:
             float:
                 Scalar element contribution.
@@ -464,20 +572,61 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                                          full_control_vector[elements_nodes[element_id]],
                                          full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
                                          jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
-                                         self.thermal_loss_settings["T0"][elements_nodes[element_id]])[0]
+                                         self.chemical_loss_settings["c0"][elements_nodes[element_id]])[0]
+    
+    def ComputeElementEnergyStaggeredVmapCompatible(self,
+                                           element_id:jnp.integer,
+                                           elements_nodes:jnp.array,
+                                           xyz:jnp.array,
+                                           full_control_vector:jnp.array,
+                                           full_dof_vector:jnp.array):
+        """
+        Vmap-compatible wrapper to compute an element scalar contribution.
+
+        This helper extracts element nodal coordinates, controls, and DOFs from
+        global arrays using ``element_id`` and then calls :meth:`ComputeElementEnergy`.
+
+        Args:
+            element_id (jax.numpy.integer):
+                Element index.
+            elements_nodes (jax.numpy.ndarray):
+                Connectivity array mapping element ids to node ids.
+            xyz (jax.numpy.ndarray):
+                Nodal coordinates array.
+            full_control_vector (jax.numpy.ndarray):
+                Global control/parameter values per node.
+            full_dof_vector (jax.numpy.ndarray):
+                Global DOF vector.
+        Returns:
+            float:
+                Scalar element contribution.
+        """
+        return self.ComputeElementStaggered(xyz[elements_nodes[element_id],:],
+                                         full_control_vector[elements_nodes[element_id]],
+                                         full_dof_vector[((self.number_dofs_per_node*elements_nodes[element_id])[:, jnp.newaxis] +
+                                         jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
+                                         self.chemical_loss_settings["c0"][elements_nodes[element_id]])   
     
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))
-    def ComputeHeatFlux(self,nodal_conductivity: jnp.array, nodal_temperature: jnp.array):
+    def ComputeDiffusionFlux(
+        self,
+        nodal_conductivity: jnp.array,
+        nodal_temperature: jnp.array,
+        nodal_tuvw: jnp.array = None,
+    ):
         """
-        Compute the global nodal heat flux vector for a scalar heat conduction problem
+        Compute the global nodal diffusion flux vector for a scalar diffusion problem
         in arbitrary spatial dimension.
 
-        The heat flux is computed from the temperature field using Fourier's law
-        ``q = -k ∇T``. Temperature gradients are evaluated at Gauss points within
-        each finite element, the resulting Gauss-point heat flux is projected to
-        element nodal values using an L2 (least-squares) projection, and the element
-        nodal contributions are assembled into a global nodal heat flux vector.
+        The diffusion flux is computed from the concentration field using Fick's law
+        ``j = -D (D_0 ∇C + beta C ∇p)`` when the coupled DOF vector is provided.
+        If ``nodal_tuvw`` is omitted, only the uncoupled Fickian term
+        ``j = -D D_0 ∇C`` is projected. Concentration gradients are evaluated at
+        Gauss points within each finite element, the resulting Gauss-point diffusion
+        flux is projected to element nodal values using an L2 (least-squares)
+        projection, and the element nodal contributions are assembled into a global
+        nodal diffusion flux vector.
 
         **Integration point requirement**
         
@@ -491,7 +640,7 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         which becomes singular (or ill-conditioned), making the inversion unstable
         or impossible. At least two integration points are required to ensure that
         the projection matrix has sufficient rank and produces a stable nodal
-        reconstruction of the heat flux field.
+        reconstruction of the diffusion flux field.
 
         If fewer than 2 Gauss points are detected, a warning is issued using
         ``fol_warning``. The integration order is temporarily increased to 2
@@ -504,18 +653,24 @@ class ThermoMechanicsLoss(FiniteElementLoss):
 
         Args:
             nodal_conductivity (jnp.array):
-                Nodal scalar thermal conductivity values.
+                Nodal scalar diffusion coefficient values.
                 Shape ``(num_nodes,)``.
 
             nodal_temperature (jnp.array):
-                Nodal temperature values.
+                Nodal concentration values. The legacy parameter name is kept for
+                backward compatibility with older thermal helper call sites.
                 Shape ``(num_nodes,)``.
+
+            nodal_tuvw (jnp.array, optional):
+                Global chemo-mechanical DOF vector. When supplied, the hydrostatic
+                stress-gradient coupling term used by ``ComputeElementChemical`` is
+                included in the projected flux.
 
         Returns:
             jnp.array:
-                Nodal heat flux field.
+                Nodal diffusion flux field.
                 Shape ``(num_nodes, dim)``, where each row contains the spatial
-                components of the heat flux at a node.
+                components of the diffusion flux at a node.
         """
 
         # -------------------------------------------------
@@ -532,33 +687,49 @@ class ThermoMechanicsLoss(FiniteElementLoss):
 
         nodes_coords = jnp.asarray(self.fe_mesh.GetNodesCoordinates())
         k = jnp.asarray(nodal_conductivity)
-        T = jnp.asarray(nodal_temperature)
+        c = jnp.asarray(nodal_temperature)
+        tuvw = None if nodal_tuvw is None else jnp.asarray(nodal_tuvw)
 
-        def ComputeElementGPHeatFlux(xyze, ke, te):
-            te = te.reshape(-1, 1)
+        def ComputeElementGPHeatFlux(xyze, ke, ce, ce_init, se):
+            ce = ce.reshape(-1, 1)
+            ce_init = ce_init.reshape(-1, 1)
+            pe = jnp.zeros_like(ce)
+            if se is not None:
+                pe = self.ComputeElementHydrostaticStress(xyze, ke, ce, se, ce_init)
+
             def compute_at_gauss_point(gp_point, gp_weight):
                 DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze, gp_point)
                 N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
                 J = self.fe_element.Jacobian(xyze, gp_point)
                 detJ = jnp.linalg.det(J)
                 Jw = jnp.abs(detJ) * gp_weight                
-                temp_at_gauss = jnp.dot(N_vec, te.squeeze())
-                conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), ke) \
-                * (self.thermal_loss_settings["k1"]+1/self.thermal_loss_settings["k2"]*\
-               (1/(1+jnp.exp(self.thermal_loss_settings["k3"]*(temp_at_gauss-self.thermal_loss_settings["k4"])))))
-                temp_grad = DN_DX.T @ te
-                q = -conductivity_at_gauss * temp_grad  # Fourier's law
-                return N_vec,q.squeeze(), Jw
+                c_at_gauss = jnp.dot(N_vec, ce.squeeze())
+                conductivity_at_gauss = jnp.dot(N_vec.reshape(1,-1), ke)
+                concentration_grad = DN_DX.T @ ce
+                pressure_grad = DN_DX.T @ pe
+                j = -conductivity_at_gauss * (
+                    self.chemical_loss_settings["Diffusivity"] * concentration_grad
+                    + self.chemical_loss_settings["beta"] * c_at_gauss * pressure_grad
+                )
+                return N_vec,j.squeeze(), Jw
+
             gp_points, gp_weights = self.fe_element.GetIntegrationData()
             N_g,q_g,Jw = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
             N_g_T_N_g = N_g.T @ (N_g*Jw[:, jnp.newaxis])  
             N_g_T_q_g = N_g.T @ (q_g*Jw[:, jnp.newaxis])
-            return jnp.linalg.inv(N_g_T_N_g) @ N_g_T_q_g
+            return jnp.linalg.pinv(N_g_T_N_g) @ N_g_T_q_g
 
         def ComputeElementNodalHeatFlux(element_nodes):
+            se = None
+            if tuvw is not None:
+                tuvwe = tuvw[((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +
+                              jnp.arange(self.number_dofs_per_node))].reshape(-1,1)
+                se = tuvwe[self.elem_uvw_local_ids]
             return ComputeElementGPHeatFlux(nodes_coords[element_nodes, :], 
                                             k[element_nodes], 
-                                            T[element_nodes]).reshape(-1,1)
+                                            c[element_nodes],
+                                            self.chemical_loss_settings["c0"][element_nodes],
+                                            se).reshape(-1,1)
 
         element_fluxes = jax.vmap(ComputeElementNodalHeatFlux)(self.fe_mesh.GetElementsNodes(self.element_type))
         nodal_flux_vector = jnp.zeros((self.fe_mesh.GetNumberOfNodes()*self.dim))
@@ -575,28 +746,48 @@ class ThermoMechanicsLoss(FiniteElementLoss):
 
         return nodal_flux_vector.reshape(-1,self.dim)
     
+    def ProjectTraceStressToNodes(self,
+                      nodal_conductivity: jnp.array, 
+                      nodal_tuvw: jnp.array):
+        nodal_stress = self.ComputeStress(
+            nodal_conductivity,
+            nodal_tuvw
+        )
+
+        if self.dim == 2:
+            p = 0.5*(nodal_stress[:, 0] + nodal_stress[:, 1])
+
+        elif self.dim == 3:
+            p = 1/3*(
+                nodal_stress[:, 0]
+                + nodal_stress[:, 1]
+                + nodal_stress[:, 2]
+            )
+
+        return p.reshape(-1, 1)        
+
     @print_with_timestamp_and_execution_time
     @partial(jit, static_argnums=(0,))    
     def ComputeStress(self,
                       nodal_conductivity: jnp.array, 
                       nodal_tuvw: jnp.array):
         """
-        Compute the global nodal mechanical stress field for a thermo-mechanical
+        Compute the global nodal mechanical stress field for a chemo-mechanical
         linear elasticity problem in arbitrary spatial dimension.
 
         The Cauchy stress tensor is evaluated at Gauss integration points using
         the constitutive relation
 
-            σ = D (ε_total − ε_thermal)
+            σ = D (ε_total − ε_chemical)
 
         where the total strain is obtained from the displacement field through
 
             ε_total = B u
 
-        and the thermal strain is computed from the temperature difference with
-        respect to the reference temperature. The constitutive matrix ``D`` is
+        and the chemical strain is computed from the chemical potential difference with
+        respect to the reference chemical potential. The constitutive matrix ``D`` is
         defined for isotropic linear elasticity and may be scaled by a
-        temperature-dependent degradation factor evaluated at Gauss points.
+        concentration-dependent degradation factor evaluated at Gauss points.
 
         Gauss-point stresses are projected to element nodal stresses using an
         L2 (least-squares) projection. The element nodal contributions are then
@@ -636,8 +827,8 @@ class ThermoMechanicsLoss(FiniteElementLoss):
                 points and scales the constitutive response.
 
             nodal_tuvw (jnp.array):
-                Nodal thermo-mechanical degrees of freedom, containing
-                temperature and displacement components per node.
+                Nodal chemo-mechanical degrees of freedom, containing
+                concentration and displacement components per node.
                 Shape ``(num_nodes * number_dofs_per_node,)``.
 
         Returns:
@@ -662,40 +853,39 @@ class ThermoMechanicsLoss(FiniteElementLoss):
         k = jnp.asarray(nodal_conductivity)
         tuvw = jnp.asarray(nodal_tuvw)
 
-        def ComputeElementGPStress(xyze,ke,tuvwe,te_init):
+        def ComputeElementGPStress(xyze,ke,tuvwe,ce_init):
             ke = ke.reshape(-1,1)
-            te = tuvwe[self.elem_t_local_ids].reshape(-1,1)
+            ce = tuvwe[self.elem_c_local_ids].reshape(-1,1)
             uvwe = tuvwe[self.elem_uvw_local_ids].reshape(-1,1)
-            te_init = te_init.reshape(-1,1)
+            ce_init = ce_init.reshape(-1,1)
             def compute_at_gauss_point(gp_point,gp_weight):
                 N_vec = self.fe_element.ShapeFunctionsValues(gp_point)
                 DN_DX = self.fe_element.ShapeFunctionsGlobalGradients(xyze,gp_point)
                 B_mat = self.CalculateBMatrix(DN_DX)
-                temp_at_gauss = jnp.dot(N_vec,te.squeeze())
+                c_at_gauss = jnp.dot(N_vec,ce.squeeze())
 
                 J = self.fe_element.Jacobian(xyze, gp_point)
                 detJ = jnp.linalg.det(J)
                 Jw = jnp.abs(detJ) * gp_weight
                 total_strain_at_gauss = B_mat@uvwe
-                thermal_strain_vec = 1.0\
-                    * (temp_at_gauss - jnp.dot(N_vec, te_init.squeeze())) * self.thermal_st_vec
-                elastic_strain = total_strain_at_gauss - thermal_strain_vec
-                k_at_gauss = jnp.dot(N_vec, ke.squeeze()) * \
-                            (self.mechanical_loss_settings["e1"]+self.mechanical_loss_settings["e2"]*temp_at_gauss)
+                chemical_strain_vec = self.mechanical_loss_settings["gamma"]\
+                    * (c_at_gauss - jnp.dot(N_vec, ce_init.squeeze())) * self.chemical_st_vec
+                elastic_strain = total_strain_at_gauss - chemical_strain_vec
+                k_at_gauss = jnp.dot(N_vec, ke.squeeze()) 
                 elastic_stress = k_at_gauss * (self.D @ elastic_strain)
                 return N_vec,elastic_stress.squeeze(),Jw
             gp_points, gp_weights = self.fe_element.GetIntegrationData()
             N_g,s_g,Jw_g = jax.vmap(compute_at_gauss_point, in_axes=(0, 0))(gp_points, gp_weights)
             N_g_T_N_g = N_g.T @ (N_g*Jw_g[:, jnp.newaxis])
             N_g_T_s_g = N_g.T @ (s_g*Jw_g[:, jnp.newaxis])
-            return jnp.linalg.inv(N_g_T_N_g) @ N_g_T_s_g
+            return jnp.linalg.pinv(N_g_T_N_g) @ N_g_T_s_g
 
         def ComputeElementNodalStress(element_nodes):
             return ComputeElementGPStress(nodes_coords[element_nodes, :], 
                                           k[element_nodes], 
                                           tuvw[((self.number_dofs_per_node*element_nodes)[:, jnp.newaxis] +
                                             jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
-                                          self.thermal_loss_settings["T0"][element_nodes],
+                                          self.chemical_loss_settings["c0"][element_nodes],
                                           ).reshape(-1,1)
         
         elements_nodal_stresses = jax.vmap(ComputeElementNodalStress)(self.fe_mesh.GetElementsNodes(self.element_type))
@@ -715,14 +905,72 @@ class ThermoMechanicsLoss(FiniteElementLoss):
             self.fe_element.SetGaussIntegrationMethod("GI_GAUSS_1")
 
         return nodal_stress_vector.reshape(-1,num_stress_comps)
+    
 
-class ThermoMechanicsLoss3DTetra(ThermoMechanicsLoss):
+    @print_with_timestamp_and_execution_time
+    @partial(jit, static_argnums=(0,))
+    def ComputeJacobianMatrixAndResidualVector(self,total_control_vars: jnp.array,total_primal_vars: jnp.array,transpose_jacobian:bool=False,new_implementation:bool=False):
+        
+        BC_vector = jnp.ones((self.total_number_of_dofs))
+        BC_vector = BC_vector.at[self.dirichlet_indices].set(0)
+        mask_BC_vector = jnp.zeros((self.total_number_of_dofs))
+        mask_BC_vector = mask_BC_vector.at[self.dirichlet_indices].set(1)
+
+        num_nodes_per_elem = len(self.fe_mesh.GetElementsNodes(self.element_type)[0])
+        element_matrix_size = self.number_dofs_per_node * num_nodes_per_elem
+        elements_jacobian_flat = jnp.zeros(self.fe_mesh.GetNumberOfElements(self.element_type)*element_matrix_size*element_matrix_size)
+
+        template_element_indices = jnp.arange(0,self.adjusted_batch_size)
+        template_elem_res_indices = jnp.arange(0,element_matrix_size,self.number_dofs_per_node)
+        template_elem_jac_indices = jnp.arange(0,self.adjusted_batch_size*element_matrix_size*element_matrix_size)
+
+        residuals_vector = jnp.zeros((self.total_number_of_dofs))
+
+        @jax.jit
+        def fill_arrays(batch_index,batch_arrays):
+            glob_res_vec,elem_jac_vec = batch_arrays
+
+            batch_element_indices = (batch_index * self.adjusted_batch_size) + template_element_indices
+            batch_elem_jac_indices = (batch_index * self.adjusted_batch_size * element_matrix_size**2) + template_elem_jac_indices
+
+            batch_elements_residuals, batch_elements_stiffness = jax.vmap(self.ComputeElementResidualAndJacobianVmapCompatible,(0,None,None,None,None,None,None,None)) \
+                                                                (batch_element_indices,
+                                                                self.fe_mesh.GetElementsNodes(self.element_type),
+                                                                self.fe_mesh.GetNodesCoordinates(),
+                                                                total_control_vars,
+                                                                total_primal_vars,
+                                                                BC_vector,
+                                                                mask_BC_vector,
+                                                                transpose_jacobian)  
+
+            elem_jac_vec = elem_jac_vec.at[batch_elem_jac_indices].set(batch_elements_stiffness.ravel())
+
+            @jax.jit
+            def fill_res_vec(dof_idx,glob_res_vec):                 
+                glob_res_vec = glob_res_vec.at[self.number_dofs_per_node*self.fe_mesh.GetElementsNodes(self.element_type)[batch_element_indices]+dof_idx].add(jnp.squeeze(batch_elements_residuals[:,template_elem_res_indices+dof_idx]))
+                return glob_res_vec
+
+            glob_res_vec = jax.lax.fori_loop(0, self.number_dofs_per_node, fill_res_vec, (glob_res_vec))
+
+            return (glob_res_vec,elem_jac_vec)
+
+        residuals_vector, elements_jacobian_flat = jax.lax.fori_loop(0, self.num_element_batches, fill_arrays, (residuals_vector, elements_jacobian_flat))
+
+        # second compute the global jacobian matrix  
+        jacobian_indices = jax.vmap(self.ComputeElementJacobianIndices)(self.fe_mesh.GetElementsNodes(self.element_type)) # Get the indices
+        jacobian_indices = jacobian_indices.reshape(-1,2)
+        
+        sparse_jacobian = sparse.BCOO((elements_jacobian_flat,jacobian_indices),shape=(self.total_number_of_dofs,self.total_number_of_dofs))
+
+        return sparse_jacobian, residuals_vector
+
+class ChemoMechanicsLoss3DTetra(ChemoMechanicsLoss):
     """
-    3D thermo-mechanical finite-element loss using tetrahedral elements.
+    3D chemo-mechanical finite-element loss using tetrahedral elements.
 
-    This class specializes :class:`ThermoMechanicsLoss` for three-dimensional
+    This class specializes :class:`ChemoMechanicsLoss` for three-dimensional
     problems with tetrahedral elements and ordered degrees of freedom
-    ``["T", "Ux", "Uy", "Uz"]``.
+    ``["C", "Ux", "Uy", "Uz"]``.
 
     Args:
         name (str): Identifier for the loss instance used for logging,
@@ -740,16 +988,16 @@ class ThermoMechanicsLoss3DTetra(ThermoMechanicsLoss):
     @print_with_timestamp_and_execution_time
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T", "Ux","Uy","Uz"],                                           
+                               "ordered_dofs": ["C", "Ux","Uy","Uz"],                                           
                                "element_type":"tetra"},fe_mesh)
         
-class ThermoMechanicsLoss3DHexa(ThermoMechanicsLoss):
+class ChemoMechanicsLoss3DHexa(ChemoMechanicsLoss):
     """
-    3D thermo-mechanical finite-element loss using hexahedral elements.
+    3D chemo-mechanical finite-element loss using hexahedral elements.
 
-    This class specializes :class:`ThermoMechanicsLoss` for three-dimensional
+    This class specializes :class:`ChemoMechanicsLoss` for three-dimensional
     problems with hexahedral elements and ordered degrees of freedom
-    ``["T", "Ux", "Uy", "Uz"]``. If the number of Gauss points is not specified
+    ``["C", "Ux", "Uy", "Uz"]``. If the number of Gauss points is not specified
     in ``loss_settings``, it defaults to 2.
 
     Args:
@@ -770,16 +1018,16 @@ class ThermoMechanicsLoss3DHexa(ThermoMechanicsLoss):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":3,
-                               "ordered_dofs": ["T", "Ux","Uy","Uz"],                               
+                               "ordered_dofs": ["C", "Ux","Uy","Uz"],                               
                                "element_type":"hexahedron"},fe_mesh)
 
-class ThermoMechanicsLoss2DQuad(ThermoMechanicsLoss):
+class ChemoMechanicsLoss2DQuad(ChemoMechanicsLoss):
     """
-    2D thermo-mechanical finite-element loss using quadrilateral elements.
+    2D chemo-mechanical finite-element loss using quadrilateral elements.
 
-    This class specializes :class:`ThermoMechanicsLoss` for two-dimensional
+    This class specializes :class:`ChemoMechanicsLoss` for two-dimensional
     problems with quadrilateral elements and ordered degrees of freedom
-    ``["T", "Ux", "Uy"]``. If the number of Gauss points is not specified
+    ``["C", "Ux", "Uy"]``. If the number of Gauss points is not specified
     in ``loss_settings``, it defaults to 2.
 
     Args:
@@ -799,16 +1047,16 @@ class ThermoMechanicsLoss2DQuad(ThermoMechanicsLoss):
         if not "num_gp" in loss_settings.keys():
             loss_settings["num_gp"] = 2
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T", "Ux","Uy"], 
+                               "ordered_dofs": ["C", "Ux","Uy"], 
                                "element_type":"quad"},fe_mesh)
         
-class ThermoMechanicsLoss2DTri(ThermoMechanicsLoss):
+class ChemoMechanicsLoss2DTri(ChemoMechanicsLoss):
     """
-    2D thermo-mechanical finite-element loss using triangular elements.
+    2D chemo-mechanical finite-element loss using triangular elements.
 
-    This class specializes :class:`ThermoMechanicsLoss` for two-dimensional
+    This class specializes :class:`ChemoMechanicsLoss` for two-dimensional
     problems with triangular elements and ordered degrees of freedom
-    ``["T", "Ux", "Uy"]``.
+    ``["C", "Ux", "Uy"]``.
 
     Args:
         name (str): Identifier for the loss instance used for logging,
@@ -825,5 +1073,5 @@ class ThermoMechanicsLoss2DTri(ThermoMechanicsLoss):
     """
     def __init__(self, name: str, loss_settings: dict, fe_mesh: Mesh):
         super().__init__(name,{**loss_settings,"compute_dims":2,
-                               "ordered_dofs": ["T", "Ux","Uy"],  
+                               "ordered_dofs": ["C", "Ux","Uy"],  
                                "element_type":"triangle"},fe_mesh)

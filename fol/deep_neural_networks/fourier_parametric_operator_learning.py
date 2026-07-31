@@ -137,11 +137,17 @@ class FourierParametricOperatorLearning(DeepNetwork):
                 If the input cannot be reshaped consistently with the mesh size
                 inferred from the loss function.
         """
-        batch_size = batch_X.shape[0]
-        return nn_model(batch_X.reshape(batch_size,*self.spatial_shape,-1)).reshape(batch_size,-1)
+        batch_size = next(iter(batch_X.values())).shape[0]
+
+        fno_channel_wise_inputs = {
+            k: v.reshape(batch_size, *self.spatial_shape, -1)
+            for k, v in batch_X.items()
+        }
+
+        return nn_model(fno_channel_wise_inputs)
 
     @print_with_timestamp_and_execution_time
-    def Predict(self,batch_control:jnp.ndarray):
+    def Predict(self,batch_vars:dict[str, jnp.ndarray]):
         """
         Perform inference and apply boundary conditions for a batch of inputs.
 
@@ -162,9 +168,21 @@ class FourierParametricOperatorLearning(DeepNetwork):
         Raises:
             None
         """
-        control_outputs = self.control.ComputeBatchControlledVariables(batch_control)
-        preds = self.ComputeBatchPredictions(control_outputs,self.flax_neural_network)
-        return self.loss_function.GetFullDofVector(batch_control,preds)
+
+        control_outputs = self.control.ComputeBatchControlledVariables(batch_vars)
+        batch_predictions = self.ComputeBatchPredictions(control_outputs,self.flax_neural_network)
+
+        for key in batch_predictions.keys():
+            key_value = batch_predictions[key]
+            key_mask = batch_vars[key+"_mask"]
+            key_mask_value = batch_vars[key+"_mask_value"]
+            key_value = key_value.reshape(key_value.shape[0],-1)
+
+            key_value = (1.0-key_mask) * key_value + key_mask * key_mask_value
+
+            batch_predictions[key] = key_value
+
+        return batch_predictions
 
     def Finalize(self):
         pass
@@ -292,7 +310,7 @@ class PhysicsInformedFourierParametricOperatorLearning(FourierParametricOperator
         """
         control_outputs = self.control.ComputeBatchControlledVariables(batch[0])
         batch_predictions = self.ComputeBatchPredictions(control_outputs,nn_model)
-        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss(control_outputs,batch_predictions)
+        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss({**control_outputs,**batch_predictions,**batch[1]})
         loss_name = self.loss_function.GetName()
         return batch_loss, ({loss_name+"_min":batch_min,
                              loss_name+"_max":batch_max,

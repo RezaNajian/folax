@@ -557,7 +557,7 @@ class FiniteElementLoss(Loss):
                                                       jnp.arange(self.number_dofs_per_node))].reshape(-1,1),
                                                       transpose_jac)
 
-    def ComputeBatchLoss(self,batch_params:jnp.array,batch_dofs:jnp.array):
+    def ComputeBatchLoss(self,batch_vars:dict[str, jnp.ndarray]):
         """
         Compute the finite element loss over a batch of parameter samples and
         their associated solution fields.
@@ -592,16 +592,17 @@ class FiniteElementLoss(Loss):
                 values.
         """
 
-        batch_params = jnp.atleast_2d(batch_params)
-        batch_params = batch_params.reshape(batch_params.shape[0], -1)
-        batch_dofs = jnp.atleast_2d(batch_dofs)
-        batch_dofs = batch_dofs.reshape(batch_dofs.shape[0], -1)
-        BC_applied_batch_dofs = self.GetFullDofVector(batch_params,batch_dofs)
+        batch_size = next(iter(batch_vars.values())).shape[0]
+        conn = self.fe_mesh.GetElementsNodes(self.element_type)
+        elem_coords = self.fe_mesh.GetNodesCoordinates()[conn,:]
 
-        def ComputeSingleLoss(params,dofs):
-            return jnp.sum(self.ComputeElementsEnergies(self.GetParametersVectors(params),dofs))**self.loss_function_exponent
+        batch_elem_vars = {"XYZ":jnp.broadcast_to(elem_coords[None, ...], (batch_size,) + elem_coords.shape)}
+        for k, v in batch_vars.items():
+            v2 = jnp.reshape(jnp.atleast_2d(v), (batch_size, -1))
+            batch_elem_vars[k] = v2[:, conn]
 
-        batch_energies = jax.vmap(ComputeSingleLoss)(batch_params,BC_applied_batch_dofs)
+        batch_energies = jnp.sum(jnp.squeeze(jax.vmap(jax.vmap(lambda d: self.ComputeElement(d)[0], in_axes=0), in_axes=0)(batch_elem_vars)),axis=1) 
+        batch_energies = batch_energies**self.loss_function_exponent
 
         return jnp.mean(batch_energies),(jnp.min(batch_energies),jnp.max(batch_energies),jnp.mean(batch_energies))
 
