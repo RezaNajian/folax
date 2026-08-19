@@ -11,7 +11,7 @@ from jax import jit,vmap
 from functools import partial
 from optax import GradientTransformation
 from flax import nnx
-from .deep_network import DeepNetwork
+from fol.deep_neural_networks.deep_network import DeepNetwork
 from fol.tools.decoration_functions import *
 from fol.loss_functions.loss import Loss
 from fol.controls.control import Control
@@ -69,6 +69,7 @@ class FourierParametricOperatorLearning(DeepNetwork):
         super().__init__(name,loss_function,flax_neural_network,
                          optax_optimizer)
         self.control = control
+        self.periodic_bcs = self.loss_function.periodic_bcs
 
     @print_with_timestamp_and_execution_time
     def Initialize(self,reinitialize=False) -> None:
@@ -101,13 +102,22 @@ class FourierParametricOperatorLearning(DeepNetwork):
 
         total_num_nodes = self.loss_function.fe_mesh.GetNumberOfNodes()
         if self.loss_function.dim == 1:
-            self.spatial_shape = (int(total_num_nodes))
+            if self.periodic_bcs:
+                self.spatial_shape = (int(total_num_nodes-1))
+            else:
+                self.spatial_shape = (int(total_num_nodes))
         elif self.loss_function.dim == 2:
             dim_mesh_size = jnp.sqrt(total_num_nodes)
-            self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size))
+            if self.periodic_bcs:
+                self.spatial_shape = (int(dim_mesh_size-1),int(dim_mesh_size-1))
+            else:
+                self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size))
         elif self.loss_function.dim == 3:
             dim_mesh_size = jnp.cbrt(total_num_nodes)
-            self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size),int(dim_mesh_size))
+            if self.periodic_bcs:
+                self.spatial_shape = (int(dim_mesh_size-1),int(dim_mesh_size-1),int(dim_mesh_size-1))
+            else:
+                self.spatial_shape = (int(dim_mesh_size),int(dim_mesh_size),int(dim_mesh_size))
 
         self.initialized = True
 
@@ -138,6 +148,7 @@ class FourierParametricOperatorLearning(DeepNetwork):
                 inferred from the loss function.
         """
         batch_size = batch_X.shape[0]
+        print(batch_X.shape,self.spatial_shape)
         return nn_model(batch_X.reshape(batch_size,*self.spatial_shape,-1)).reshape(batch_size,-1)
 
     @print_with_timestamp_and_execution_time
@@ -163,8 +174,10 @@ class FourierParametricOperatorLearning(DeepNetwork):
             None
         """
         control_outputs = self.control.ComputeBatchControlledVariables(batch_control)
-        preds = self.ComputeBatchPredictions(control_outputs,self.flax_neural_network)
-        return self.loss_function.GetFullDofVector(batch_control,preds)
+        control_outputs_periodic = self.loss_function.GetReducedDofVectorBatch(control_outputs.reshape(1,batch_control.shape[0],-1))
+        preds = self.ComputeBatchPredictions(control_outputs_periodic,self.flax_neural_network)
+        preds_full = self.loss_function.ExpandReducedDeltaDofVectorBatch(preds.reshape(1,-1))    
+        return self.loss_function.GetFullDofVector(batch_control,preds_full)
 
     @print_with_timestamp_and_execution_time
     @partial(nnx.jit, donate_argnums=(1,), static_argnums=(0,2))
@@ -329,8 +342,77 @@ class PhysicsInformedFourierParametricOperatorLearning(FourierParametricOperator
             None
         """
         control_outputs = self.control.ComputeBatchControlledVariables(batch[0])
-        batch_predictions = self.ComputeBatchPredictions(control_outputs,nn_model)
-        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss(control_outputs,batch_predictions)
+        control_outputs_periodic = self.loss_function.GetReducedDofVectorBatch(control_outputs)
+        batch_predictions = self.ComputeBatchPredictions(control_outputs_periodic,nn_model)
+        batch_predictions_full = self.loss_function.ExpandReducedDeltaDofVectorBatch(batch_predictions)
+        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLoss(control_outputs,batch_predictions_full)
+        loss_name = self.loss_function.GetName()
+        return batch_loss, ({loss_name+"_min":batch_min,
+                             loss_name+"_max":batch_max,
+                             loss_name+"_avg":batch_avg,
+                             "total_loss":batch_loss})
+
+
+class PhysicsInformedFourierParametricOperatorLearningMulti(FourierParametricOperatorLearning):
+    """
+    Physics-informed parametric operator learning using a Fourier Neural Operator.
+
+    This class specializes :class:`FourierParametricOperatorLearning` for unsupervised
+    or physics-informed training. The Fourier Neural Operator predicts discretized
+    fields that are evaluated using physics-based loss functionals, such as residual-
+    or energy-based formulations, rather than supervised target data.
+
+    This formulation is suitable when governing equations are known and labeled
+    training data are limited or unavailable. Boundary conditions are enforced
+    explicitly through the loss function.
+
+    Args:
+        name (str):
+            Name identifier for the model instance, used for logging and
+            checkpointing.
+        control (Control):
+            Control object defining the parametric input space and mapping raw
+            parameters to controlled variables.
+        loss_function (Loss):
+            Physics-based loss function evaluated on predicted discretized fields.
+        flax_neural_network (nnx.Module):
+            Fourier Neural Operator mapping grid-aligned inputs to grid-aligned
+            output fields.
+        optax_optimizer (GradientTransformation):
+            Optax optimizer transformation used for training.
+
+    Raises:
+        None
+    """
+    def ComputeBatchLossValue(self,batch:Tuple[jnp.ndarray, jnp.ndarray],nn_model:nnx.Module):
+        """
+        Compute physics-informed batch loss for Fourier Neural Operator learning.
+
+        The batch is provided as a tuple for interface consistency, but only the
+        parametric inputs are used. Predicted discretized fields are evaluated using
+        a physics-based loss functional without supervised target fields.
+
+        Args:
+            batch (Tuple[jax.numpy.ndarray, jax.numpy.ndarray]):
+                Tuple ``(batch_X, None)`` where ``batch_X`` contains parametric
+                inputs. The second entry is unused.
+            nn_model (nnx.Module):
+                Fourier Neural Operator used to generate predictions.
+
+        Returns:
+            Tuple[jax.numpy.ndarray, dict]:
+                Batch loss value and a dictionary of loss statistics including
+                the key ``"total_loss"``.
+
+        Raises:
+            None
+        """
+        control_outputs = self.control.ComputeBatchControlledVariables(batch[0])
+        control_outputs_periodic = self.loss_function.GetReducedDofVectorBatch(control_outputs)
+
+        batch_predictions = self.ComputeBatchPredictions(control_outputs_periodic,nn_model)
+        batch_predictions_full = self.loss_function.ExpandReducedDeltaDofVectorBatch(batch_predictions)
+        batch_loss,(batch_min,batch_max,batch_avg) = self.loss_function.ComputeBatchLossMulti(control_outputs,batch_predictions_full)
         loss_name = self.loss_function.GetName()
         return batch_loss, ({loss_name+"_min":batch_min,
                              loss_name+"_max":batch_max,

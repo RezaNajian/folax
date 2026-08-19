@@ -10,6 +10,140 @@ import shutil
 from fol.mesh_input_output.mesh import Mesh
 import copy
 
+
+def plot_displacement_contours_pyvista(
+        fe_mesh,
+        displacement_fields,
+        output_path,
+        warp_factor=1.0,
+        camera_zoom=0.85,
+        component=None):
+    """Plot warped exterior surfaces colored by displacement values.
+
+    Every panel uses color limits computed across all supplied displacement
+    fields, allowing direct comparisons such as FE versus FOL.  PyVista is
+    imported lazily, and rendering is performed off-screen for batch runs.
+    By default the color field is displacement magnitude; pass component 0,
+    1, or 2 to plot the signed Ux, Uy, or Uz field instead.
+    """
+    import pyvista as pv
+
+    points = np.asarray(fe_mesh.nodes_coordinates, dtype=float)
+    hexahedra = np.asarray(fe_mesh.elements_nodes["hexahedron"], dtype=np.int64)
+    fields = {
+        title: np.asarray(displacement, dtype=float)
+        for title, displacement in displacement_fields.items()
+    }
+
+    if not fields:
+        raise ValueError("At least one displacement field is required.")
+    for title, displacement in fields.items():
+        if displacement.shape != points.shape:
+            raise ValueError(
+                f"{title!r} has shape {displacement.shape}; expected {points.shape}."
+            )
+    if component is not None and component not in (0, 1, 2):
+        raise ValueError("component must be None, 0 (Ux), 1 (Uy), or 2 (Uz).")
+
+    # VTK's legacy cell array stores each cell as [number_of_points, ids...].
+    cells = np.column_stack(
+        (np.full(hexahedra.shape[0], 8, dtype=np.int64), hexahedra)
+    ).ravel()
+    cell_types = np.full(hexahedra.shape[0], pv.CellType.HEXAHEDRON, dtype=np.uint8)
+    base_grid = pv.UnstructuredGrid(cells, cell_types, points)
+
+    if component is None:
+        scalar_values = {
+            title: np.linalg.norm(displacement, axis=1)
+            for title, displacement in fields.items()
+        }
+        common_clim = [
+            min(float(values.min()) for values in scalar_values.values()),
+            max(float(values.max()) for values in scalar_values.values()),
+        ]
+        scalar_bar_title = "Displacement magnitude |u|"
+        color_map = "turbo"
+    else:
+        component_label = ("Ux", "Uy", "Uz")[component]
+        scalar_values = {
+            title: displacement[:, component]
+            for title, displacement in fields.items()
+        }
+        max_abs_value = max(
+            float(np.max(np.abs(values))) for values in scalar_values.values()
+        )
+        max_abs_value = max(max_abs_value, np.finfo(float).eps)
+        common_clim = [-max_abs_value, max_abs_value]
+        scalar_bar_title = f"Displacement component {component_label}"
+        color_map = "coolwarm"
+
+    plotter = pv.Plotter(
+        shape=(1, len(fields)),
+        off_screen=True,
+        window_size=(900 * len(fields), 800),
+        border=False,
+    )
+    scalar_bar_args = {
+        "title": scalar_bar_title,
+        "vertical": True,
+        "title_font_size": 18,
+        "label_font_size": 16,
+    }
+
+    for panel_id, (title, displacement) in enumerate(fields.items()):
+        vector_name = f"displacement_{panel_id}"
+        scalar_name = f"displacement_scalar_{panel_id}"
+        grid = base_grid.copy(deep=True)
+        grid.point_data[vector_name] = displacement
+        grid.point_data[scalar_name] = scalar_values[title]
+        grid.set_active_vectors(vector_name)
+        warped = grid.warp_by_vector(vector_name, factor=warp_factor)
+
+        plotter.subplot(0, panel_id)
+        plotter.add_text(title, position="upper_edge", font_size=18)
+        plotter.add_mesh(
+            warped.extract_surface(),
+            scalars=scalar_name,
+            cmap=color_map,
+            clim=common_clim,
+            show_edges=True,
+            edge_color="gray",
+            line_width=0.4,
+            scalar_bar_args=scalar_bar_args,
+        )
+        plotter.add_axes()
+
+    plotter.link_views()
+    plotter.view_isometric()
+    plotter.camera.zoom(camera_zoom)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    plotter.screenshot(output_path)
+    plotter.close()
+    print(f"Saved displacement surface plot: {output_path}")
+
+
+def plot_displacement_components_pyvista(
+        fe_mesh,
+        displacement_fields,
+        output_directory,
+        filename_prefix,
+        warp_factor=1.0,
+        camera_zoom=0.85):
+    """Save signed Ux, Uy, and Uz FE/FOL exterior-surface comparisons."""
+    for component, component_label in enumerate(("ux", "uy", "uz")):
+        plot_displacement_contours_pyvista(
+            fe_mesh=fe_mesh,
+            displacement_fields=displacement_fields,
+            output_path=os.path.join(
+                output_directory,
+                f"{filename_prefix}_{component_label}.png",
+            ),
+            warp_factor=warp_factor,
+            camera_zoom=camera_zoom,
+            component=component,
+        )
+
+
 def plot_mesh_vec_data(L, vectors_list, subplot_titles=None, fig_title=None, cmap='viridis',
                        block_bool=False, colour_bar=True, colour_bar_name=None,
                        X_axis_name=None, Y_axis_name=None, show=False, file_name=None):
@@ -213,66 +347,258 @@ def create_3D_box_mesh(Nx,Ny,Nz,Lx,Ly,Lz,case_dir):
 
 def create_3D_box_mesh_structured(Nx, Ny, Nz, Lx, Ly, Lz):
 
-    xs = jnp.linspace(0.0, Lx, Nx)  # i = 0..Nx-1
-    ys = jnp.linspace(0.0, Ly, Ny)  # j = 0..Ny-1
-    zs = jnp.linspace(0.0, Lz, Nz)  # k = 0..Nz-1
+    xs = jnp.linspace(0.0, Lx, Nx)
+    ys = jnp.linspace(0.0, Ly, Ny)
+    zs = jnp.linspace(0.0, Lz, Nz)
 
-    X, Y, Z = jnp.meshgrid(xs, ys, zs, indexing="ij")  
+    X, Y, Z = jnp.meshgrid(xs, ys, zs, indexing="ij")
 
     nodes_coordinates = jnp.stack([X, Y, Z], axis=-1).reshape(-1, 3)
     num_nodes = nodes_coordinates.shape[0]
-
     node_ids = jnp.arange(num_nodes, dtype=jnp.int32)
 
     def node_idx(i, j, k):
         return i * Ny * Nz + j * Nz + k
 
+    # ------------------------------------------------------------
+    # Hexahedral elements
+    # ------------------------------------------------------------
     hex_elems = []
     for i in range(Nx - 1):
         for j in range(Ny - 1):
             for k in range(Nz - 1):
+
                 n000 = node_idx(i,   j,   k)
                 n100 = node_idx(i+1, j,   k)
                 n110 = node_idx(i+1, j+1, k)
                 n010 = node_idx(i,   j+1, k)
+
                 n001 = node_idx(i,   j,   k+1)
                 n101 = node_idx(i+1, j,   k+1)
                 n111 = node_idx(i+1, j+1, k+1)
                 n011 = node_idx(i,   j+1, k+1)
 
-                hex_elems.append([n000, n100, n110, n010,
-                                  n001, n101, n111, n011])
+                hex_elems.append([
+                    n000, n100, n110, n010,
+                    n001, n101, n111, n011
+                ])
 
     hex_elems = jnp.array(hex_elems, dtype=jnp.int32)
     elements_nodes = {"hexahedron": hex_elems}
 
-    x = nodes_coordinates[:, 0]
-    y = nodes_coordinates[:, 1]
-    z = nodes_coordinates[:, 2]
+    # ------------------------------------------------------------
+    # Node sets for 3D structured cube
+    # ------------------------------------------------------------
+    def ids_from_tuples(tuples):
+        return jnp.array(
+            [node_idx(i, j, k) for (i, j, k) in tuples],
+            dtype=jnp.int32
+        )
 
-    atol = 1e-8
-    left_boundary_node_ids   = jnp.where(jnp.isclose(x, 0.0, atol=atol),  size=None)[0]
-    right_boundary_node_ids  = jnp.where(jnp.isclose(x, Lx,  atol=atol), size=None)[0]
-    bottom_boundary_node_ids = jnp.where(jnp.isclose(y, 0.0, atol=atol),  size=None)[0]
-    top_boundary_node_ids    = jnp.where(jnp.isclose(y, Ly,  atol=atol), size=None)[0]
-    front_boundary_node_ids  = jnp.where(jnp.isclose(z, 0.0, atol=atol),  size=None)[0]
-    back_boundary_node_ids   = jnp.where(jnp.isclose(z, Lz,  atol=atol), size=None)[0]
+    # Faces including edges and corners
+    left   = ids_from_tuples([(0,    j,    k) for j in range(Ny) for k in range(Nz)])
+    right  = ids_from_tuples([(Nx-1, j,    k) for j in range(Ny) for k in range(Nz)])
+
+    bottom = ids_from_tuples([(i,    0,    k) for i in range(Nx) for k in range(Nz)])
+    top    = ids_from_tuples([(i,    Ny-1, k) for i in range(Nx) for k in range(Nz)])
+
+    front  = ids_from_tuples([(i,    j,    0) for i in range(Nx) for j in range(Ny)])
+    back   = ids_from_tuples([(i,    j, Nz-1) for i in range(Nx) for j in range(Ny)])
+
+    # Face interiors excluding edges and corners
+    left_inner = ids_from_tuples([
+        (0, j, k)
+        for j in range(1, Ny-1)
+        for k in range(1, Nz-1)
+    ])
+    right_inner = ids_from_tuples([
+        (Nx-1, j, k)
+        for j in range(1, Ny-1)
+        for k in range(1, Nz-1)
+    ])
+
+    bottom_inner = ids_from_tuples([
+        (i, 0, k)
+        for i in range(1, Nx-1)
+        for k in range(1, Nz-1)
+    ])
+    top_inner = ids_from_tuples([
+        (i, Ny-1, k)
+        for i in range(1, Nx-1)
+        for k in range(1, Nz-1)
+    ])
+
+    front_inner = ids_from_tuples([
+        (i, j, 0)
+        for i in range(1, Nx-1)
+        for j in range(1, Ny-1)
+    ])
+    back_inner = ids_from_tuples([
+        (i, j, Nz-1)
+        for i in range(1, Nx-1)
+        for j in range(1, Ny-1)
+    ])
+
+    # Edges including corners
+    edge_x_y0_z0 = ids_from_tuples([(i, 0,    0)    for i in range(Nx)])
+    edge_x_y1_z0 = ids_from_tuples([(i, Ny-1, 0)    for i in range(Nx)])
+    edge_x_y0_z1 = ids_from_tuples([(i, 0,    Nz-1) for i in range(Nx)])
+    edge_x_y1_z1 = ids_from_tuples([(i, Ny-1, Nz-1) for i in range(Nx)])
+
+    edge_y_x0_z0 = ids_from_tuples([(0,    j, 0)    for j in range(Ny)])
+    edge_y_x1_z0 = ids_from_tuples([(Nx-1, j, 0)    for j in range(Ny)])
+    edge_y_x0_z1 = ids_from_tuples([(0,    j, Nz-1) for j in range(Ny)])
+    edge_y_x1_z1 = ids_from_tuples([(Nx-1, j, Nz-1) for j in range(Ny)])
+
+    edge_z_x0_y0 = ids_from_tuples([(0,    0,    k) for k in range(Nz)])
+    edge_z_x1_y0 = ids_from_tuples([(Nx-1, 0,    k) for k in range(Nz)])
+    edge_z_x0_y1 = ids_from_tuples([(0,    Ny-1, k) for k in range(Nz)])
+    edge_z_x1_y1 = ids_from_tuples([(Nx-1, Ny-1, k) for k in range(Nz)])
+
+    # Edge interiors excluding corners
+    edge_x_y0_z0_inner = ids_from_tuples([(i, 0,    0)    for i in range(1, Nx-1)])
+    edge_x_y1_z0_inner = ids_from_tuples([(i, Ny-1, 0)    for i in range(1, Nx-1)])
+    edge_x_y0_z1_inner = ids_from_tuples([(i, 0,    Nz-1) for i in range(1, Nx-1)])
+    edge_x_y1_z1_inner = ids_from_tuples([(i, Ny-1, Nz-1) for i in range(1, Nx-1)])
+
+    edge_y_x0_z0_inner = ids_from_tuples([(0,    j, 0)    for j in range(1, Ny-1)])
+    edge_y_x1_z0_inner = ids_from_tuples([(Nx-1, j, 0)    for j in range(1, Ny-1)])
+    edge_y_x0_z1_inner = ids_from_tuples([(0,    j, Nz-1) for j in range(1, Ny-1)])
+    edge_y_x1_z1_inner = ids_from_tuples([(Nx-1, j, Nz-1) for j in range(1, Ny-1)])
+
+    edge_z_x0_y0_inner = ids_from_tuples([(0,    0,    k) for k in range(1, Nz-1)])
+    edge_z_x1_y0_inner = ids_from_tuples([(Nx-1, 0,    k) for k in range(1, Nz-1)])
+    edge_z_x0_y1_inner = ids_from_tuples([(0,    Ny-1, k) for k in range(1, Nz-1)])
+    edge_z_x1_y1_inner = ids_from_tuples([(Nx-1, Ny-1, k) for k in range(1, Nz-1)])
+
+    # Corners
+    corner_000 = jnp.array([node_idx(0,    0,    0)],    dtype=jnp.int32)
+    corner_100 = jnp.array([node_idx(Nx-1, 0,    0)],    dtype=jnp.int32)
+    corner_010 = jnp.array([node_idx(0,    Ny-1, 0)],    dtype=jnp.int32)
+    corner_110 = jnp.array([node_idx(Nx-1, Ny-1, 0)],    dtype=jnp.int32)
+
+    corner_001 = jnp.array([node_idx(0,    0,    Nz-1)], dtype=jnp.int32)
+    corner_101 = jnp.array([node_idx(Nx-1, 0,    Nz-1)], dtype=jnp.int32)
+    corner_011 = jnp.array([node_idx(0,    Ny-1, Nz-1)], dtype=jnp.int32)
+    corner_111 = jnp.array([node_idx(Nx-1, Ny-1, Nz-1)], dtype=jnp.int32)
+
+    # All corners belong to one periodic equivalence class.  The full set is
+    # useful when constraining the fluctuation displacement to remove the
+    # otherwise-free rigid translation.
+    periodic_corners = jnp.concatenate([
+        corner_000, corner_100, corner_010, corner_110,
+        corner_001, corner_101, corner_011, corner_111,
+    ])
 
     node_sets = {
-        "left":   left_boundary_node_ids,
-        "right":  right_boundary_node_ids,
-        "bottom": bottom_boundary_node_ids,
-        "top":    top_boundary_node_ids,
-        "front":  front_boundary_node_ids,
-        "back":   back_boundary_node_ids,
+        # faces
+        "left": left,
+        "right": right,
+        "bottom": bottom,
+        "top": top,
+        "front": front,
+        "back": back,
+
+        # face interiors
+        "left_inner": left_inner,
+        "right_inner": right_inner,
+        "bottom_inner": bottom_inner,
+        "top_inner": top_inner,
+        "front_inner": front_inner,
+        "back_inner": back_inner,
+
+        # edges including corners
+        "edge_x_y0_z0": edge_x_y0_z0,
+        "edge_x_y1_z0": edge_x_y1_z0,
+        "edge_x_y0_z1": edge_x_y0_z1,
+        "edge_x_y1_z1": edge_x_y1_z1,
+
+        "edge_y_x0_z0": edge_y_x0_z0,
+        "edge_y_x1_z0": edge_y_x1_z0,
+        "edge_y_x0_z1": edge_y_x0_z1,
+        "edge_y_x1_z1": edge_y_x1_z1,
+
+        "edge_z_x0_y0": edge_z_x0_y0,
+        "edge_z_x1_y0": edge_z_x1_y0,
+        "edge_z_x0_y1": edge_z_x0_y1,
+        "edge_z_x1_y1": edge_z_x1_y1,
+
+        # edge interiors
+        "edge_x_y0_z0_inner": edge_x_y0_z0_inner,
+        "edge_x_y1_z0_inner": edge_x_y1_z0_inner,
+        "edge_x_y0_z1_inner": edge_x_y0_z1_inner,
+        "edge_x_y1_z1_inner": edge_x_y1_z1_inner,
+
+        "edge_y_x0_z0_inner": edge_y_x0_z0_inner,
+        "edge_y_x1_z0_inner": edge_y_x1_z0_inner,
+        "edge_y_x0_z1_inner": edge_y_x0_z1_inner,
+        "edge_y_x1_z1_inner": edge_y_x1_z1_inner,
+
+        "edge_z_x0_y0_inner": edge_z_x0_y0_inner,
+        "edge_z_x1_y0_inner": edge_z_x1_y0_inner,
+        "edge_z_x0_y1_inner": edge_z_x0_y1_inner,
+        "edge_z_x1_y1_inner": edge_z_x1_y1_inner,
+
+        # corners
+        "corner_000": corner_000,
+        "corner_100": corner_100,
+        "corner_010": corner_010,
+        "corner_110": corner_110,
+        "corner_001": corner_001,
+        "corner_101": corner_101,
+        "corner_011": corner_011,
+        "corner_111": corner_111,
+
+        # rigid-translation anchor for a fully periodic displacement field
+        "periodic_corners": periodic_corners,
     }
 
-    fe_mesh = Mesh("box_io", "box.")  
+    # ------------------------------------------------------------
+    # Periodic master-slave node pairs.  Face interiors, edge interiors,
+    # and corners are separate so every slave occurs exactly once.  This is
+    # important for ConstructPMat(), which assigns one representative master
+    # to each slave rather than resolving chained constraints.
+    # ------------------------------------------------------------
+    periodic_node_pairs = {
+        # Opposite face interiors
+        "left-right": (left_inner, right_inner),
+        "bottom-top": (bottom_inner, top_inner),
+        "front-back": (front_inner, back_inner),
+
+        # Four parallel edges form one equivalence class.  Use the edge at
+        # the two minimum coordinates as the master for the other three.
+        "x-edge-y1-z0": (edge_x_y0_z0_inner, edge_x_y1_z0_inner),
+        "x-edge-y0-z1": (edge_x_y0_z0_inner, edge_x_y0_z1_inner),
+        "x-edge-y1-z1": (edge_x_y0_z0_inner, edge_x_y1_z1_inner),
+
+        "y-edge-x1-z0": (edge_y_x0_z0_inner, edge_y_x1_z0_inner),
+        "y-edge-x0-z1": (edge_y_x0_z0_inner, edge_y_x0_z1_inner),
+        "y-edge-x1-z1": (edge_y_x0_z0_inner, edge_y_x1_z1_inner),
+
+        "z-edge-x1-y0": (edge_z_x0_y0_inner, edge_z_x1_y0_inner),
+        "z-edge-x0-y1": (edge_z_x0_y0_inner, edge_z_x0_y1_inner),
+        "z-edge-x1-y1": (edge_z_x0_y0_inner, edge_z_x1_y1_inner),
+
+        # All seven remaining corners are periodic images of (0, 0, 0).
+        "corner-100": (corner_000, corner_100),
+        "corner-010": (corner_000, corner_010),
+        "corner-110": (corner_000, corner_110),
+        "corner-001": (corner_000, corner_001),
+        "corner-101": (corner_000, corner_101),
+        "corner-011": (corner_000, corner_011),
+        "corner-111": (corner_000, corner_111),
+    }
+
+    # ------------------------------------------------------------
+    # Construct mesh
+    # ------------------------------------------------------------
+    fe_mesh = Mesh("box_io", "box.")
 
     fe_mesh.node_ids = node_ids
     fe_mesh.nodes_coordinates = nodes_coordinates
     fe_mesh.elements_nodes = elements_nodes
     fe_mesh.node_sets = node_sets
+    fe_mesh.periodic_node_pairs = periodic_node_pairs
 
     fe_mesh.mesh_io = meshio.Mesh(
         points=np.asarray(nodes_coordinates),
@@ -280,6 +606,7 @@ def create_3D_box_mesh_structured(Nx, Ny, Nz, Lx, Ly, Lz):
     )
 
     fe_mesh.is_initialized = True
+
     return fe_mesh
 
 def create_2D_square_mesh(L,N):
@@ -326,9 +653,16 @@ def create_2D_square_mesh(L,N):
                          "right":right_boundary_nodes,
                          "top":top_boundary_nodes,
                          "bottom":bottom_boundary_nodes,
-                         "left_bottom":jnp.array([0])}
+                         "left_bottom":jnp.array([0]),
+                         "right_top":jnp.array([nx*ny-1]),
+                         "right_bottom":jnp.array([nx-1]),
+                         "left_top":jnp.array([nx*(ny-1)])}
+    # Left: 
     fe_mesh.periodic_node_pairs = {"left-right":(left_boundary_nodes[1:-1], right_boundary_nodes[1:-1]),
-                                  "top-bottom":(top_boundary_nodes[1:-1], bottom_boundary_nodes[1:-1])}
+                                  "top-bottom":(top_boundary_nodes[1:-1], bottom_boundary_nodes[1:-1]),
+                                  "left_bottom-right_top":(jnp.array([0]), jnp.array([nx*ny-1])),
+                                  "left_bottom-left_top":(jnp.array([0]), jnp.array([nx*(ny-1)])),
+                                  "left_bottom-right_bottom":(jnp.array([0]), jnp.array([nx-1])),}
 
     fe_mesh.mesh_io = meshio.Mesh(fe_mesh.nodes_coordinates,fe_mesh.elements_nodes)
 
@@ -868,3 +1202,110 @@ def build_simple_shear_dirichlet(mesh,
         bc_uz[g] = 0.0
 
     return {"Ux": bc_ux, "Uy": bc_uy, "Uz": bc_uz}
+
+
+def generate_random_deformation_gradients(
+    num_samples,
+    normal_range=(-0.08, 0.08),
+    shear_range=(-0.12, 0.12),
+    seed=42,
+    min_det=0.2,
+):
+    """
+    Generate random 2D macro deformation gradients:
+
+        F = [[1 + eps_xx, gamma_xy],
+             [gamma_yx,  1 + eps_yy]]
+
+    Returns
+    -------
+    F_matrix : jnp.ndarray
+        Shape: (num_samples, 2, 2)
+    """
+    rng = np.random.default_rng(seed)
+    deformation_gradients = []
+
+    while len(deformation_gradients) < num_samples:
+        eps_xx = rng.uniform(*normal_range)
+        eps_yy = rng.uniform(*normal_range)
+        gamma_xy = rng.uniform(*shear_range)
+        gamma_yx = rng.uniform(*shear_range)
+
+        F = np.array(
+            [
+                [1.0 + eps_xx, gamma_xy],
+                [gamma_yx, 1.0 + eps_yy],
+            ],
+            dtype=np.float32,
+        )
+
+        if np.linalg.det(F) > min_det:
+            deformation_gradients.append(F)
+
+    return jnp.array(np.stack(deformation_gradients, axis=0))
+
+
+def generate_loading_path_deformation_gradients(num_steps=21, max_shear=0.15):
+    """
+    Generate a simple deterministic shear loading path:
+
+        F = [[1, gamma],
+             [0, 1]]
+
+    Returns
+    -------
+    F_matrix : jnp.ndarray
+        Shape: (num_steps, 2, 2)
+    """
+    gammas = np.linspace(-max_shear, max_shear, num_steps)
+
+    F_matrix = []
+    for gamma in gammas:
+        F = np.array(
+            [
+                [1.0, gamma],
+                [0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        F_matrix.append(F)
+
+    return jnp.array(np.stack(F_matrix, axis=0))
+
+
+def build_fno_input_with_deformation_gradient(K_matrix, F_matrix):
+    """
+    Combine parametric microstructure and macro deformation gradients
+    into nodal FNO input channels.
+
+    Parameters
+    ----------
+    K_matrix : array
+        Shape: (num_samples, num_nodes)
+
+    F_matrix : array
+        Shape: (num_samples, 2, 2)
+
+    Returns
+    -------
+    fno_input : jnp.ndarray
+        Shape: (num_samples, num_nodes, 5)
+
+        channels:
+            0: K
+            1: F11
+            2: F12
+            3: F21
+            4: F22
+    """
+    K_matrix = jnp.asarray(K_matrix)
+    F_matrix = jnp.asarray(F_matrix)
+
+    num_samples, num_nodes = K_matrix.shape
+
+    F_flat = F_matrix.reshape(num_samples, 4)
+    F_channels = jnp.repeat(F_flat[:, None, :], num_nodes, axis=1)
+
+    K_channel = K_matrix[:, :, None]
+
+    return jnp.concatenate([K_channel, F_channels], axis=-1)

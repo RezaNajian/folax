@@ -85,6 +85,45 @@ class FiniteElementLinearResidualBasedSolver(FiniteElementSolver):
         delta_dofs = self.LinearSolve(BC_applied_jac,BC_applied_r,BC_applied_dofs)
 
         return BC_applied_dofs + delta_dofs
+    
+    @print_with_timestamp_and_execution_time
+    def SolveReduced(self,current_control_vars:jnp.array,current_dofs:jnp.array):
+        """
+        Assemble and solve a linear residual-based update for the DOFs.
+
+        This method applies Dirichlet boundary conditions to the current DOFs,
+        then uses the FE loss function to compute the Jacobian matrix and
+        residual vector. It solves the resulting linear system to obtain the DOF
+        increment and returns the updated DOF vector.
+
+        Parameters
+        ----------
+        current_control_vars : jnp.array
+            Current values of the control variables (design/parameters) used to
+            assemble the system.
+        current_dofs : jnp.array
+            Current degrees of freedom (state vector) serving as the starting
+            point for the update.
+
+        Returns
+        -------
+        jnp.array
+            Updated degrees of freedom after applying Dirichlet boundary
+            conditions and adding the computed increment.
+        """
+        BC_applied_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs)
+        BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                                            current_control_vars,BC_applied_dofs)
+        BC_applied_jac_reduced, BC_applied_r_reduced = self.fe_loss_function.ReduceJacobianAndResidual(
+                                            BC_applied_jac, BC_applied_r)
+        
+        BC_applied_dofs_reduced = self.fe_loss_function.GetReducedDofVector(BC_applied_dofs)
+        
+        delta_dofs_reduced = self.LinearSolve(BC_applied_jac_reduced, BC_applied_r_reduced, BC_applied_dofs_reduced)
+
+        delta_dofs = self.fe_loss_function.ExpandReducedDeltaDofVector(delta_dofs_reduced)
+
+        return BC_applied_dofs + delta_dofs
 
 
 

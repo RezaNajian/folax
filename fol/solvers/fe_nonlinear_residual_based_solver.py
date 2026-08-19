@@ -76,6 +76,108 @@ class FiniteElementNonLinearResidualBasedSolver(FiniteElementLinearResidualBased
             plt.close()
 
     @print_with_timestamp_and_execution_time
+    def SolveReduced(self,current_control_vars:jnp.array,current_dofs_np:jnp.array):
+        """
+        Solve the nonlinear FE system using incremental Newton–Raphson iterations.
+
+        The load is applied over ``load_incr`` steps. For each load step, Dirichlet
+        boundary conditions are applied at the current load factor, the Jacobian
+        and residual are assembled via the loss function, and a Newton update is
+        computed using :meth:`LinearSolve`. The DOFs are updated until convergence
+        is detected or the iteration limit is reached. Convergence metrics are
+        recorded per load step and can be plotted via :meth:`PlotHistoryDict`.
+
+        Convergence is considered achieved when at least one of the following
+        conditions is satisfied:
+        - Residual norm < ``abs_tol``
+        - Update norm < ``rel_tol``
+        - Iteration count reaches ``maxiter``
+
+        Args:
+            current_control_vars (jax.numpy.ndarray):
+                Control variables passed to the loss function (e.g., material or
+                design parameters).
+            current_dofs_np (jax.numpy.ndarray):
+                Initial DOF vector. Converted to a JAX array internally.
+
+        Returns:
+            jax.numpy.ndarray:
+                Converged DOF vector at the end of the final load step.
+
+        Raises:
+            ValueError:
+                If the residual norm becomes NaN during Newton iterations.
+        """
+        current_dofs = jnp.asarray(current_dofs_np)
+        current_control_vars = jnp.asarray(current_control_vars)
+        num_load_steps = self.nonlinear_solver_settings["load_incr"]
+        convergence_history = {}
+        for load_step in range(1,num_load_steps+1):
+            load_step_value = (load_step)/num_load_steps
+            # increment load
+            current_dofs = self.fe_loss_function.ApplyDirichletBCOnDofVector(current_dofs,load_step_value)
+            newton_converged = False
+            convergence_history[load_step] = {"res_norm":[],"delta_dofs_norm":[]}
+            for i in range(1,self.nonlinear_solver_settings["maxiter"]+1):
+                BC_applied_jac,BC_applied_r = self.fe_loss_function.ComputeJacobianMatrixAndResidualVector(
+                                                                    current_control_vars,current_dofs)
+                BC_applied_jac_reduced, BC_applied_r_reduced = self.fe_loss_function.ReduceJacobianAndResidual(
+                                                                    BC_applied_jac,BC_applied_r)
+                current_dofs_reduced = self.fe_loss_function.GetReducedDofVector(current_dofs)
+
+                # check residuals norm
+                res_norm = jnp.linalg.norm(BC_applied_r_reduced,ord=2)
+                if jnp.isnan(res_norm):
+                    fol_info(
+                        "\n"
+                        "──────────────────── NEWTON ERROR ────────────────────\n"
+                        "  Residual norm has become NaN.\n"
+                        "  Possible causes:\n"
+                        "    • Divergent Newton iteration\n"
+                        "    • Inconsistent or ill-posed boundary conditions\n"
+                        "    • Invalid / non-physical material parameters or state\n"
+                        "    • Singular or severely ill-conditioned stiffness matrix\n"
+                        "    • Severely distorted mesh (element quality breakdown)\n"
+                        "───────────────────────────────────────────────────────\n"
+                    )
+                    raise ValueError("Residual norm contains NaN values.")
+
+                # linear solve and calculate nomrs
+                delta_dofs_reduced = self.LinearSolve(BC_applied_jac_reduced,BC_applied_r_reduced,current_dofs_reduced)
+                delta_norm = jnp.linalg.norm(delta_dofs_reduced,ord=2)
+                delta_dofs = self.fe_loss_function.ExpandReducedDeltaDofVector(delta_dofs_reduced)
+
+                newton_converged = (
+                    res_norm < self.nonlinear_solver_settings["abs_tol"] or
+                    delta_norm < self.nonlinear_solver_settings["rel_tol"] or
+                    i == self.nonlinear_solver_settings["maxiter"]
+                )
+
+                indent = " " * 5
+                fol_info(
+                    f"\n"
+                    f"{indent} ───────── Load Step {load_step} ─────────\n"
+                    f"{indent}   Newton Iteration : {i} (max = {self.nonlinear_solver_settings['maxiter']})\n"
+                    f"{indent}   Residual Norm    : {res_norm:.3e} (abs_tol = {self.nonlinear_solver_settings['abs_tol']:.3e})\n"
+                    f"{indent}   Δ DOFs Norm      : {delta_norm:.3e} (rel_tol = {self.nonlinear_solver_settings['rel_tol']:.3e})\n"
+                    f"{indent}   Converged        : {'True' if newton_converged else 'False'}\n"
+                    f"{indent}────────────────────────────────────────────"
+                )
+
+                convergence_history[load_step]["res_norm"].append(res_norm)
+                convergence_history[load_step]["delta_dofs_norm"].append(delta_norm)
+
+                if newton_converged:
+                    break
+
+                # if not converged update
+                current_dofs = current_dofs.at[:].add(delta_dofs)
+
+            self.PlotHistoryDict(convergence_history)
+
+        return current_dofs
+    
+    @print_with_timestamp_and_execution_time
     def Solve(self,current_control_vars:jnp.array,current_dofs_np:jnp.array):
         """
         Solve the nonlinear FE system using incremental Newton–Raphson iterations.
